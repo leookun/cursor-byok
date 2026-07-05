@@ -171,39 +171,58 @@ func (c *NewAPIClient) ListUserTokens(ctx context.Context, baseURL, token string
 }
 
 // GetUserAPIKeyByID 按指定令牌 ID 拉取完整的 sk-key。
+// 遇到 HTTP 429 速率限制时自动重试，最多 3 次。
 func (c *NewAPIClient) GetUserAPIKeyByID(ctx context.Context, baseURL, token string, tokenID int) (string, error) {
 	keyURL := strings.TrimRight(baseURL, "/") + fmt.Sprintf("/api/token/%d/key", tokenID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, keyURL, nil)
-	if err != nil {
-		return "", err
-	}
-	applyCompositeTokenHeaders(req, token)
-	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("拉取令牌完整 key 失败: %w", err)
+	const maxRetries = 3
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, keyURL, nil)
+		if err != nil {
+			return "", err
+		}
+		applyCompositeTokenHeaders(req, token)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("拉取令牌完整 key 失败: %w", err)
+		}
+		raw, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("读取令牌 key 响应失败: %w", err)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests && attempt < maxRetries {
+			lastErr = fmt.Errorf("拉取令牌完整 key 失败: HTTP %d（等待重试）", resp.StatusCode)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("拉取令牌完整 key 失败: HTTP %d %s", resp.StatusCode, truncateBody(raw))
+		}
+
+		var keyResp TokenKeyResponse
+		if err := json.Unmarshal(raw, &keyResp); err != nil {
+			return "", fmt.Errorf("解析令牌 key 响应失败: %w", err)
+		}
+		if !keyResp.Success {
+			return "", errors.New(strings.TrimSpace(keyResp.Message))
+		}
+		key := strings.TrimSpace(keyResp.Data.Key)
+		if key == "" {
+			return "", errors.New("NewAPI 返回的令牌 key 为空")
+		}
+		return key, nil
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("读取令牌 key 响应失败: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("拉取令牌完整 key 失败: HTTP %d %s", resp.StatusCode, truncateBody(raw))
-	}
-	var keyResp TokenKeyResponse
-	if err := json.Unmarshal(raw, &keyResp); err != nil {
-		return "", fmt.Errorf("解析令牌 key 响应失败: %w", err)
-	}
-	if !keyResp.Success {
-		return "", errors.New(strings.TrimSpace(keyResp.Message))
-	}
-	key := strings.TrimSpace(keyResp.Data.Key)
-	if key == "" {
-		return "", errors.New("NewAPI 返回的令牌 key 为空")
-	}
-	return key, nil
+	return "", lastErr
 }
 
 // GetUserAPIKey 兼容旧调用：取第一个可用令牌的完整 sk-key。

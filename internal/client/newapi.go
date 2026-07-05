@@ -331,6 +331,10 @@ func (s *ProxyService) NewAPIGetModels(ctx context.Context) ([]NewAPITokenGroup,
 			ModelLimitsEnabled: token.ModelLimitsEnabled,
 			Models:             []NewAPIModelItem{},
 		}
+		// 令牌间间隔，避免 newapi 速率限制（HTTP 429）
+		if len(groups) > 0 {
+			time.Sleep(1 * time.Second)
+		}
 		apiKey, keyErr := client.GetUserAPIKeyByID(ctx, cfg.NewAPI.BaseURL, cfg.NewAPI.Token, token.ID)
 		if keyErr != nil {
 			group.Error = keyErr.Error()
@@ -461,7 +465,7 @@ func (s *ProxyService) NewAPIOpenTopup() error {
 	if cfg.NewAPI.BaseURL == "" {
 		return errors.New("未配置 newapi 实例地址")
 	}
-	url := strings.TrimRight(cfg.NewAPI.BaseURL, "/") + "/topup"
+	url := strings.TrimRight(cfg.NewAPI.BaseURL, "/") + "/wallet"
 	return browser.OpenURL(url)
 }
 
