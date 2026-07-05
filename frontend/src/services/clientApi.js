@@ -14,18 +14,22 @@ import {
   CheckForUpdates,
   GetAppVersion,
   GetFooterAuthorInfo,
-  InstallReadyUpdate,
   GetModelEditorContext,
+  InstallReadyUpdate,
   OpenConfigWindow,
   OpenFooterAuthorHome,
   OpenHistoryWindow,
   OpenModelConfigWindow,
   OpenModelEditorWindow,
+  OpenNewAPIAccountWindow,
+  OpenNewAPILogsWindow,
+  OpenNewAPIModelsWindow,
 } from "@bindings/cursor/internal/bridge/windowservice.js";
 import { Call } from "@wailsio/runtime";
 
 const API_LOG_PREFIX = "[clientApi]";
 const PROXY_SERVICE_NAME = "cursor/internal/bridge.ProxyService";
+const NEWAPI_SERVICE_NAME = "cursor/internal/bridge.NewAPIService";
 
 function logSuccess(name, payload, result) {
   console.log(`${API_LOG_PREFIX} ${name} response`, {
@@ -124,6 +128,18 @@ export function openModelEditor(index, adapterJSON) {
   );
 }
 
+export function openNewAPIAccount() {
+  return withApiLogging("OpenNewAPIAccountWindow", undefined, () => OpenNewAPIAccountWindow());
+}
+
+export function openNewAPIModels() {
+  return withApiLogging("OpenNewAPIModelsWindow", undefined, () => OpenNewAPIModelsWindow());
+}
+
+export function openNewAPILogs() {
+  return withApiLogging("OpenNewAPILogsWindow", undefined, () => OpenNewAPILogsWindow());
+}
+
 export function getModelEditorContext() {
   return withApiLogging("GetModelEditorContext", undefined, () => GetModelEditorContext());
 }
@@ -144,5 +160,56 @@ export function testModelAdapter(adapter) {
 export function getModelAdapterTestResults() {
   return withApiLogging("GetModelAdapterTestResults", undefined, () =>
     Call.ByName(`${PROXY_SERVICE_NAME}.GetModelAdapterTestResults`),
+  );
+}
+
+// --- NewAPI 集成 ---
+
+// 个人令牌登录
+export function newAPITokenLogin(payload) {
+  return withApiLogging("NewAPITokenLogin", payload, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPITokenLogin`, payload),
+  );
+}
+
+export function newAPILogin(payload) {
+  return withApiLogging("NewAPILogin", payload, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPILogin`, payload),
+  );
+}
+
+export function newAPIGetStatus() {
+  return withApiLogging("NewAPIGetStatus", undefined, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPIGetStatus`),
+  );
+}
+
+export function newAPIGetLogs(payload) {
+  return withApiLogging("NewAPIGetLogs", payload, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPIGetLogs`, payload),
+  );
+}
+
+export function newAPIGetModels() {
+  return withApiLogging("NewAPIGetModels", undefined, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPIGetModels`),
+  );
+}
+
+export function newAPIImportModels(payload) {
+  return withApiLogging("NewAPIImportModels", payload, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPIImportModels`, payload),
+  );
+}
+
+export function newAPILogout() {
+  return withApiLogging("NewAPILogout", undefined, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPILogout`),
+  );
+}
+
+export function newAPIOpenTopup() {
+  return withApiLogging("NewAPIOpenTopup", undefined, () =>
+    Call.ByName(`${NEWAPI_SERVICE_NAME}.NewAPIOpenTopup`),
   );
 }

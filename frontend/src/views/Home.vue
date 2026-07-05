@@ -5,12 +5,13 @@ import Switch from "@/components/ui/Switch.vue";
 import HomeMetricsCard from "@/components/HomeMetricsCard.vue";
 import { useMessage } from "@/composables/useMessage";
 import { showModal } from "@/composables/useModal";
-import { getAdRuntime } from "@/services/clientApi";
+import { getAdRuntime, newAPIGetStatus } from "@/services/clientApi";
 import {
   appState,
   appViewState,
   openConfigWindow,
   openModelConfigWindow,
+  openNewAPIAccountWindow,
   saveRoutingMode,
   syncHomeMetrics,
   syncServiceState,
@@ -19,13 +20,13 @@ import {
 } from "@/state/appState";
 import { Events } from "@wailsio/runtime";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-
 const directModeEnabled = computed(() => appState.routingMode === "upstream");
 const message = useMessage();
 const AD_UPDATED_EVENT = "ad:updated";
 const OPEN_AD_EVENT = "cursor:open-ad";
 
 const adRuntime = ref(null);
+const newAPIStatus = ref({ loggedIn: false });
 let unsubscribeAdUpdated = null;
 
 function asString(value) {
@@ -72,6 +73,14 @@ async function syncAdRuntimeQuietly() {
     adRuntime.value = await getAdRuntime();
   } catch (_error) {
     adRuntime.value = null;
+  }
+}
+
+async function syncNewAPIStatusQuietly() {
+  try {
+    newAPIStatus.value = await newAPIGetStatus();
+  } catch (_error) {
+    newAPIStatus.value = { loggedIn: false };
   }
 }
 
@@ -127,6 +136,14 @@ async function handleOpenModelConfig() {
   }
 }
 
+async function handleOpenNewAPIAccount() {
+  try {
+    await openNewAPIAccountWindow();
+  } catch (error) {
+    await showActionError("打开失败", toUserError(error));
+  }
+}
+
 async function handleDirectModeChange(enabled) {
   const result = await saveRoutingMode(enabled ? "upstream" : "local");
   if (!result.ok) {
@@ -139,6 +156,7 @@ async function handleDirectModeChange(enabled) {
 onMounted(() => {
   unsubscribeAdUpdated = Events.On(AD_UPDATED_EVENT, handleAdUpdated);
   void syncAdRuntimeQuietly();
+  void syncNewAPIStatusQuietly();
 });
 
 onBeforeUnmount(() => {
@@ -191,6 +209,24 @@ onBeforeUnmount(() => {
           :disabled="appState.configSaving"
           @change="handleDirectModeChange"
         />
+      </div>
+    </Card>
+
+    <Card>
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-medium text-white">NewAPI 账号</h2>
+          <div class="text-sm text-[#a3a3a3]">
+            {{
+              newAPIStatus.loggedIn
+                ? `已绑定：${newAPIStatus.displayName || newAPIStatus.username || "NewAPI 用户"}`
+                : "登录中转站账号，同步模型、余额与使用记录"
+            }}
+          </div>
+        </div>
+        <Button variant="primary" @click="handleOpenNewAPIAccount">
+          {{ newAPIStatus.loggedIn ? "查看账号" : "登录绑定" }}
+        </Button>
       </div>
     </Card>
 

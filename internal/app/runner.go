@@ -86,6 +86,7 @@ func Run(resources EmbeddedResources) error {
 	}
 	metricsService := bridge.NewMetricsService()
 	windowService := bridge.NewWindowService()
+	newapiService := bridge.NewNewAPIService(proxyService.Core())
 	adCore := ads.NewService(ads.Options{
 		StoreRoot:    appdata.AdsRootPath(),
 		HTTPClient:   netproxy.NewHTTPClient(30 * time.Second),
@@ -130,6 +131,7 @@ func Run(resources EmbeddedResources) error {
 			application.NewService(metricsService),
 			application.NewService(windowService),
 			application.NewService(adService),
+			application.NewService(newapiService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(resources.Assets),
@@ -208,7 +210,7 @@ func Run(resources EmbeddedResources) error {
 	mainWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               appName,
 		Width:               700,
-		Height:              520,
+		Height:              600,
 		MinWidth:            640,
 		MinHeight:           480,
 		DisableResize:       false,

@@ -45,6 +45,33 @@ type UsageRecordsData = client.UsageRecordsData
 // UsageRecordsResult 定义了当前模块中的 UsageRecordsResult 类型。
 type UsageRecordsResult = client.UsageRecordsResult
 
+// NewAPILoginRequest 定义 newapi 登录请求。
+type NewAPILoginRequest = client.NewAPILoginRequest
+
+// NewAPIStatus 定义 newapi 账号状态。
+type NewAPIStatus = client.NewAPIStatus
+
+// NewAPIModelItem 定义 newapi 模型条目。
+type NewAPIModelItem = client.NewAPIModelItem
+
+// NewAPITokenGroup 定义按令牌分组的 newapi 模型列表。
+type NewAPITokenGroup = client.NewAPITokenGroup
+
+// NewAPILogsRequest 定义 newapi 使用记录查询请求。
+type NewAPILogsRequest = client.NewAPILogsRequest
+
+// NewAPILogRecord 定义 newapi 使用记录。
+type NewAPILogRecord = client.NewAPILogRecord
+
+// NewAPILogsResult 定义 newapi 使用记录查询结果。
+type NewAPILogsResult = client.NewAPILogsResult
+
+// NewAPIImportRequest 定义 newapi 模型导入请求。
+type NewAPIImportRequest = client.NewAPIImportRequest
+
+// NewAPIImportResult 定义 newapi 模型导入结果。
+type NewAPIImportResult = client.NewAPIImportResult
+
 // ProxyService 定义了当前模块中的 ProxyService 类型。
 type ProxyService struct {
 	// core 表示当前声明中的 core。
@@ -54,6 +81,11 @@ type ProxyService struct {
 // NewProxyService 用于处理与 NewProxyService 相关的逻辑。
 func NewProxyService(proxy *mitm.ProxyServer, certManager *certs.Manager, caCertPEM []byte) *ProxyService {
 	return &ProxyService{core: client.NewProxyService(proxy, certManager, caCertPEM)}
+}
+
+// Core 返回底层 client.ProxyService，供同包内其他 service（如 NewAPIService）复用。
+func (s *ProxyService) Core() *client.ProxyService {
+	return s.core
 }
 
 // StartProxy 用于处理与 StartProxy 相关的逻辑。

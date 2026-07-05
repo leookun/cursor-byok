@@ -23,12 +23,15 @@ type modelEditorContext struct {
 
 // WindowService 定义了当前模块中的 WindowService 类型。
 type WindowService struct {
-	app               *application.App
-	updater           *updater.Manager
-	modelConfigWindow *application.WebviewWindow
-	modelEditorWindow *application.WebviewWindow
-	editorCtx         *modelEditorContext
-	mu                sync.RWMutex
+	app                *application.App
+	updater            *updater.Manager
+	modelConfigWindow  *application.WebviewWindow
+	modelEditorWindow  *application.WebviewWindow
+	newAPIAccountWindow *application.WebviewWindow
+	newAPIModelsWindow  *application.WebviewWindow
+	newAPILogsWindow    *application.WebviewWindow
+	editorCtx          *modelEditorContext
+	mu                 sync.RWMutex
 }
 
 // NewWindowService 用于处理与 NewWindowService 相关的逻辑。
@@ -142,6 +145,189 @@ func (s *WindowService) OpenModelConfigWindow() {
 	})
 
 	s.modelConfigWindow = win
+}
+
+// OpenNewAPIAccountWindow 打开 NewAPI 账号独立窗口。如果窗口已存在则聚焦。
+func (s *WindowService) OpenNewAPIAccountWindow() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.app == nil {
+		return
+	}
+
+	if s.newAPIAccountWindow != nil {
+		s.newAPIAccountWindow.Show()
+		s.newAPIAccountWindow.Focus()
+		return
+	}
+
+	win := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:               "NewAPI 账号",
+		Width:               820,
+		Height:              700,
+		MinWidth:            640,
+		MinHeight:           520,
+		DisableResize:       false,
+		Frameless:           goruntime.GOOS == "windows",
+		URL:                 "/#/newapi-account",
+		Hidden:              false,
+		HideOnEscape:        false,
+		MinimiseButtonState: application.ButtonEnabled,
+		MaximiseButtonState: application.ButtonEnabled,
+		CloseButtonState:    application.ButtonEnabled,
+		BackgroundColour:    application.RGBA{Red: 25, Green: 25, Blue: 25, Alpha: 255},
+		Mac: application.MacWindow{
+			Backdrop:      application.MacBackdropLiquidGlass,
+			DisableShadow: false,
+			TitleBar: application.MacTitleBar{
+				AppearsTransparent:   true,
+				Hide:                 false,
+				HideTitle:            true,
+				FullSizeContent:      true,
+				UseToolbar:           false,
+				HideToolbarSeparator: true,
+			},
+			WebviewPreferences: application.MacWebviewPreferences{
+				FullscreenEnabled:                   u.True,
+				TextInteractionEnabled:              u.True,
+				AllowsBackForwardNavigationGestures: u.False,
+			},
+		},
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: false,
+		},
+	})
+
+	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.newAPIAccountWindow = nil
+	})
+
+	s.newAPIAccountWindow = win
+}
+
+// OpenNewAPIModelsWindow 打开 NewAPI 导入模型独立窗口。如果窗口已存在则聚焦。
+func (s *WindowService) OpenNewAPIModelsWindow() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.app == nil {
+		return
+	}
+
+	if s.newAPIModelsWindow != nil {
+		s.newAPIModelsWindow.Show()
+		s.newAPIModelsWindow.Focus()
+		return
+	}
+
+	win := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:               "导入 NewAPI 模型",
+		Width:               980,
+		Height:              700,
+		MinWidth:            820,
+		MinHeight:           560,
+		DisableResize:       false,
+		Frameless:           goruntime.GOOS == "windows",
+		URL:                 "/#/newapi-models",
+		Hidden:              false,
+		HideOnEscape:        false,
+		MinimiseButtonState: application.ButtonEnabled,
+		MaximiseButtonState: application.ButtonEnabled,
+		CloseButtonState:    application.ButtonEnabled,
+		BackgroundColour:    application.RGBA{Red: 25, Green: 25, Blue: 25, Alpha: 255},
+		Mac: application.MacWindow{
+			Backdrop:      application.MacBackdropLiquidGlass,
+			DisableShadow: false,
+			TitleBar: application.MacTitleBar{
+				AppearsTransparent:   true,
+				Hide:                 false,
+				HideTitle:            true,
+				FullSizeContent:      true,
+				UseToolbar:           false,
+				HideToolbarSeparator: true,
+			},
+			WebviewPreferences: application.MacWebviewPreferences{
+				FullscreenEnabled:                   u.True,
+				TextInteractionEnabled:              u.True,
+				AllowsBackForwardNavigationGestures: u.False,
+			},
+		},
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: false,
+		},
+	})
+
+	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.newAPIModelsWindow = nil
+	})
+
+	s.newAPIModelsWindow = win
+}
+
+// OpenNewAPILogsWindow 打开 NewAPI 使用记录独立窗口。如果窗口已存在则聚焦。
+func (s *WindowService) OpenNewAPILogsWindow() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.app == nil {
+		return
+	}
+
+	if s.newAPILogsWindow != nil {
+		s.newAPILogsWindow.Show()
+		s.newAPILogsWindow.Focus()
+		return
+	}
+
+	win := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:               "NewAPI 使用记录",
+		Width:               980,
+		Height:              700,
+		MinWidth:            820,
+		MinHeight:           560,
+		DisableResize:       false,
+		Frameless:           goruntime.GOOS == "windows",
+		URL:                 "/#/newapi-logs",
+		Hidden:              false,
+		HideOnEscape:        false,
+		MinimiseButtonState: application.ButtonEnabled,
+		MaximiseButtonState: application.ButtonEnabled,
+		CloseButtonState:    application.ButtonEnabled,
+		BackgroundColour:    application.RGBA{Red: 25, Green: 25, Blue: 25, Alpha: 255},
+		Mac: application.MacWindow{
+			Backdrop:      application.MacBackdropLiquidGlass,
+			DisableShadow: false,
+			TitleBar: application.MacTitleBar{
+				AppearsTransparent:   true,
+				Hide:                 false,
+				HideTitle:            true,
+				FullSizeContent:      true,
+				UseToolbar:           false,
+				HideToolbarSeparator: true,
+			},
+			WebviewPreferences: application.MacWebviewPreferences{
+				FullscreenEnabled:                   u.True,
+				TextInteractionEnabled:              u.True,
+				AllowsBackForwardNavigationGestures: u.False,
+			},
+		},
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: false,
+		},
+	})
+
+	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.newAPILogsWindow = nil
+	})
+
+	s.newAPILogsWindow = win
 }
 
 // OpenModelEditorWindow 打开模型编辑器独立窗口。

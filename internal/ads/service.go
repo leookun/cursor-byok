@@ -169,33 +169,12 @@ func (service *Service) Refresh(parent context.Context) (Runtime, bool, error) {
 	return runtimeState, result.Changed, nil
 }
 
-func (service *Service) FetchOnce(ctx context.Context) (FetchResult, error) {
+func (service *Service) FetchOnce(_ context.Context) (FetchResult, error) {
 	if service == nil {
 		return FetchResult{}, fmt.Errorf("ad service is nil")
 	}
-	var output FetchResult
-	var firstErr error
-	var succeeded bool
-	for _, slot := range Slots {
-		result, err := service.fetchSlotOnce(ctx, slot)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		succeeded = true
-		if result.Changed {
-			output.Changed = true
-		}
-		if output.Hash == "" {
-			output.Hash = result.Hash
-		}
-	}
-	if !succeeded && firstErr != nil {
-		return FetchResult{}, firstErr
-	}
-	return output, nil
+	// 广告拉取已禁用
+	return FetchResult{}, nil
 }
 
 func (service *Service) fetchSlotOnce(ctx context.Context, slot Slot) (FetchResult, error) {
@@ -260,28 +239,9 @@ func (service *Service) currentHash(ctx context.Context, slotID string) (string,
 	return strings.TrimSpace(inspection.pkg.Hash), nil
 }
 
-func (service *Service) GetRuntime(ctx context.Context) (Runtime, error) {
-	runtimeState := Runtime{
-		AssetBaseURL: service.currentAssetBaseURL(),
-	}
-	for _, slot := range Slots {
-		slotRuntime, err := service.getSlotRuntime(ctx, normalizeSlotID(slot.ID))
-		if err != nil {
-			return runtimeState, err
-		}
-		runtimeState.Slots = append(runtimeState.Slots, slotRuntime)
-	}
-	if len(runtimeState.Slots) > 0 {
-		first := runtimeState.Slots[0]
-		runtimeState.Available = first.Available
-		runtimeState.Enabled = first.Enabled
-		runtimeState.PackageHash = first.PackageHash
-		runtimeState.AssetBaseURL = first.AssetBaseURL
-		runtimeState.IndexURL = first.IndexURL
-		runtimeState.Window = first.Window
-		runtimeState.Home = first.Home
-	}
-	return runtimeState, nil
+func (service *Service) GetRuntime(_ context.Context) (Runtime, error) {
+	// 广告系统已彻底关闭
+	return Runtime{}, nil
 }
 
 func (service *Service) getSlotRuntime(ctx context.Context, slotID string) (SlotRuntime, error) {

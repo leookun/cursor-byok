@@ -13,6 +13,9 @@ import {
   openLogsDirectory,
   openModelConfig,
   openModelEditor,
+  openNewAPIAccount,
+  openNewAPIModels,
+  openNewAPILogs,
   saveUserConfig,
   startProxyService,
   stopProxyService,
@@ -525,6 +528,7 @@ function normalizeConfig(source) {
   const raw = source && typeof source === "object" ? source : {};
   const routing = raw.routing && typeof raw.routing === "object" ? raw.routing : {};
   const homeMetrics = raw.homeMetrics && typeof raw.homeMetrics === "object" ? raw.homeMetrics : {};
+  const newAPI = raw.newAPI && typeof raw.newAPI === "object" ? raw.newAPI : {};
   return {
     log: asBoolean(raw.log),
     providerStreamIdleTimeout: asPositiveInteger(raw.providerStreamIdleTimeout),
@@ -538,6 +542,11 @@ function normalizeConfig(source) {
       includeCacheWriteInHitRate: asBoolean(homeMetrics.includeCacheWriteInHitRate),
     },
     lastAgentModelHash: asString(raw.lastAgentModelHash),
+    newAPI: {
+      newAPIBaseURL: asString(newAPI.newAPIBaseURL ?? newAPI.baseURL),
+      newAPIToken: asString(newAPI.newAPIToken ?? newAPI.token),
+      newAPIDisplayName: asString(newAPI.newAPIDisplayName ?? newAPI.displayName),
+    },
   };
 }
 
@@ -579,6 +588,7 @@ function buildConfigPayload(source = appState) {
     routing: normalized.routing,
     homeMetrics: normalized.homeMetrics,
     lastAgentModelHash: normalized.lastAgentModelHash,
+    newAPI: normalized.newAPI,
   };
 }
 
@@ -1322,6 +1332,18 @@ export async function openConfigWindow() {
 
 export async function openModelConfigWindow() {
   await openModelConfig();
+}
+
+export async function openNewAPIAccountWindow() {
+  await openNewAPIAccount();
+}
+
+export async function openNewAPIModelsWindow() {
+  await openNewAPIModels();
+}
+
+export async function openNewAPILogsWindow() {
+  await openNewAPILogs();
 }
 
 export async function openModelEditorWindow(index, adapter) {

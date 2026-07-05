@@ -1,4 +1,5 @@
 <script setup>
+import { Browser } from "@wailsio/runtime";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
@@ -56,6 +57,14 @@ watch(
   },
   { deep: true, immediate: true },
 );
+
+async function openRelayStation() {
+  try {
+    await Browser.OpenURL("https://ymeng.cc");
+  } catch (_error) {
+    // 打开失败静默处理
+  }
+}
 
 async function showActionError(title, error) {
   await showModal({
@@ -238,6 +247,14 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="center-row gap-2">
+          <div class="center-row shrink-0 gap-1.5 text-xs text-[#8f8f8f]">
+            <span>没有 Key？</span>
+            <button
+              type="button"
+              class="text-[#10AD5D] hover:text-[#29c776] underline-offset-2 hover:underline transition-colors"
+              @click="openRelayStation"
+            >前往 ymeng.cc</button>
+          </div>
           <Button
             variant="default"
             :disabled="appState.configSaving || (!batchTesting && filteredAdapters.length === 0)"

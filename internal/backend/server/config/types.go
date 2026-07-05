@@ -51,6 +51,14 @@ type HomeMetricsConfig struct {
 	IncludeCacheWriteInHitRate bool `json:"includeCacheWriteInHitRate" yaml:"includeCacheWriteInHitRate"`
 }
 
+// NewAPIBinding 存储用户与 newapi 中转站的会话绑定。
+// Token 是 /api/user/login 返回的会话凭证，非 sk-... 形式的 model API key。
+type NewAPIBinding struct {
+	BaseURL     string `json:"newAPIBaseURL" yaml:"newAPIBaseURL"`
+	Token       string `json:"newAPIToken" yaml:"newAPIToken"`
+	DisplayName string `json:"newAPIDisplayName" yaml:"newAPIDisplayName"`
+}
+
 type Config struct {
 	Log                       bool                 `json:"log" yaml:"log"`
 	ProviderStreamIdleTimeout int                  `json:"providerStreamIdleTimeout" yaml:"providerStreamIdleTimeout"`
@@ -60,6 +68,7 @@ type Config struct {
 	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
+	NewAPI                    NewAPIBinding        `json:"newAPI" yaml:"newAPI"`
 }
 
 func DefaultConfig() Config {
@@ -100,6 +109,7 @@ func NormalizeConfig(input Config) (Config, error) {
 		return Config{}, err
 	}
 	output.ModelAdapters = adapters
+	output.NewAPI = normalizeNewAPIBinding(input.NewAPI)
 	return output, nil
 }
 
@@ -289,5 +299,15 @@ func normalizeRoutingMode(value string) string {
 		return "upstream"
 	default:
 		return ""
+	}
+}
+
+// normalizeNewAPIBinding 仅做空白裁剪，不校验 baseURL 合法性。
+// 空的 BaseURL 表示用户未绑定 newapi 账号。
+func normalizeNewAPIBinding(input NewAPIBinding) NewAPIBinding {
+	return NewAPIBinding{
+		BaseURL:     strings.TrimSpace(input.BaseURL),
+		Token:       strings.TrimSpace(input.Token),
+		DisplayName: strings.TrimSpace(input.DisplayName),
 	}
 }

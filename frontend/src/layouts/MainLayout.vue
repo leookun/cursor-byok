@@ -134,6 +134,14 @@ async function handleOpenUsageDocs() {
   }
 }
 
+async function handleOpenYMengCC() {
+  try {
+    await Browser.OpenURL("https://ymeng.cc");
+  } catch (error) {
+    await showActionError("打开主页失败", error);
+  }
+}
+
 onMounted(() => {
   void loadFooterAuthorInfo();
   proxyStateTimer = window.setInterval(() => {
@@ -228,6 +236,14 @@ onUnmounted(() => {
       >
         <span class="icon-[ant-design--bilibili-outlined] text-[14px]"></span>
         <span>{{ footerAuthorInfo.buttonText }}</span>
+      </button>
+      <button
+        type="button"
+        class="center-row shrink-0 gap-[6px] cursor-pointer rounded-[6px] px-[6px] py-[3px] transition-colors duration-150 hover:bg-[#1f1f1f] hover:text-[#e5e5e5]"
+        @click="handleOpenYMengCC"
+      >
+        <span class="icon-[mdi--web] text-[14px]"></span>
+        <span>作者 YMeng CC 站长</span>
       </button>
       <div
         v-if="updateViewState.footerDownloading"
