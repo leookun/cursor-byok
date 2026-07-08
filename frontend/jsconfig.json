@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@bindings/*": ["bindings/*"]
+    }
+  },
+  "include": ["src/**/*"]
+}

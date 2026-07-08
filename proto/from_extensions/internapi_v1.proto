@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package internapi.v1;
+
+option go_package = "react-admin/cursor-server/gen/internapi/v1;internapiv1";
+
+// Copied from: local:internapi.v1.BlobData (var: hxe)
+message BlobData {
+  BlobType blob_type = 1;
+  bytes blob_id = 2;
+  int32 index = 3;
+  oneof type_specific_data {
+    ImageBlobData image_data = 4;
+  }
+}
+
+// Copied from: local:internapi.v1.BlobDataPerMessage (var: Txe)
+message BlobDataPerMessage {
+  repeated BlobData blob_data = 1;
+}
+
+// Copied from: local:internapi.v1.BlobType (var: Axe)
+enum BlobType {
+  BLOB_TYPE_UNSPECIFIED = 0;
+  BLOB_TYPE_IMAGE = 1;
+  BLOB_TYPE_INVOCATION_CONTEXT = 2;
+  BLOB_TYPE_EXTRA_CONTEXT = 3;
+  BLOB_TYPE_GIT_PR_DIFF_SELECTION = 4;
+  BLOB_TYPE_SELECTED_PULL_REQUEST = 5;
+  BLOB_TYPE_TEXT = 6;
+  BLOB_TYPE_RICH_TEXT = 7;
+  BLOB_TYPE_EXTERNAL_LINK_PDF = 8;
+  BLOB_TYPE_DOCUMENT = 9;
+  BLOB_TYPE_VIDEO = 10;
+}
+
+// Copied from: local:internapi.v1.ImageBlobData (var: pxe)
+message ImageBlobData {
+  string mime_type = 1;
+}
+

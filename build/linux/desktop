@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Cursor助手
+Comment=Cursor助手
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/Cursor助手 %u
+Terminal=false
+Type=Application
+Icon=Cursor助手
+Categories=Utility;
+StartupWMClass=Cursor助手
+
+ 

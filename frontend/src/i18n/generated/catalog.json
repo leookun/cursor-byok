@@ -1,0 +1,2412 @@
+{
+  "entries": {
+    "02216368edc68816": {
+      "source": "无更新说明",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 831,
+          "column": 42
+        }
+      ]
+    },
+    "02bc2e95bf49e587": {
+      "source": "当前还没有配置任何",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 35,
+          "column": 165
+        }
+      ]
+    },
+    "03b11112dc970014": {
+      "source": "接口地址",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 82,
+          "column": 22
+        }
+      ]
+    },
+    "045261cc748d4300": {
+      "source": "Anthropic 思考阶段允许消耗的预算 Token 数。留空时使用默认值。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 90,
+          "column": 25
+        }
+      ]
+    },
+    "047ec6b71d0cec08": {
+      "source": "控制白名单主链路请求走本地服务，还是回到原始 Cursor 上游地址",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 21,
+          "column": 48
+        }
+      ]
+    },
+    "04f632dd4f034d5e": {
+      "source": "{0} 的上下文窗口必须为正整数",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 318,
+          "column": 14
+        }
+      ]
+    },
+    "051836569928a9f9": {
+      "source": "编辑",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 88,
+          "column": 139
+        }
+      ]
+    },
+    "054d763265603305": {
+      "source": "例如：65536（留空用默认值）",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 126,
+          "column": 16
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 143,
+          "column": 16
+        }
+      ]
+    },
+    "05c8a9238c702efa": {
+      "source": "直连 Cursor 模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 39,
+          "column": 12
+        }
+      ]
+    },
+    "0647728439b5da2e": {
+      "source": "可配置运行模式和模型渠道；运行日志位于",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 7,
+          "column": 48
+        }
+      ]
+    },
+    "092b520558eff5f2": {
+      "source": "未测试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 75,
+          "column": 20
+        }
+      ]
+    },
+    "0b0e7478e41fe677": {
+      "source": "{0} 的悬停提示不能为空",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 309,
+          "column": 14
+        }
+      ]
+    },
+    "0c3b4cf7aa259edb": {
+      "source": "操作失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 67,
+          "column": 30
+        },
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 67,
+          "column": 48
+        }
+      ]
+    },
+    "0dde813d719dbd01": {
+      "source": "打开主页失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 90,
+          "column": 27
+        }
+      ]
+    },
+    "0e40a09ab4e664ab": {
+      "source": "模型渠道重复，请检查 url、modelID、apiKey、displayName 组合",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 331,
+          "column": 14
+        }
+      ]
+    },
+    "1117a2f86030d03b": {
+      "source": "缓存读写已计入 Prompt 侧统计。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 94,
+          "column": 5
+        }
+      ]
+    },
+    "11afd2a534395b18": {
+      "source": "有效",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 49,
+          "column": 65
+        }
+      ]
+    },
+    "124be3f86f197802": {
+      "source": "Token 消耗",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 65,
+          "column": 20
+        }
+      ]
+    },
+    "13b61c5f697b6700": {
+      "source": "缓存命中率",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 30,
+          "column": 20
+        }
+      ]
+    },
+    "15d124b200ddabed": {
+      "source": "模型单次可接受的最大上下文 Token 数。留空时使用默认值。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 86,
+          "column": 24
+        }
+      ]
+    },
+    "18b7312022cd1840": {
+      "source": "启动服务",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 802,
+          "column": 47
+        }
+      ]
+    },
+    "1af38868896cf53d": {
+      "source": "运行模式仅支持 local 或 upstream",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 340,
+          "column": 12
+        }
+      ]
+    },
+    "1b7d24b212e52c54": {
+      "source": "{0} 的推理强度仅支持 low、medium、high、xhigh",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 315,
+          "column": 14
+        }
+      ]
+    },
+    "1bc77f5ab979f4c1": {
+      "source": "新增模型配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 79,
+          "column": 67
+        }
+      ]
+    },
+    "1e238093b79b3165": {
+      "source": "留空时默认 65536",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 91,
+          "column": 22
+        },
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 104,
+          "column": 22
+        }
+      ]
+    },
+    "24343a2096988d42": {
+      "source": "打开失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 42,
+          "column": 27
+        },
+        {
+          "file": "src/views/Home.vue",
+          "line": 57,
+          "column": 27
+        },
+        {
+          "file": "src/views/Home.vue",
+          "line": 65,
+          "column": 27
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 105,
+          "column": 27
+        }
+      ]
+    },
+    "253d4a3428c648fb": {
+      "source": "缓存写入：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 66,
+          "column": 5
+        },
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 92,
+          "column": 5
+        }
+      ]
+    },
+    "258e4620e2108793": {
+      "source": "留空时默认 4096",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 115,
+          "column": 22
+        }
+      ]
+    },
+    "26a3855aed1d8d17": {
+      "source": "服务未启动",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 793,
+          "column": 12
+        }
+      ]
+    },
+    "281eb6d08c9960d0": {
+      "source": "{0} 的思考预算 Token 必须为正整数",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 327,
+          "column": 14
+        }
+      ]
+    },
+    "28aeffc70ceb4267": {
+      "source": "切换当前界面显示语言，设置会立即生效并保存在本机",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 39,
+          "column": 48
+        }
+      ]
+    },
+    "2caeaec539e78898": {
+      "source": "思考预算 Token",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 153,
+          "column": 22
+        }
+      ]
+    },
+    "2cd0f3be8738a86c": {
+      "source": "取消",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 138,
+          "column": 66
+        },
+        {
+          "file": "src/components/ui/InputModal.vue",
+          "line": 32,
+          "column": 66
+        },
+        {
+          "file": "src/components/ui/Modal.vue",
+          "line": 9,
+          "column": 40
+        },
+        {
+          "file": "src/composables/useModal.js",
+          "line": 8,
+          "column": 15
+        },
+        {
+          "file": "src/composables/useModal.js",
+          "line": 25,
+          "column": 51
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 843,
+          "column": 52
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 6,
+          "column": 58
+        }
+      ]
+    },
+    "2d706f7981b45a7b": {
+      "source": "本地配置已保存",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 34,
+          "column": 14
+        }
+      ]
+    },
+    "2f9daa828907b93f": {
+      "source": "删除",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 91,
+          "column": 95
+        }
+      ]
+    },
+    "30bb57a50caedc38": {
+      "source": "例如：用于日常代码补全与问答",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 173,
+          "column": 14
+        }
+      ]
+    },
+    "32b3c9a50003f77a": {
+      "source": "输出 Token 为估算值",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 49,
+          "column": 7
+        }
+      ]
+    },
+    "33d2d273e2bd5f88": {
+      "source": "打开使用教程失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 98,
+          "column": 27
+        }
+      ]
+    },
+    "3468b57e3edbc599": {
+      "source": "按历史记录里扫描到的回合 summary 汇总。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 75,
+          "column": 5
+        }
+      ]
+    },
+    "35076178fe79a210": {
+      "source": "配置已变更，请重新测试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 28,
+          "column": 60
+        }
+      ]
+    },
+    "36c149a9b3e8dca0": {
+      "source": "模型。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 36,
+          "column": 47
+        }
+      ]
+    },
+    "37d23612f78a2e63": {
+      "source": "立即重启更新",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 840,
+          "column": 45
+        }
+      ]
+    },
+    "392d0dceb45998d3": {
+      "source": "极高",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 16,
+          "column": 12
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 33,
+          "column": 12
+        }
+      ]
+    },
+    "393df9bb13ea4900": {
+      "source": "命中",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/charts/CacheHitRateChart.vue",
+          "line": 76,
+          "column": 12
+        }
+      ]
+    },
+    "3af7e5489e61ea51": {
+      "source": "刷新中",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 14,
+          "column": 22
+        }
+      ]
+    },
+    "3bf8512aa520ed21": {
+      "source": "本地服务模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 38,
+          "column": 12
+        }
+      ]
+    },
+    "3c2a9f9901109e75": {
+      "source": "{0} 的类型仅支持 OpenAI 或 Anthropic",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 300,
+          "column": 14
+        }
+      ]
+    },
+    "3d13868593ae4eeb": {
+      "source": "界面语言",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 84,
+          "column": 33
+        },
+        {
+          "file": "src/views/Config.vue",
+          "line": 38,
+          "column": 57
+        }
+      ]
+    },
+    "3ea83f9f55062582": {
+      "source": "发布时间：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 829,
+          "column": 11
+        }
+      ]
+    },
+    "3edda85621fd03b2": {
+      "source": "个模型适配器",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 52,
+          "column": 53
+        }
+      ]
+    },
+    "42aa8e01e98c0d8c": {
+      "source": "总耗时",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 37,
+          "column": 75
+        }
+      ]
+    },
+    "468adaa418ee1475": {
+      "source": "例如：https://api.openai.com/v1",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 60,
+          "column": 65
+        }
+      ]
+    },
+    "4923eeb7bd75cccd": {
+      "source": "{0} 的模型标识不能为空",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 312,
+          "column": 14
+        }
+      ]
+    },
+    "497c85690c4cc0fc": {
+      "source": "暂无数据",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 41,
+          "column": 12
+        }
+      ]
+    },
+    "4b8d11bf235e9213": {
+      "source": "当前命中率：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 64,
+          "column": 5
+        }
+      ]
+    },
+    "4d8c1c5b42830791": {
+      "source": "未知",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 107,
+          "column": 12
+        }
+      ]
+    },
+    "51194c3ad014fb29": {
+      "source": "需重测",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 23,
+          "column": 9
+        }
+      ]
+    },
+    "5205125c0e91d346": {
+      "source": "Anthropic 模型单次回复允许生成的最大 Token 数。留空时使用默认值。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 89,
+          "column": 23
+        }
+      ]
+    },
+    "56627c94a9decee6": {
+      "source": "最大输出 Token",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 120,
+          "column": 22
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 137,
+          "column": 22
+        }
+      ]
+    },
+    "5beb1206c532729f": {
+      "source": "单次回复允许生成的最大 Token 数。留空时使用默认值。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 88,
+          "column": 24
+        }
+      ]
+    },
+    "5d1687a4a41883fd": {
+      "source": "停止中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 40,
+          "column": 12
+        }
+      ]
+    },
+    "6106f0a12583a334": {
+      "source": "刷新失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 45,
+          "column": 27
+        }
+      ]
+    },
+    "62873083fcaed27d": {
+      "source": "会话统计",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 6,
+          "column": 62
+        }
+      ]
+    },
+    "6309a3bb5ba4c714": {
+      "source": "保存失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 29,
+          "column": 27
+        }
+      ]
+    },
+    "636e3deffc1e960a": {
+      "source": "模型 {0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 295,
+          "column": 20
+        }
+      ]
+    },
+    "63d90d977348ab1f": {
+      "source": "复制",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 89,
+          "column": 156
+        }
+      ]
+    },
+    "64d2730f2ae37997": {
+      "source": "原始返回",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 12,
+          "column": 20
+        }
+      ]
+    },
+    "65cc5fd2e6ce6e75": {
+      "source": "后端已启动，代理未启动",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 791,
+          "column": 14
+        }
+      ]
+    },
+    "66af574b8948fe83": {
+      "source": "{0} 的访问密钥不能为空",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 306,
+          "column": 14
+        }
+      ]
+    },
+    "675109292da4eb36": {
+      "source": "尚未测试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 29,
+          "column": 14
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 76,
+          "column": 54
+        }
+      ]
+    },
+    "699fe7ade5407687": {
+      "source": "直连模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/DirectModeSwitch.vue",
+          "line": 6,
+          "column": 35
+        }
+      ]
+    },
+    "6a7b96f399e58138": {
+      "source": "例如：sk-xxxxxx",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 74,
+          "column": 16
+        }
+      ]
+    },
+    "6aa8f49cc992dfd7": {
+      "source": "测试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 74,
+          "column": 20
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 86,
+          "column": 23
+        }
+      ]
+    },
+    "6ae23d6d7cb18592": {
+      "source": "服务错误",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 23,
+          "column": 31
+        },
+        {
+          "file": "src/views/Config.vue",
+          "line": 22,
+          "column": 30
+        },
+        {
+          "file": "src/views/Config.vue",
+          "line": 22,
+          "column": 48
+        },
+        {
+          "file": "src/views/Home.vue",
+          "line": 28,
+          "column": 30
+        },
+        {
+          "file": "src/views/Home.vue",
+          "line": 28,
+          "column": 48
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 63,
+          "column": 30
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 63,
+          "column": 48
+        }
+      ]
+    },
+    "6e584e3d5ce64aa0": {
+      "source": "保存配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 12,
+          "column": 15
+        }
+      ]
+    },
+    "737225e2904673fc": {
+      "source": "输出推算：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 90,
+          "column": 5
+        }
+      ]
+    },
+    "7520bd50a5ee5471": {
+      "source": "停止测试 {0}/{1}",
+      "kind": "template",
+      "placeholders": 2,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 45,
+          "column": 10
+        }
+      ]
+    },
+    "753d8bb0da9913ce": {
+      "source": "复制失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 124,
+          "column": 27
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 129,
+          "column": 27
+        }
+      ]
+    },
+    "77c9e582e85583af": {
+      "source": "测试失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 47,
+          "column": 12
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 179,
+          "column": 21
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 179,
+          "column": 21
+        }
+      ]
+    },
+    "7a26bf794e9fb6bf": {
+      "source": "仅用于界面展示，便于你区分不同模型。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 82,
+          "column": 16
+        }
+      ]
+    },
+    "7b6187c41e88b70c": {
+      "source": "测试中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 44,
+          "column": 12
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 193,
+          "column": 12
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 86,
+          "column": 23
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 8,
+          "column": 15
+        }
+      ]
+    },
+    "7bf8e2c07e084d09": {
+      "source": "模型编辑",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/router/index.js",
+          "line": 22,
+          "column": 39
+        }
+      ]
+    },
+    "7e9e334aeb0bdc07": {
+      "source": "服务操作失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 35,
+          "column": 27
+        }
+      ]
+    },
+    "7f68ebad19ba6bcd": {
+      "source": "检查更新",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 49,
+          "column": 16
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 821,
+          "column": 16
+        }
+      ]
+    },
+    "81123c56d5d880d0": {
+      "source": "访问密钥",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 68,
+          "column": 22
+        }
+      ]
+    },
+    "86df7ec743047234": {
+      "source": "服务运行中",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 788,
+          "column": 14
+        }
+      ]
+    },
+    "87ed126f7bd1121e": {
+      "source": "运行模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 20,
+          "column": 57
+        }
+      ]
+    },
+    "899add6275682210": {
+      "source": "留空时默认 200000",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 71,
+          "column": 20
+        }
+      ]
+    },
+    "8c0d84831a3c3d5b": {
+      "source": "当前为本地服务模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/DirectModeSwitch.vue",
+          "line": 12,
+          "column": 42
+        }
+      ]
+    },
+    "8c1935935600e336": {
+      "source": "模型测试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 25,
+          "column": 14
+        }
+      ]
+    },
+    "8cbcf741e727dbf7": {
+      "source": "模型配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 21,
+          "column": 35
+        },
+        {
+          "file": "src/router/index.js",
+          "line": 17,
+          "column": 39
+        },
+        {
+          "file": "src/views/Config.vue",
+          "line": 50,
+          "column": 57
+        },
+        {
+          "file": "src/views/Home.vue",
+          "line": 49,
+          "column": 69
+        }
+      ]
+    },
+    "8d1de152be6360ce": {
+      "source": "有效占比：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 80,
+          "column": 5
+        }
+      ]
+    },
+    "8e2dc7b0d2e8f6f8": {
+      "source": "例如：OpenAI - GPT-4.1",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 47,
+          "column": 16
+        }
+      ]
+    },
+    "8f6f8d979c981ced": {
+      "source": "已复制",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/Tooltip.vue",
+          "line": 31,
+          "column": 23
+        }
+      ]
+    },
+    "8faa670b512b6b9b": {
+      "source": "打开模型配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 55,
+          "column": 67
+        }
+      ]
+    },
+    "917b1c1f18d0276b": {
+      "source": "保存中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 12,
+          "column": 15
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 11,
+          "column": 15
+        }
+      ]
+    },
+    "9196835e388d2550": {
+      "source": "测试全部",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 43,
+          "column": 12
+        }
+      ]
+    },
+    "91cba5c107a51892": {
+      "source": "/ 异常",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 53,
+          "column": 23
+        }
+      ]
+    },
+    "92059fe6cd713db4": {
+      "source": "请求实际发送给服务端的模型名称，例如 gpt-4.1 或 claude-sonnet。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 83,
+          "column": 12
+        }
+      ]
+    },
+    "93e08803675e378b": {
+      "source": "模型标识",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 55,
+          "column": 22
+        }
+      ]
+    },
+    "942ff2d88baca0c6": {
+      "source": "检查更新中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 46,
+          "column": 44
+        }
+      ]
+    },
+    "986678eccf56dc28": {
+      "source": "服务状态更新中，请稍后再试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 1064,
+          "column": 32
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 1085,
+          "column": 32
+        }
+      ]
+    },
+    "991e374fce0f4492": {
+      "source": "Cursor助手",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 16,
+          "column": 50
+        },
+        {
+          "file": "src/router/index.js",
+          "line": 12,
+          "column": 38
+        }
+      ]
+    },
+    "9970736b36ff2b68": {
+      "source": "模型服务的 API 根地址，通常为兼容 OpenAI 或 Anthropic 的接口入口。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 84,
+          "column": 12
+        }
+      ]
+    },
+    "9b17fa889b307f7f": {
+      "source": "有效轮次：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 78,
+          "column": 5
+        }
+      ]
+    },
+    "9c38b6e9bf94abec": {
+      "source": "已切换到直连 Cursor 模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 75,
+          "column": 29
+        }
+      ]
+    },
+    "9cd4ac17428b86e4": {
+      "source": "缓存命中率 = 缓存读取 Token / Prompt Token",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 62,
+          "column": 5
+        }
+      ]
+    },
+    "9d2ca261281a158a": {
+      "source": "稍后",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 843,
+          "column": 45
+        }
+      ]
+    },
+    "9dc0825fba5422e4": {
+      "source": "加载中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 16,
+          "column": 97
+        }
+      ]
+    },
+    "a026f37e613cf48b": {
+      "source": "输出 Token",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterTestCard.vue",
+          "line": 41,
+          "column": 75
+        }
+      ]
+    },
+    "a1a038dfa16c3ede": {
+      "source": "当前已是最新版本（v{0}）。",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 836,
+          "column": 42
+        }
+      ]
+    },
+    "a3030bf8f16dc63c": {
+      "source": "保存",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 139,
+          "column": 64
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 11,
+          "column": 15
+        }
+      ]
+    },
+    "a325d25c69e7256d": {
+      "source": "模型配置不存在，无法复制",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 1009,
+          "column": 14
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 124,
+          "column": 35
+        }
+      ]
+    },
+    "a4dd8bb7e8b6eb31": {
+      "source": "显示访问密钥",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/Input.vue",
+          "line": 18,
+          "column": 21
+        }
+      ]
+    },
+    "a55a88237df85d98": {
+      "source": "当前为直连模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/DirectModeSwitch.vue",
+          "line": 11,
+          "column": 41
+        }
+      ]
+    },
+    "a567bdaa11367f26": {
+      "source": "中",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 14,
+          "column": 12
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 31,
+          "column": 12
+        }
+      ]
+    },
+    "a5f1bd344c92e195": {
+      "source": "调用该模型服务需要使用的访问密钥。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 85,
+          "column": 11
+        }
+      ]
+    },
+    "a693d69af48bfe48": {
+      "source": "保存并测试",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 8,
+          "column": 15
+        }
+      ]
+    },
+    "a98585871c5313ff": {
+      "source": "显示名称",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 21,
+          "column": 57
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 42,
+          "column": 22
+        }
+      ]
+    },
+    "aa9e366f68d3d097": {
+      "source": "低",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 13,
+          "column": 12
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 30,
+          "column": 12
+        }
+      ]
+    },
+    "ac217e4d1ca410f1": {
+      "source": "发现新版本",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 817,
+          "column": 16
+        }
+      ]
+    },
+    "ad79540418be700a": {
+      "source": "打开设置目录，或单独管理模型配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 45,
+          "column": 48
+        }
+      ]
+    },
+    "ae5a738238463a92": {
+      "source": "隐藏访问密钥",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/Input.vue",
+          "line": 18,
+          "column": 21
+        }
+      ]
+    },
+    "aed55419ce62f08e": {
+      "source": "切换中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/DirectModeSwitch.vue",
+          "line": 7,
+          "column": 13
+        }
+      ]
+    },
+    "b1c27820fec23edb": {
+      "source": "高",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 15,
+          "column": 12
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 32,
+          "column": 12
+        }
+      ]
+    },
+    "b42049dcf8a05ef7": {
+      "source": "已切换到本地服务模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 75,
+          "column": 50
+        }
+      ]
+    },
+    "b571037dc396a00c": {
+      "source": "总请求 Token 包含 Prompt 和模型输出。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 86,
+          "column": 5
+        }
+      ]
+    },
+    "b765005f69fa971f": {
+      "source": "例如：gpt-4.1",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 60,
+          "column": 16
+        }
+      ]
+    },
+    "b90a8ac9c488ce46": {
+      "source": "选择语言",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/LocaleSelect.vue",
+          "line": 9,
+          "column": 41
+        }
+      ]
+    },
+    "ba40014ff496f64e": {
+      "source": "类型",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ModelAdapterModal.vue",
+          "line": 39,
+          "column": 57
+        }
+      ]
+    },
+    "bb074b86a98f6911": {
+      "source": "上下文窗口",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 95,
+          "column": 22
+        }
+      ]
+    },
+    "bbacfde55a92869f": {
+      "source": "命中率越高，说明重复上下文复用得越多。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 69,
+          "column": 5
+        }
+      ]
+    },
+    "bc87a4121a0873b3": {
+      "source": "刷新统计",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 9,
+          "column": 18
+        },
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 14,
+          "column": 22
+        }
+      ]
+    },
+    "bd4464ea88d3f24a": {
+      "source": "总轮次：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 77,
+          "column": 5
+        }
+      ]
+    },
+    "bef280f9eb392495": {
+      "source": "对话轮次",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 38,
+          "column": 20
+        }
+      ]
+    },
+    "c228558cf257fc49": {
+      "source": "删除失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 112,
+          "column": 27
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 117,
+          "column": 27
+        }
+      ]
+    },
+    "c3e9c3c60020b8b7": {
+      "source": "选择模式",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 29,
+          "column": 14
+        }
+      ]
+    },
+    "c69f5bce63b9f14c": {
+      "source": "设置文件夹",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 48,
+          "column": 64
+        }
+      ]
+    },
+    "c6f743953145f40b": {
+      "source": "例如：4096（留空用默认值）",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 159,
+          "column": 16
+        }
+      ]
+    },
+    "c8c14507b2d37395": {
+      "source": "推理强度",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 109,
+          "column": 22
+        }
+      ]
+    },
+    "c98e118e0a43f078": {
+      "source": "模型",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 980,
+          "column": 28
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 982,
+          "column": 38
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 1017,
+          "column": 93
+        }
+      ]
+    },
+    "ca00a39fcea70dc6": {
+      "source": "启动中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 800,
+          "column": 51
+        }
+      ]
+    },
+    "ca1d1059408b3837": {
+      "source": "异常轮次：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 79,
+          "column": 5
+        }
+      ]
+    },
+    "ce46f23cea3bf3c5": {
+      "source": "开启后，Cursor将直接接通官方，请勿开启",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/DirectModeSwitch.vue",
+          "line": 9,
+          "column": 14
+        }
+      ]
+    },
+    "d0325067fed88e5a": {
+      "source": "缓存命中率 {0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/charts/CacheHitRateChart.vue",
+          "line": 6,
+          "column": 21
+        }
+      ]
+    },
+    "d08fd4224abcd69d": {
+      "source": "切换失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Home.vue",
+          "line": 72,
+          "column": 27
+        }
+      ]
+    },
+    "d1bde4a4e057b2c7": {
+      "source": "[MainLayout] 加载作者信息失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 60,
+          "column": 19
+        }
+      ]
+    },
+    "d20ab96566d33f25": {
+      "source": "{0} 的显示名称不能为空",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 297,
+          "column": 14
+        }
+      ]
+    },
+    "d2243e1d44b2a94e": {
+      "source": "编辑模型配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 79,
+          "column": 56
+        }
+      ]
+    },
+    "d3209b935ae86797": {
+      "source": "模型配置不存在，无法删除",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 961,
+          "column": 14
+        },
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 112,
+          "column": 35
+        }
+      ]
+    },
+    "d373809ab86ba93b": {
+      "source": "拷贝",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/Tooltip.vue",
+          "line": 31,
+          "column": 23
+        }
+      ]
+    },
+    "d3b1da3088ddd334": {
+      "source": "模型测试失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 196,
+          "column": 38
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 226,
+          "column": 50
+        }
+      ]
+    },
+    "d7da2aabd35772ec": {
+      "source": "例如：200000（留空用默认值）",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 101,
+          "column": 16
+        }
+      ]
+    },
+    "da590a8fe3ce4de0": {
+      "source": "请选择",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/Select.vue",
+          "line": 11,
+          "column": 41
+        }
+      ]
+    },
+    "daede9881787abe7": {
+      "source": "备注",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 247,
+          "column": 18
+        },
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 168,
+          "column": 20
+        }
+      ]
+    },
+    "dbee6e7139243362": {
+      "source": "{0} 的接口地址不能为空",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 303,
+          "column": 14
+        }
+      ]
+    },
+    "dc82c5e8fb2ab777": {
+      "source": "版本：v{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 828,
+          "column": 11
+        }
+      ]
+    },
+    "de8184da1ef88d03": {
+      "source": "已配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 51,
+          "column": 48
+        }
+      ]
+    },
+    "e14c41ef2b7253c9": {
+      "source": "总请求：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 88,
+          "column": 5
+        }
+      ]
+    },
+    "e406825e0a72d2c2": {
+      "source": "本地配置",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/Config.vue",
+          "line": 6,
+          "column": 57
+        },
+        {
+          "file": "src/views/Home.vue",
+          "line": 44,
+          "column": 57
+        }
+      ]
+    },
+    "e552c2accdbf5178": {
+      "source": "新增模型",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelConfig.vue",
+          "line": 28,
+          "column": 110
+        }
+      ]
+    },
+    "e6faccfddce722e8": {
+      "source": "缓存读取：{0}",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 65,
+          "column": 5
+        },
+        {
+          "file": "src/components/HomeMetricsCard.vue",
+          "line": 91,
+          "column": 5
+        }
+      ]
+    },
+    "eaffd48cd2ea9f1a": {
+      "source": "例如：https://api.anthropic.com",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 60,
+          "column": 32
+        }
+      ]
+    },
+    "ec3b17a75db49e24": {
+      "source": "{0} t/s | 首字 {1}",
+      "kind": "template",
+      "placeholders": 2,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 202,
+          "column": 10
+        }
+      ]
+    },
+    "ec99e5c45d648fd6": {
+      "source": "更新失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 819,
+          "column": 16
+        }
+      ]
+    },
+    "f1e0fc261d42fe29": {
+      "source": "模型列表 hover 时显示的备注说明。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 91,
+          "column": 16
+        }
+      ]
+    },
+    "f363622480699c52": {
+      "source": "推理强度仅对部分支持 reasoning_effort 的模型生效，并不是所有模型都支持。越高通常越稳，但也可能更慢。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/views/ModelEditor.vue",
+          "line": 87,
+          "column": 20
+        }
+      ]
+    },
+    "f3a76d896853c1df": {
+      "source": "未命中",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/charts/CacheHitRateChart.vue",
+          "line": 76,
+          "column": 18
+        }
+      ]
+    },
+    "f474a4108aba4c4c": {
+      "source": "关闭服务",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 802,
+          "column": 38
+        }
+      ]
+    },
+    "f56c6c82203b33f6": {
+      "source": "提示",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/InputModal.vue",
+          "line": 6,
+          "column": 35
+        },
+        {
+          "file": "src/components/ui/Modal.vue",
+          "line": 6,
+          "column": 35
+        },
+        {
+          "file": "src/composables/useInputModal.js",
+          "line": 5,
+          "column": 10
+        },
+        {
+          "file": "src/composables/useInputModal.js",
+          "line": 20,
+          "column": 46
+        },
+        {
+          "file": "src/composables/useModal.js",
+          "line": 5,
+          "column": 10
+        },
+        {
+          "file": "src/composables/useModal.js",
+          "line": 22,
+          "column": 41
+        },
+        {
+          "file": "src/views/Config.vue",
+          "line": 33,
+          "column": 12
+        }
+      ]
+    },
+    "f61e03f047b786d5": {
+      "source": "{0} 的最大输出 Token 必须为正整数",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 321,
+          "column": 14
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 324,
+          "column": 14
+        }
+      ]
+    },
+    "fac2a67ad87807c4": {
+      "source": "确定",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/components/ui/InputModal.vue",
+          "line": 33,
+          "column": 67
+        },
+        {
+          "file": "src/components/ui/Modal.vue",
+          "line": 8,
+          "column": 41
+        },
+        {
+          "file": "src/composables/useModal.js",
+          "line": 7,
+          "column": 16
+        },
+        {
+          "file": "src/composables/useModal.js",
+          "line": 24,
+          "column": 53
+        },
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 68,
+          "column": 18
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 840,
+          "column": 56
+        }
+      ]
+    },
+    "fb7a4c81729ed0ca": {
+      "source": "关闭中...",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 800,
+          "column": 40
+        }
+      ]
+    },
+    "fec45092945f8790": {
+      "source": "使用教程",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 57,
+          "column": 16
+        }
+      ]
+    }
+  }
+}

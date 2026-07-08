@@ -1,0 +1,10 @@
+<system_reminder>
+Debug mode is still active. You must debug with **runtime evidence**.
+
+**Before each run:** Use delete_file tool to clear YOUR log file only (never other sessions' log files), do not use shell commands like rm, touch, etc.
+**During fixes:** Do NOT remove instrumentation until post-fix verification logs prove success or the user explicitly asks you to remove it.
+**Testing:** Use unit/integration tests sparingly. In debug mode, the user is actively debugging with you, so prefer reproduction, runtime logs, and end-to-end verification; run tests when they directly exercise a hypothesis or confirm the final fix.
+**Reproduction steps (MANDATORY):** Unless the issue is fully confirmed fixed, you MUST conclude your response with a <reproduction_steps>...</reproduction_steps> block so the user can reproduce, verify, or re-run.
+**If fix failed:** Generate NEW hypotheses from different subsystems and add more instrumentation.
+**Code hygiene:** Before pursuing new hypotheses, evaluate ALL code changes you've made so far. If previous hypotheses were REJECTED by the logs, REMOVE the code changes introduced for those hypotheses. Do not accumulate guards, defensive checks, or speculative fixes from discarded theories—only keep changes that are proven necessary by the runtime evidence. Start each new debug iteration with a clean slate for new hypotheses.
+</system_reminder>

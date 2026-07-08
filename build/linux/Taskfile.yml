@@ -1,0 +1,192 @@
+version: "3"
+
+includes:
+  common: ../Taskfile.yml
+
+vars:
+  CROSS_IMAGE: cursor-linux-amd64-cross
+  PROJECT_ROOT:
+    sh: 'cd "{{.TASKFILE_DIR}}/../.." && pwd'
+
+tasks:
+  build:
+    summary: 构建 Linux 程序
+    internal: true
+    vars:
+      TARGET_ARCH: '{{.ARCH | default ARCH}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{end}}'
+      HAS_CC:
+        sh: '(command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1) && echo "true" || echo "false"'
+    preconditions:
+      - sh: '[ "{{.TARGET_ARCH}}" = "amd64" ]'
+        msg: "当前仅支持 linux/amd64 构建。"
+    cmds:
+      - task: '{{if and (eq OS "linux") (eq .HAS_CC "true") (eq .TARGET_ARCH ARCH)}}build:native{{else}}build:docker{{end}}'
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+
+  build:native:
+    summary: 使用本机构建 Linux 程序
+    internal: true
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+    preconditions:
+      - sh: '[ "{{OS}}" = "linux" ]'
+        msg: "Linux 原生构建仅支持在 Linux 主机上执行。"
+      - sh: pkg-config --version >/dev/null 2>&1
+        msg: "未检测到 pkg-config，请先安装。"
+      - sh: 'command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1'
+        msg: "未检测到 gcc 或 clang，请先安装 C 编译器。"
+      - sh: pkg-config --exists gtk+-3.0 webkit2gtk-4.1 gdk-3.0 gio-unix-2.0
+        msg: "缺少 Linux GUI 构建依赖，请安装 gtk+-3.0、webkit2gtk-4.1、gdk-3.0 和 gio-unix-2.0 开发包。"
+    cmds:
+      - go build {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"
+    vars:
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{end}}'
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.BINARY_NAME}}'
+      OUTPUT: '{{.OUTPUT | default .DEFAULT_OUTPUT}}'
+    env:
+      GOOS: linux
+      CGO_ENABLED: 1
+      GOARCH: '{{.ARCH | default ARCH}}'
+
+  build:docker:
+    summary: 使用 Docker 构建 Linux 程序
+    internal: true
+    dir: '{{.PROJECT_ROOT}}'
+    deps:
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+    preconditions:
+      - sh: '[ "{{OS}}" = "darwin" ] || [ "{{OS}}" = "linux" ]'
+        msg: "Docker Linux 构建当前仅支持在 macOS 或 Linux 主机上执行。"
+      - sh: docker info >/dev/null 2>&1
+        msg: "未检测到可用的 Docker daemon，请先启动 Docker。"
+      - sh: docker image inspect {{.CROSS_IMAGE}} >/dev/null 2>&1
+        msg: "未找到 Docker 镜像 '{{.CROSS_IMAGE}}'，请先执行 task setup:docker。"
+    cmds:
+      - docker run --rm --platform "{{.DOCKER_PLATFORM}}" --entrypoint /bin/sh -v "{{.PROJECT_ROOT}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e GOPATH=/go -e GOMODCACHE=/go/pkg/mod -e APP_NAME="{{.APP_NAME}}" -e EXTRA_LDFLAGS="-X cursor/internal/buildinfo.Version={{.APP_VERSION}}" -e GO_BUILD_LOG_MODE="{{.GO_BUILD_LOG_MODE}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} "{{.CROSS_IMAGE}}" /app/build/docker/build-linux.sh
+      - docker run --rm --platform "{{.DOCKER_PLATFORM}}" --entrypoint chown -v "{{.PROJECT_ROOT}}:/app" "{{.CROSS_IMAGE}}" -R $(id -u):$(id -g) /app/bin
+      - mkdir -p "{{.BIN_DIR}}"
+      - mv "bin/{{.APP_NAME}}-linux-{{.DOCKER_ARCH}}" "{{.OUTPUT}}"
+    vars:
+      DOCKER_ARCH: '{{.ARCH | default "amd64"}}'
+      DOCKER_PLATFORM: 'linux/{{.DOCKER_ARCH}}'
+      DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
+      GO_BUILD_LOG_MODE: '{{.GO_BUILD_LOG_MODE | default "quiet"}}'
+      OUTPUT: '{{.OUTPUT | default .DEFAULT_OUTPUT}}'
+      GO_CACHE_MOUNT:
+        sh: 'echo "-v ${GOPATH:-$HOME/go}/pkg/mod:/go/pkg/mod"'
+      REPLACE_MOUNTS:
+        sh: |
+          grep -E '^replace .* => ' go.mod 2>/dev/null | while read -r line; do
+            path=$(echo "$line" | sed -E 's/^replace .* => //' | tr -d '\r')
+            if [ "${path#/}" = "$path" ]; then
+              path="$(cd "$(dirname "$path")" 2>/dev/null && pwd)/$(basename "$path")"
+            fi
+            if [ -d "$path" ]; then
+              echo "-v $path:$path:ro"
+            fi
+          done | tr '\n' ' '
+
+  package:archive:
+    summary: 打包 Linux updater 归档（.tar.gz）
+    internal: true
+    cmds:
+      - task: build
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - task: create:archive
+        vars:
+          OUTPUT:
+            ref: .OUTPUT
+          ARCHIVE_BINARY_NAME:
+            ref: .ARCHIVE_BINARY_NAME
+          ARCHIVE_PATH:
+            ref: .ARCHIVE_PATH
+          ARCH:
+            ref: .ARCH
+      - task: cleanup:package:artifacts
+        vars:
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+
+  create:archive:
+    summary: 生成 Linux updater tar.gz 归档
+    internal: true
+    vars:
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      BINARY_PATH: '{{.OUTPUT | default (printf "%s/%s" .BIN_DIR .BINARY_NAME)}}'
+      ARCHIVE_BINARY_NAME: '{{.ARCHIVE_BINARY_NAME | default .APP_NAME}}'
+      ARCHIVE_PATH: '{{.ARCHIVE_PATH | default (printf "%s/%s.tar.gz" .BIN_DIR .APP_NAME)}}'
+      STAGING_DIR: '{{.BIN_DIR}}/.linux-archive-{{.ARCH | default ARCH}}'
+    cmds:
+      - rm -rf "{{.STAGING_DIR}}"
+      - mkdir -p "{{.STAGING_DIR}}"
+      - cp "{{.BINARY_PATH}}" "{{.STAGING_DIR}}/{{.ARCHIVE_BINARY_NAME}}"
+      - chmod +x "{{.STAGING_DIR}}/{{.ARCHIVE_BINARY_NAME}}"
+      - rm -f "{{.ARCHIVE_PATH}}"
+      - env LC_ALL=C tar -C "{{.STAGING_DIR}}" -czf "{{.ARCHIVE_PATH}}" "{{.ARCHIVE_BINARY_NAME}}"
+      - rm -rf "{{.STAGING_DIR}}"
+
+  cleanup:package:artifacts:
+    summary: 清理 Linux 打包中间产物
+    internal: true
+    vars:
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      BINARY_PATH: '{{.OUTPUT | default (printf "%s/%s" .BIN_DIR .BINARY_NAME)}}'
+    cmds:
+      - rm -f "{{.BINARY_PATH}}"
+
+  run:
+    summary: 运行 Linux 可执行文件
+    vars:
+      OUTPUT: '{{.OUTPUT | default (printf "%s/%s" .BIN_DIR .APP_NAME)}}'
+    preconditions:
+      - sh: '[ "{{OS}}" = "linux" ]'
+        msg: "Linux 运行任务仅支持在 Linux 主机上执行。"
+    cmds:
+      - '{{.OUTPUT}}'

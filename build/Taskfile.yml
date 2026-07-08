@@ -1,0 +1,156 @@
+version: "3"
+
+vars:
+  ROOT_DIR:
+    sh: 'cd "{{.TASKFILE_DIR}}/.." && pwd'
+  BUILD_DIR:
+    sh: 'cd "{{.TASKFILE_DIR}}" && pwd'
+
+tasks:
+  extract:proto:
+    summary: 从 Cursor 扩展快照提取 proto
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: 'test -z "{{.PROTO_INPUT}}" || test -f "{{.PROTO_INPUT}}"'
+        msg: "PROTO_INPUT 指向的 Cursor 扩展 bundle 不存在。"
+      - sh: 'test -n "{{.PROTO_INPUT}}" || test -f ./proto/extensions-cursor-app/cursor-always-local/dist/main.js || test -f /Applications/Cursor.app/Contents/Resources/app/extensions/cursor-always-local/dist/main.js'
+        msg: "未找到 Cursor 扩展 bundle；请传入 PROTO_INPUT=/path/to/cursor-always-local/dist/main.js。"
+    cmds:
+      - chmod +x ./proto/extract_extensions_proto.sh
+      - '{{if .PROTO_INPUT}}./proto/extract_extensions_proto.sh "{{.PROTO_INPUT}}"{{else}}./proto/extract_extensions_proto.sh{{end}}'
+
+  sync:proto:
+    summary: 从 Cursor 扩展快照同步 proto 并重新生成 Go 代码
+    dir: '{{.ROOT_DIR}}'
+    deps:
+      - task: extract:proto
+    cmds:
+      - cp ./proto/from_extensions/agent_v1.proto ./proto/agent_v1.proto
+      - cp ./proto/from_extensions/aiserver_v1.proto ./proto/aiserver_v1.proto
+      - perl -0pi -e 's|option go_package = "react-admin/cursor-server/gen/agent/v1;agentv1";|option go_package = "cursor/gen/agentv1;agentv1";|' ./proto/agent_v1.proto
+      - perl -0pi -e 's|option go_package = "react-admin/cursor-server/gen/aiserver/v1;aiserverv1";|option go_package = "cursor/gen/aiserverv1;aiserverv1";|' ./proto/aiserver_v1.proto
+      - rm -rf ./gen/agentv1 ./gen/aiserverv1
+      - task: generate:proto
+
+  generate:proto:
+    summary: 生成 proto Go/Connect 代码
+    dir: '{{.ROOT_DIR}}'
+    sources:
+      - proto/*.proto
+    generates:
+      - gen/agentv1/*.go
+      - gen/aiserverv1/*.go
+      - gen/aiserverv1/aiserverv1connect/*.go
+    preconditions:
+      - sh: protoc --version
+        msg: "未检测到 protoc，请先安装 Protocol Buffers 编译器。"
+      - sh: protoc-gen-go --version >/dev/null 2>&1 || which protoc-gen-go
+        msg: "未检测到 protoc-gen-go，请先安装。"
+      - sh: protoc-gen-connect-go --version >/dev/null 2>&1 || which protoc-gen-connect-go
+        msg: "未检测到 protoc-gen-connect-go，请先安装。"
+    cmds:
+      - rm -rf ./gen/agentv1 ./gen/aiserverv1
+      - protoc -I ./proto --go_out=. --go_opt=module=cursor --connect-go_out=. --connect-go_opt=module=cursor ./proto/agent_v1.proto ./proto/aiserver_v1.proto
+      - cmd: gofmt -w $(find ./gen -name '*.go' -type f)
+        platforms: [darwin, linux]
+      - cmd: powershell -Command "Get-ChildItem -Recurse -Filter *.go ./gen | ForEach-Object { gofmt -w $_.FullName }"
+        platforms: [windows]
+
+  go:mod:tidy:
+    summary: 整理 Go 依赖
+    internal: true
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - go mod tidy
+
+  install:frontend:deps:
+    summary: 安装前端依赖（Yarn）
+    dir: '{{.ROOT_DIR}}/frontend'
+    sources:
+      - package.json
+      - yarn.lock
+    generates:
+      - node_modules
+    preconditions:
+      - sh: yarn --version
+        msg: "未检测到 Yarn，请先安装 Yarn。"
+    cmds:
+      - yarn install --frozen-lockfile
+
+  generate:bindings:
+    label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
+    summary: 生成前端绑定
+    dir: '{{.ROOT_DIR}}'
+    deps:
+      - task: generate:proto
+      - task: go:mod:tidy
+    sources:
+      - "**/*.[jt]s"
+      - exclude: frontend/**/*
+      - frontend/bindings/**/*
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - frontend/bindings/**/*
+    cmds:
+      - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true
+
+  build:frontend:
+    label: build:frontend (DEV={{.DEV}} SCAN={{.SCAN}})
+    summary: 构建前端资源
+    dir: '{{.ROOT_DIR}}/frontend'
+    sources:
+      - "**/*"
+    generates:
+      - dist/**/*
+    deps:
+      - task: install:frontend:deps
+      - task: generate:bindings
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+    cmds:
+      - yarn run {{.BUILD_COMMAND}}{{if eq .SCAN "true"}} --scan{{end}}
+    env:
+      PRODUCTION: '{{if eq .DEV "true"}}false{{else}}true{{end}}'
+    vars:
+      BUILD_COMMAND: '{{if eq .DEV "true"}}build:dev{{else}}build{{end}}'
+      SCAN: '{{.SCAN | default "false"}}'
+
+  dev:frontend:
+    summary: 启动前端开发服务
+    dir: '{{.ROOT_DIR}}/frontend'
+    deps:
+      - task: install:frontend:deps
+    cmds:
+      - yarn run dev --port {{.VITE_PORT}} --strictPort
+
+  generate:icons:
+    summary: 仅使用 appicon.png 生成 Windows 与 macOS 图标
+    dir: '{{.BUILD_DIR}}'
+    sources:
+      - "appicon.png"
+    generates:
+      - "darwin/icons.icns"
+      - "windows/icon.ico"
+    cmds:
+      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+
+  update:build-assets:
+    summary: 根据配置更新构建资产
+    dir: '{{.BUILD_DIR}}'
+    cmds:
+      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
+      - rm -rf ios
+
+  setup:docker:
+    summary: 构建 Linux 交叉编译 Docker 镜像
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: docker info >/dev/null 2>&1
+        msg: "未检测到可用的 Docker daemon，请先启动 Docker。"
+      - sh: test -f ./build/docker/Dockerfile.cross
+        msg: "未找到 build/docker/Dockerfile.cross。"
+    cmds:
+      - docker build --platform linux/amd64{{if .BASE_IMAGE}} --build-arg BASE_IMAGE="{{.BASE_IMAGE}}"{{end}}{{if .GO_TARBALL_URL}} --build-arg GO_TARBALL_URL="{{.GO_TARBALL_URL}}"{{end}} -t cursor-linux-amd64-cross -f ./build/docker/Dockerfile.cross ./build/docker

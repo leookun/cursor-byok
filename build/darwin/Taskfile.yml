@@ -1,0 +1,273 @@
+version: "3"
+
+includes:
+  common: ../Taskfile.yml
+
+tasks:
+  build:
+    summary: 构建 macOS 程序
+    internal: true
+    cmds:
+      - task: build:native
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+
+  build:native:
+    summary: 使用本机构建 macOS 程序
+    internal: true
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - task: common:generate:icons
+    cmds:
+      - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
+    vars:
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{end}}'
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.BINARY_NAME}}'
+      OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
+    env:
+      GOOS: darwin
+      CGO_ENABLED: 1
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CGO_CFLAGS: "-mmacosx-version-min=10.15"
+      CGO_LDFLAGS: "-mmacosx-version-min=10.15"
+      MACOSX_DEPLOYMENT_TARGET: "10.15"
+
+  build:universal:
+    summary: 构建 macOS 通用包（amd64 + arm64）
+    internal: true
+    deps:
+      - task: build
+        vars:
+          ARCH: amd64
+          BINARY_NAME: "{{.APP_NAME}}-amd64"
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-amd64"
+      - task: build
+        vars:
+          ARCH: arm64
+          BINARY_NAME: "{{.APP_NAME}}-arm64"
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-arm64"
+    cmds:
+      - lipo -create -output "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}-amd64" "{{.BIN_DIR}}/{{.APP_NAME}}-arm64"
+      - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}-amd64" "{{.BIN_DIR}}/{{.APP_NAME}}-arm64"
+
+  package:
+    summary: 打包 macOS .app（可通过 APP_BUNDLE 指定输出包名）
+    internal: true
+    cmds:
+      - task: build
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - task: create:app:bundle
+        vars:
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+
+  package:dmg:
+    summary: 打包 macOS DMG（可通过 APP_BUNDLE/DMG_NAME 指定输出文件名）
+    internal: true
+    cmds:
+      - task: package
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - task: create:dmg
+        vars:
+          ARCH:
+            ref: .ARCH
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+          DMG_NAME:
+            ref: .DMG_NAME
+      - task: cleanup:package:artifacts
+        vars:
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+
+  package:archive:
+    summary: 打包 macOS updater 归档（.tar.gz）
+    internal: true
+    cmds:
+      - task: package
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - task: create:archive
+        vars:
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+          ARCHIVE_PATH:
+            ref: .ARCHIVE_PATH
+      - task: cleanup:package:artifacts
+        vars:
+          OUTPUT:
+            ref: .OUTPUT
+          BINARY_NAME:
+            ref: .BINARY_NAME
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+
+  package:universal:
+    summary: 打包 macOS 通用 .app
+    internal: true
+    cmds:
+      - task: build:universal
+      - task: create:app:bundle
+
+  create:app:bundle:
+    summary: 生成 .app 包
+    internal: true
+    vars:
+      APP_BUNDLE: '{{.APP_BUNDLE | default (printf "%s.app" .APP_NAME)}}'
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      BINARY_PATH: '{{.OUTPUT | default (printf "%s/%s" .BIN_DIR .BINARY_NAME)}}'
+      EXECUTABLE_NAME: '{{.EXECUTABLE_NAME | default .APP_NAME}}'
+    cmds:
+      - rm -rf "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/MacOS"
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/Resources"
+      - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/Resources"
+      - cp "{{.BINARY_PATH}}" "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/MacOS/{{.EXECUTABLE_NAME}}"
+      - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents"
+      - task: codesign:adhoc
+        vars:
+          APP_BUNDLE:
+            ref: .APP_BUNDLE
+
+  codesign:adhoc:
+    summary: 使用临时签名（开发测试）
+    internal: true
+    vars:
+      APP_BUNDLE: '{{.APP_BUNDLE | default (printf "%s.app" .APP_NAME)}}'
+    cmds:
+      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
+
+  create:dmg:
+    summary: 生成 macOS DMG 包（优先使用 create-dmg，不存在时回退 hdiutil）
+    internal: true
+    vars:
+      APP_BUNDLE: '{{.APP_BUNDLE | default (printf "%s.app" .APP_NAME)}}'
+      DMG_NAME: '{{.DMG_NAME | default (printf "%s.dmg" .APP_NAME)}}'
+      STAGING_DIR: '{{.BIN_DIR}}/.dmg-{{.ARCH | default ARCH}}'
+    cmds:
+      - rm -rf "{{.STAGING_DIR}}"
+      - mkdir -p "{{.STAGING_DIR}}"
+      - cp -R "{{.BIN_DIR}}/{{.APP_BUNDLE}}" "{{.STAGING_DIR}}/{{.APP_NAME}}.app"
+      - |
+        if [ -f "build/dmg-extras/提示损坏？点我.command" ]; then
+          cp "build/dmg-extras/提示损坏？点我.command" "{{.STAGING_DIR}}/提示损坏？点我.command"
+          chmod +x "{{.STAGING_DIR}}/提示损坏？点我.command"
+        fi
+      - |
+        if command -v create-dmg >/dev/null 2>&1; then
+          rm -f "{{.BIN_DIR}}/{{.DMG_NAME}}"
+          create-dmg --volname "{{.APP_NAME}}" --window-size 600 400 --icon-size 100 --app-drop-link 450 200 "{{.BIN_DIR}}/{{.DMG_NAME}}" "{{.STAGING_DIR}}"
+        else
+          hdiutil create -volname "{{.APP_NAME}}" -srcfolder "{{.STAGING_DIR}}" -ov -format UDZO "{{.BIN_DIR}}/{{.DMG_NAME}}"
+        fi
+      - rm -rf "{{.STAGING_DIR}}"
+
+  create:archive:
+    summary: 生成 macOS updater tar.gz 归档
+    internal: true
+    vars:
+      APP_BUNDLE: '{{.APP_BUNDLE | default (printf "%s.app" .APP_NAME)}}'
+      ARCHIVE_PATH: '{{.ARCHIVE_PATH | default (printf "%s/%s.tar.gz" .BIN_DIR .APP_NAME)}}'
+    cmds:
+      - rm -f "{{.ARCHIVE_PATH}}"
+      - env LC_ALL=C tar -C "{{.BIN_DIR}}" -czf "{{.ARCHIVE_PATH}}" "{{.APP_BUNDLE}}"
+
+  cleanup:package:artifacts:
+    summary: 清理打包中间产物
+    internal: true
+    vars:
+      APP_BUNDLE: '{{.APP_BUNDLE | default (printf "%s.app" .APP_NAME)}}'
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      BINARY_PATH: '{{.OUTPUT | default (printf "%s/%s" .BIN_DIR .BINARY_NAME)}}'
+    cmds:
+      - rm -f "{{.BINARY_PATH}}"
+      - rm -rf "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
+
+  run:
+    summary: 运行本地开发包
+    vars:
+      BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
+      EXECUTABLE_NAME: '{{.EXECUTABLE_NAME | default .APP_NAME}}'
+    cmds:
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp "{{.BIN_DIR}}/{{.BINARY_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.EXECUTABLE_NAME}}"
+      - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
+      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
+      - '{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.EXECUTABLE_NAME}}'

@@ -1,0 +1,4 @@
+interface:
+  display_name: "本地模式实现指南"
+  short_description: "当用户在尝试解决本地模式问题时，使用此技能"
+  default_prompt: "使用 $coding-guidance 来解决本地模式问题。"

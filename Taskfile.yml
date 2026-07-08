@@ -1,0 +1,559 @@
+version: "3"
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+vars:
+  APP_NAME: "Cursor助手"
+  BIN_DIR: "bin"
+  APP_VERSION:
+    sh: 'go run ./scripts/release version -config ./build/config.yml'
+  RELEASE_REPO: "leookun/cursor-byok"
+  RELEASE_BASE_NAME: "cursor-byok"
+  RELEASE_SOURCE_PATH: "release-notes.md"
+  RELEASE_DIR: '{{.BIN_DIR}}/release/{{.APP_VERSION}}'
+  RELEASE_NOTES_PATH: '{{.RELEASE_DIR}}/.release-notes.md'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  SCAN: '{{.SCAN | default "false"}}'
+  CURRENT_WINDOWS_ARCH: '{{if eq ARCH "386"}}386{{else}}amd64{{end}}'
+  CURRENT_WINDOWS_NAME: '{{if eq .CURRENT_WINDOWS_ARCH "386"}}windows-32{{else}}windows-64{{end}}'
+  CURRENT_DARWIN_NAME: '{{if eq ARCH "arm64"}}macos-arm64{{else}}macos-intel{{end}}'
+  CURRENT_LINUX_ARCH: "amd64"
+  CURRENT_LINUX_NAME: "linux-amd64"
+
+tasks:
+  build:
+    summary: 构建当前系统分发包
+    preconditions:
+      - sh: '[ "{{OS}}" = "darwin" ] || [ "{{OS}}" = "windows" ] || [ "{{OS}}" = "linux" ]'
+        msg: "仅支持在 macOS、Windows 或 Linux 上执行 task build"
+    cmds:
+      - task: clean:dist
+      - task: build:current
+
+  run:
+    summary: 运行当前系统版本
+    cmds:
+      - task: "{{OS}}:run"
+
+  build:all:
+    summary: 构建全部 macOS/Windows 分发包（Linux 需在原生 Linux 主机单独构建）
+    preconditions:
+      - sh: '[ "{{OS}}" = "darwin" ]'
+        msg: "task build:all 仅支持在 macOS 上执行；Linux 需在原生 Linux 主机构建。"
+    cmds:
+      - task: clean:dist
+      - task: build:darwin:arm64
+      - task: build:darwin:amd64
+      - task: build:windows:386
+      - task: build:windows:amd64
+
+  build:current:
+    internal: true
+    cmds:
+      - task: '{{if eq OS "darwin"}}build:darwin:current{{else if eq OS "linux"}}build:linux:current{{else}}build:windows:current{{end}}'
+
+  build:darwin:current:
+    internal: true
+    cmds:
+      - task: darwin:package:dmg
+        vars:
+          ARCH: '{{ARCH}}'
+          BINARY_NAME: '{{.CURRENT_DARWIN_NAME}}'
+          OUTPUT: '{{.BIN_DIR}}/{{.CURRENT_DARWIN_NAME}}'
+          APP_BUNDLE: '{{.CURRENT_DARWIN_NAME}}.app'
+          DMG_NAME: '{{.CURRENT_DARWIN_NAME}}.dmg'
+          SCAN: '{{.SCAN}}'
+
+  build:darwin:arm64:
+    internal: false
+    cmds:
+      - task: darwin:package:dmg
+        vars:
+          ARCH: arm64
+          BINARY_NAME: macos-arm64
+          OUTPUT: '{{.BIN_DIR}}/macos-arm64'
+          APP_BUNDLE: macos-arm64.app
+          DMG_NAME: macos-arm64.dmg
+          SCAN: '{{.SCAN}}'
+
+  build:darwin:amd64:
+    internal: true
+    cmds:
+      - task: darwin:package:dmg
+        vars:
+          ARCH: amd64
+          BINARY_NAME: macos-intel
+          OUTPUT: '{{.BIN_DIR}}/macos-intel'
+          APP_BUNDLE: macos-intel.app
+          DMG_NAME: macos-intel.dmg
+          SCAN: '{{.SCAN}}'
+
+  build:windows:current:
+    internal: true
+    cmds:
+      - task: windows:create:zip
+        vars:
+          ARCH: '{{.CURRENT_WINDOWS_ARCH}}'
+          OUTPUT: '{{.BIN_DIR}}/{{.CURRENT_WINDOWS_NAME}}.exe'
+          ZIP_NAME: '{{.CURRENT_WINDOWS_NAME}}.zip'
+          SCAN: '{{.SCAN}}'
+
+  build:windows:386:
+    internal: true
+    cmds:
+      - task: windows:create:zip
+        vars:
+          ARCH: 386
+          OUTPUT: '{{.BIN_DIR}}/windows-32.exe'
+          ZIP_NAME: windows-32.zip
+          SCAN: '{{.SCAN}}'
+
+  build:windows:amd64:
+    cmds:
+      - task: windows:create:zip
+        vars:
+          ARCH: amd64
+          OUTPUT: '{{.BIN_DIR}}/windows-64.exe'
+          ZIP_NAME: windows-64.zip
+          SCAN: '{{.SCAN}}'
+
+  build:linux:current:
+    internal: true
+    cmds:
+      - task: linux:package:archive
+        vars:
+          ARCH: '{{.CURRENT_LINUX_ARCH}}'
+          BINARY_NAME: '{{.CURRENT_LINUX_NAME}}'
+          OUTPUT: '{{.BIN_DIR}}/{{.CURRENT_LINUX_NAME}}'
+          ARCHIVE_BINARY_NAME: '{{.APP_NAME}}'
+          ARCHIVE_PATH: '{{.BIN_DIR}}/{{.CURRENT_LINUX_NAME}}.tar.gz'
+          SCAN: '{{.SCAN}}'
+
+  build:linux:amd64:
+    cmds:
+      - task: linux:package:archive
+        vars:
+          ARCH: amd64
+          BINARY_NAME: linux-amd64
+          OUTPUT: '{{.BIN_DIR}}/linux-amd64'
+          ARCHIVE_BINARY_NAME: '{{.APP_NAME}}'
+          ARCHIVE_PATH: '{{.BIN_DIR}}/linux-amd64.tar.gz'
+          SCAN: '{{.SCAN}}'
+
+  cursor-tab-server:docker:amd64:
+    summary: 构建 cursor-tab-server 的 linux/amd64 Docker 镜像并保存到 cursor-tab-server 目录
+    vars:
+      IMAGE_NAME: '{{.IMAGE_NAME | default "cursor-tab-server:linux-amd64"}}'
+      IMAGE_TAR: '{{.IMAGE_TAR | default "cursor-tab-server/cursor-tab-server-linux-amd64.tar"}}'
+      CONTEXT_DIR: cursor-tab-server
+      DOCKERFILE: cursor-tab-server/Dockerfile
+    preconditions:
+      - sh: docker info >/dev/null 2>&1
+        msg: "未检测到可用的 Docker daemon，请先启动 Docker。"
+      - sh: test -f "{{.DOCKERFILE}}"
+        msg: "未找到 cursor-tab-server/Dockerfile。"
+      - sh: test -f "{{.CONTEXT_DIR}}/go.mod"
+        msg: "未找到 cursor-tab-server/go.mod。"
+    cmds:
+      - mkdir -p "{{.CONTEXT_DIR}}"
+      - docker build --platform linux/amd64 -t "{{.IMAGE_NAME}}" -f "{{.DOCKERFILE}}" "{{.CONTEXT_DIR}}"
+      - docker save "{{.IMAGE_NAME}}" -o "{{.IMAGE_TAR}}"
+      - ls -lh "{{.IMAGE_TAR}}"
+
+  clean:dist:
+    internal: true
+    cmds:
+      - mkdir -p "{{.BIN_DIR}}"
+      - rm -f "{{.BIN_DIR}}/macos-arm64.dmg" "{{.BIN_DIR}}/macos-intel.dmg" "{{.BIN_DIR}}/windows-32.zip" "{{.BIN_DIR}}/windows-64.zip" "{{.BIN_DIR}}/linux-amd64.tar.gz"
+      - rm -f "{{.BIN_DIR}}/macos-arm64" "{{.BIN_DIR}}/macos-intel" "{{.BIN_DIR}}/windows-32.exe" "{{.BIN_DIR}}/windows-64.exe" "{{.BIN_DIR}}/linux-amd64"
+      - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
+      - rm -rf "{{.BIN_DIR}}/macos-arm64.app" "{{.BIN_DIR}}/macos-intel.app" "{{.BIN_DIR}}/{{.APP_NAME}}.app" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
+
+  dev:
+    summary: 启动开发模式（前台，终端会保持占用）
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  ads:install:
+    summary: 安装广告页依赖
+    dir: '{{.TASKFILE_DIR}}/ads-page'
+    sources:
+      - package.json
+      - yarn.lock
+    generates:
+      - node_modules
+    cmds:
+      - yarn install --frozen-lockfile
+
+  ads:dev:
+    summary: 启动广告页开发服务（http://127.0.0.1:5174/ad/）
+    dir: '{{.TASKFILE_DIR}}/ads-page'
+    deps:
+      - task: ads:install
+    cmds:
+      - yarn dev
+
+  ads:build:
+    summary: 构建广告 ZIP 产物
+    dir: '{{.TASKFILE_DIR}}/ads-page'
+    deps:
+      - task: ads:install
+    cmds:
+      - yarn build
+
+  setup:docker:
+    summary: 构建 Linux 交叉编译 Docker 镜像
+    cmds:
+      - task: common:setup:docker
+
+  release:clean:
+    summary: 清理当前版本的发布目录
+    cmds:
+      - rm -rf "{{.RELEASE_DIR}}"
+      - mkdir -p "{{.RELEASE_DIR}}"
+
+  release:ensure:dir:
+    internal: true
+    cmds:
+      - mkdir -p "{{.RELEASE_DIR}}"
+
+  release:notes:
+    summary: 从 release-notes.md 生成当前版本的发布说明文件（README.md 仅用于公开仓库同步）
+    internal: true
+    preconditions:
+      - sh: test -f "{{.RELEASE_SOURCE_PATH}}"
+        msg: "未找到 release-notes.md，请先创建发布日志文件。"
+      - sh: test -n "$(tr -d '[:space:]' < "{{.RELEASE_SOURCE_PATH}}")"
+        msg: "release-notes.md 不能为空，请先填写发布日志。"
+    cmds:
+      - go run ./scripts/release notes -config ./build/config.yml -out "{{.RELEASE_NOTES_PATH}}" -source "{{.RELEASE_SOURCE_PATH}}"
+
+  release:build:macos:arm64:
+    cmds:
+      - task: darwin:package:archive
+        vars:
+          ARCH: arm64
+          BINARY_NAME: cursor-release-macos-arm64
+          OUTPUT: '{{.BIN_DIR}}/cursor-release-macos-arm64'
+          APP_BUNDLE: '{{.APP_NAME}}.app'
+          ARCHIVE_PATH: '{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-macos-arm64.tar.gz'
+          SCAN: '{{.SCAN}}'
+
+  release:build:macos:amd64:
+    internal: true
+    cmds:
+      - task: darwin:package:archive
+        vars:
+          ARCH: amd64
+          BINARY_NAME: cursor-release-macos-amd64
+          OUTPUT: '{{.BIN_DIR}}/cursor-release-macos-amd64'
+          APP_BUNDLE: '{{.APP_NAME}}.app'
+          ARCHIVE_PATH: '{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-macos-amd64.tar.gz'
+          SCAN: '{{.SCAN}}'
+
+  release:build:windows:amd64:
+    cmds:
+      - task: windows:create:zip
+        vars:
+          ARCH: amd64
+          OUTPUT: '{{.BIN_DIR}}/{{.RELEASE_BASE_NAME}}-windows-amd64.exe'
+          ZIP_NAME: 'release/{{.APP_VERSION}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-windows-amd64.zip'
+          SCAN: '{{.SCAN}}'
+
+  release:build:linux:amd64:
+    cmds:
+      - task: linux:package:archive
+        vars:
+          ARCH: amd64
+          BINARY_NAME: cursor-release-linux-amd64
+          OUTPUT: '{{.BIN_DIR}}/cursor-release-linux-amd64'
+          ARCHIVE_BINARY_NAME: '{{.APP_NAME}}'
+          ARCHIVE_PATH: '{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-linux-amd64.tar.gz'
+          SCAN: '{{.SCAN}}'
+
+  release:manifest:
+    summary: 生成 update.json
+    internal: true
+    cmds:
+      - go run ./scripts/release manifest -config ./build/config.yml -assets-dir "{{.RELEASE_DIR}}" -out "{{.RELEASE_DIR}}/update.json" -repo "{{.RELEASE_REPO}}" -base-name "{{.RELEASE_BASE_NAME}}" -notes "{{.RELEASE_NOTES_PATH}}"
+
+  release:prepare:
+    summary: 在当前主机上生成对应的发布资产
+    preconditions:
+      - sh: '[ "{{OS}}" = "darwin" ] || [ "{{OS}}" = "linux" ]'
+        msg: "release:prepare 仅支持在 macOS 或 Linux 上执行。"
+      - sh: wails3 version >/dev/null 2>&1
+        msg: "未检测到 wails3，请先安装 Wails v3 CLI。"
+    cmds:
+      - task: '{{if eq OS "darwin"}}release:prepare:darwin{{else}}release:prepare:linux{{end}}'
+
+  release:prepare:darwin:
+    summary: 在 macOS 上生成 macOS/Windows/Linux 发布资产
+    preconditions:
+      - sh: '[ "{{OS}}" = "darwin" ]'
+        msg: "release:prepare:darwin 仅支持在 macOS 上执行。"
+      - sh: wails3 version >/dev/null 2>&1
+        msg: "未检测到 wails3，请先安装 Wails v3 CLI。"
+    cmds:
+      - task: release:clean
+      - task: common:update:build-assets
+      - task: release:notes
+      - task: release:build:macos:arm64
+      - task: release:build:macos:amd64
+      - task: release:build:windows:amd64
+      - task: release:build:linux:amd64
+
+  release:prepare:linux:
+    summary: 在当前主机上生成 Linux 发布资产
+    preconditions:
+      - sh: '[ "{{OS}}" = "linux" ] || [ "{{OS}}" = "darwin" ]'
+        msg: "release:prepare:linux 当前仅支持在 Linux 或 macOS 上执行。"
+      - sh: wails3 version >/dev/null 2>&1
+        msg: "未检测到 wails3，请先安装 Wails v3 CLI。"
+    cmds:
+      - task: release:ensure:dir
+      - task: common:update:build-assets
+      - task: release:notes
+      - task: release:build:linux:amd64
+
+  release:verify:assets:
+    summary: 验证当前版本发布资产是否齐全
+    preconditions:
+      - sh: test -f "{{.RELEASE_NOTES_PATH}}"
+        msg: "未找到发布说明，请先执行对应的 release:prepare 任务。"
+      - sh: test -f "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-macos-arm64.tar.gz"
+        msg: "缺少 macOS arm64 发布资产。"
+      - sh: test -f "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-macos-amd64.tar.gz"
+        msg: "缺少 macOS amd64 发布资产。"
+      - sh: test -f "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-windows-amd64.zip"
+        msg: "缺少 Windows amd64 发布资产。"
+      - sh: test -f "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-linux-amd64.tar.gz"
+        msg: "缺少 Linux amd64 发布资产。"
+    cmds:
+      - echo "release assets verified"
+
+  release:sync:readme:
+    summary: 同步 README 到公开发布仓库（发布日志来源固定为 release-notes.md）
+    internal: true
+    env:
+      GH_PAGER: cat
+      GIT_PAGER: cat
+      PAGER: cat
+    preconditions:
+      - sh: gh --version >/dev/null 2>&1
+        msg: "未检测到 gh，请先安装 GitHub CLI。"
+      - sh: gh auth token >/dev/null 2>&1
+        msg: "gh 未登录，请先执行 gh auth login。"
+    cmds:
+      - |
+        python3 - <<'PY'
+        import base64
+        import json
+        import pathlib
+        import subprocess
+        import sys
+        import time
+
+        RETRYABLE_TOKENS = ("EOF", "timeout", "TLS", "temporarily unavailable", "connection reset", "connection refused")
+
+        def run_gh(cmd, *, input_text=None, allow_404=False, retries=4):
+            last = None
+            for attempt in range(1, retries + 1):
+                completed = subprocess.run(
+                    cmd,
+                    input=input_text,
+                    text=True,
+                    capture_output=True,
+                )
+                if completed.returncode == 0:
+                    return completed
+                stderr = (completed.stderr or "").strip()
+                stdout = (completed.stdout or "").strip()
+                combined = f"{stderr}\n{stdout}".strip()
+                if allow_404 and "404" in combined:
+                    return completed
+                last = completed
+                if not any(token.lower() in combined.lower() for token in RETRYABLE_TOKENS):
+                    return completed
+                if attempt < retries:
+                    time.sleep(min(2 ** (attempt - 1), 5))
+            return last
+
+        repo = "{{.RELEASE_REPO}}"
+        readme_path = pathlib.Path("README.md")
+        content = readme_path.read_bytes()
+        encoded = base64.b64encode(content).decode("ascii")
+
+        get_cmd = [
+            "gh", "api",
+            f"repos/{repo}/contents/README.md",
+        ]
+        result = run_gh(get_cmd, allow_404=True)
+
+        payload = {
+            "message": "docs: sync README from source repo",
+            "content": encoded,
+            "branch": "main",
+        }
+
+        if result.returncode == 0:
+            existing = json.loads(result.stdout)
+            existing_content = base64.b64decode(existing["content"])
+            if existing_content == content:
+                sys.exit(0)
+            payload["sha"] = existing["sha"]
+
+        put_cmd = [
+            "gh", "api",
+            f"repos/{repo}/contents/README.md",
+            "--method", "PUT",
+            "--input", "-",
+        ]
+        completed = run_gh(put_cmd, input_text=json.dumps(payload))
+        if completed.returncode != 0 and completed.stderr:
+            sys.stderr.write(completed.stderr)
+        sys.exit(completed.returncode)
+        PY
+
+  release:github:
+    summary: 发布当前版本到 GitHub Releases
+    env:
+      GH_PAGER: cat
+      GIT_PAGER: cat
+      PAGER: cat
+    preconditions:
+      - sh: gh --version >/dev/null 2>&1
+        msg: "未检测到 gh，请先安装 GitHub CLI。"
+      - sh: gh auth token >/dev/null 2>&1
+        msg: "gh 未登录，请先执行 gh auth login。"
+    cmds:
+      - task: release:verify:assets
+      - task: release:manifest
+      - task: release:sync:readme
+      - |
+        python3 - <<'PY'
+        import mimetypes
+        import json
+        import pathlib
+        import subprocess
+        import sys
+        import time
+
+        RETRYABLE_TOKENS = ("EOF", "timeout", "TLS", "temporarily unavailable", "connection reset", "connection refused")
+
+        def run_gh(cmd, *, input_text=None, allow_404=False, retries=4):
+            last = None
+            for attempt in range(1, retries + 1):
+                completed = subprocess.run(
+                    cmd,
+                    input=input_text,
+                    text=True,
+                    capture_output=True,
+                )
+                if completed.returncode == 0:
+                    return completed
+                stderr = (completed.stderr or "").strip()
+                stdout = (completed.stdout or "").strip()
+                combined = f"{stderr}\n{stdout}".strip()
+                if allow_404 and "404" in combined:
+                    return completed
+                last = completed
+                if not any(token.lower() in combined.lower() for token in RETRYABLE_TOKENS):
+                    return completed
+                if attempt < retries:
+                    time.sleep(min(2 ** (attempt - 1), 5))
+            return last
+
+        repo = "{{.RELEASE_REPO}}"
+        version = "{{.APP_VERSION}}"
+        tag = f"v{version}"
+        notes = pathlib.Path("{{.RELEASE_NOTES_PATH}}").read_text(encoding="utf-8")
+        assets = sorted([
+            pathlib.Path("{{.RELEASE_DIR}}/update.json"),
+            *pathlib.Path("{{.RELEASE_DIR}}").glob("*.tar.gz"),
+            *pathlib.Path("{{.RELEASE_DIR}}").glob("*.zip"),
+        ])
+
+        get_cmd = [
+            "gh", "api",
+            f"repos/{repo}/releases/tags/{tag}",
+        ]
+        result = run_gh(get_cmd, allow_404=True)
+
+        payload = {
+            "tag_name": tag,
+            "target_commitish": "main",
+            "name": tag,
+            "body": notes,
+            "draft": False,
+            "prerelease": False,
+        }
+
+        if result.returncode == 0:
+            release = json.loads(result.stdout)
+            release_id = release["id"]
+            edit_cmd = [
+                "gh", "api",
+                f"repos/{repo}/releases/{release_id}",
+                "--method", "PATCH",
+                "--input", "-",
+            ]
+            completed = run_gh(edit_cmd, input_text=json.dumps(payload))
+            if completed.returncode != 0:
+                if completed.stderr:
+                    sys.stderr.write(completed.stderr)
+                sys.exit(completed.returncode)
+            refreshed = run_gh(get_cmd)
+            if refreshed.returncode != 0:
+                if refreshed.stderr:
+                    sys.stderr.write(refreshed.stderr)
+                sys.exit(refreshed.returncode)
+            release = json.loads(refreshed.stdout)
+        else:
+            create_cmd = [
+                "gh", "api",
+                f"repos/{repo}/releases",
+                "--method", "POST",
+                "--input", "-",
+            ]
+            completed = run_gh(create_cmd, input_text=json.dumps(payload))
+            if completed.returncode != 0:
+                sys.stderr.write(completed.stderr)
+                sys.exit(completed.returncode)
+            release = json.loads(completed.stdout)
+
+        upload_url = release["upload_url"].split("{", 1)[0]
+        existing = {asset["name"]: asset["id"] for asset in release.get("assets", [])}
+
+        for asset in assets:
+            name = asset.name
+            if name in existing:
+                delete_cmd = [
+                    "gh", "api",
+                    f"repos/{repo}/releases/assets/{existing[name]}",
+                    "--method", "DELETE",
+                ]
+                deleted = run_gh(delete_cmd)
+                if deleted.returncode != 0:
+                    if deleted.stderr:
+                        sys.stderr.write(deleted.stderr)
+                    sys.exit(deleted.returncode)
+
+            content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            upload_cmd = [
+                "gh", "api",
+                f"{upload_url}?name={name}",
+                "--method", "POST",
+                "--header", f"Content-Type: {content_type}",
+                "--input", str(asset),
+            ]
+            uploaded = run_gh(upload_cmd)
+            if uploaded.returncode != 0:
+                if uploaded.stderr:
+                    sys.stderr.write(uploaded.stderr)
+                sys.exit(uploaded.returncode)
+        PY

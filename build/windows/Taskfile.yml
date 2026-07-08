@@ -1,0 +1,156 @@
+version: "3"
+
+includes:
+  common: ../Taskfile.yml
+
+tasks:
+  build:
+    summary: 构建 Windows 程序
+    internal: true
+    cmds:
+      - task: build:native
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+
+  build:native:
+    summary: 使用 Go 原生交叉编译构建 Windows 程序
+    internal: true
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - task: common:generate:icons
+    cmds:
+      - task: generate:syso
+        vars:
+          ARCH:
+            ref: .ARCH
+      - go build {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"
+      - cmd: powershell Remove-item *.syso
+        platforms: [windows]
+      - cmd: rm -f *.syso
+        platforms: [darwin, linux]
+    vars:
+      OUTPUT: '{{.OUTPUT | default (printf "%s/%s.exe" .BIN_DIR .APP_NAME)}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{end}}'
+    env:
+      GOOS: windows
+      CGO_ENABLED: 0
+      GOARCH: '{{.ARCH | default ARCH}}'
+
+  package:
+    summary: 打包 Windows 安装程序
+    internal: true
+    cmds:
+      - task: '{{if eq (.FORMAT | default "nsis") "msix"}}create:msix:package{{else}}create:nsis:installer{{end}}'
+    vars:
+      FORMAT: '{{.FORMAT | default "nsis"}}'
+
+  generate:syso:
+    summary: 生成 Windows 图标与版本信息资源
+    internal: true
+    dir: build
+    cmds:
+      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_{{.ARCH}}.syso
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+
+  create:nsis:installer:
+    summary: 生成 NSIS 安装包
+    internal: true
+    dir: build/windows/nsis
+    deps:
+      - task: build
+        vars:
+          SCAN:
+            ref: .SCAN
+    cmds:
+      - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
+      - |
+        {{if eq OS "windows"}}
+        makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+        {{else}}
+        makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
+        {{end}}
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+      ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
+
+  create:msix:package:
+    summary: 生成 MSIX 安装包
+    internal: true
+    deps:
+      - task: build
+        vars:
+          SCAN:
+            ref: .SCAN
+    cmds:
+      - |-
+        wails3 tool msix \
+          --config "{{.ROOT_DIR}}/wails.json" \
+          --name "{{.APP_NAME}}" \
+          --executable "{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" \
+          --arch "{{.ARCH}}" \
+          --out "{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-{{.ARCH}}.msix" \
+          {{if .CERT_PATH}}--cert "{{.CERT_PATH}}"{{end}} \
+          {{if .PUBLISHER}}--publisher "{{.PUBLISHER}}"{{end}} \
+          {{if .USE_MSIX_TOOL}}--use-msix-tool{{else}}--use-makeappx{{end}}
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+      CERT_PATH: '{{.CERT_PATH | default ""}}'
+      PUBLISHER: '{{.PUBLISHER | default ""}}'
+      USE_MSIX_TOOL: '{{.USE_MSIX_TOOL | default "false"}}'
+
+  create:zip:
+    summary: 生成 Windows ZIP 包（包含 exe 与 certs）
+    internal: true
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+      OUTPUT: '{{.OUTPUT | default (printf "%s/%s.exe" .BIN_DIR .APP_NAME)}}'
+      ZIP_NAME: '{{.ZIP_NAME | default (printf "%s-windows-%s.zip" .APP_NAME .ARCH)}}'
+      STAGING_DIR: '{{.BIN_DIR}}/.zip-{{.ARCH}}'
+    cmds:
+      - task: build
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+      - rm -rf "{{.STAGING_DIR}}"
+      - mkdir -p "{{.STAGING_DIR}}"
+      - cp "{{.OUTPUT}}" "{{.STAGING_DIR}}/"
+      - (cd "{{.STAGING_DIR}}" && zip -qry "../{{.ZIP_NAME}}" .)
+      - rm -rf "{{.STAGING_DIR}}"
+      - rm -f "{{.OUTPUT}}"
+
+  run:
+    summary: 运行 Windows 可执行文件（仅在 Windows 可用）
+    vars:
+      OUTPUT: '{{.OUTPUT | default (printf "%s/%s.exe" .BIN_DIR .APP_NAME)}}'
+    cmds:
+      - '{{.OUTPUT}}'

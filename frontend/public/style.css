@@ -1,0 +1,281 @@
+:root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --btn: #111827;
+    --btn-text: #ffffff;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    background: var(--bg);
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 0;
+}
+
+.app-shell {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 10px;
+    background: var(--card);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.window-header {
+    height: 30px;
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--line);
+    background: #f8f8f8;
+    color: #6b7280;
+    user-select: none;
+}
+
+body.os-windows .window-header {
+    justify-content: space-between;
+}
+
+.header-spacer {
+    display: none;
+    width: 48px;
+    height: 22px;
+}
+
+body.os-windows .header-spacer {
+    display: block;
+}
+
+.header-title {
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 500;
+}
+
+.window-actions {
+    display: none;
+    align-items: center;
+    gap: 4px;
+}
+
+body.os-windows .window-actions {
+    display: flex;
+}
+
+.window-btn {
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.window-btn img {
+    width: 14px;
+    height: 14px;
+    opacity: 0.7;
+}
+
+.window-btn:hover {
+    background: #e5e7eb;
+}
+
+.window-btn:hover img {
+    opacity: 1;
+}
+
+.window-btn.close-btn:hover {
+    background: #ef4444;
+}
+
+.window-btn.close-btn:hover img {
+    filter: brightness(0) invert(1);
+}
+
+.panel {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.panel-top,
+.panel-bottom {
+    display: grid;
+    gap: 12px;
+}
+
+.row {
+    display: grid;
+    grid-template-columns: 74px 1fr;
+    align-items: center;
+    gap: 8px;
+}
+
+.windows-only {
+    display: none;
+}
+
+body.os-windows .windows-only {
+    display: grid;
+}
+
+.field {
+    display: grid;
+    grid-template-columns: 1fr 56px;
+    gap: 8px;
+    align-items: center;
+}
+
+.label {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+input {
+    width: 100%;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 10px;
+    font-size: 13px;
+    outline: none;
+    background: #fff;
+}
+
+input:focus {
+    border-color: #9ca3af;
+}
+
+input[readonly] {
+    background: #f9fafb;
+}
+
+.value {
+    font-size: 13px;
+}
+
+.toggle-btn {
+    width: 100%;
+    height: 38px;
+    border: none;
+    border-radius: 8px;
+    background: var(--btn);
+    color: var(--btn-text);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.toggle-btn.enabled {
+    background: #374151;
+}
+
+.toggle-btn.waiting-init {
+    background: #9ca3af;
+}
+
+.init-btn {
+    width: 100%;
+    height: 38px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.init-btn:hover:not(:disabled) {
+    border-color: #9ca3af;
+    background: #f9fafb;
+}
+
+.query-btn {
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 12px;
+    color: #374151;
+    cursor: pointer;
+}
+
+.query-btn:disabled,
+.init-btn:disabled,
+.toggle-btn:disabled,
+.window-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.expire-inline {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.init-status-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.init-status {
+    font-size: 12px;
+}
+
+.init-status[data-state="idle"] {
+    color: #6b7280;
+}
+
+.init-status[data-state="checking"] {
+    color: #2563eb;
+}
+
+.init-status[data-state="ready"] {
+    color: #047857;
+}
+
+.init-status[data-state="pending"] {
+    color: #92400e;
+}
+
+.init-status[data-state="error"] {
+    color: #b91c1c;
+}
+
+.action-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}

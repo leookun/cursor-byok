@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "HFKos";
+  src: url("./fonts/HFKos-R.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@layer base {
+  :root {
+  --font-num: "HFKos", "PingFang-Medium", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+}
+
+@layer components {
+  .center-row {
+    @apply flex flex-row items-center;
+  }
+
+  .center-col {
+    @apply flex flex-col items-center;
+  }
+}

@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.0.39"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.0.39",
+			"CompanyName": "Cursor助手",
+			"FileDescription": "Cursor助手",
+			"LegalCopyright": "© 2026, Cursor助手",
+			"ProductName": "Cursor助手",
+			"Comments": "Cursor助手"
+		}
+	}
+}

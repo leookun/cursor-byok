@@ -1,0 +1,4 @@
+interface:
+  display_name: "测试要求"
+  short_description: "根据测试要求，生成测试用例"
+  default_prompt: "使用 $test-requirements 来根据测试要求，生成测试用例。"

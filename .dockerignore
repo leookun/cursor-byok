@@ -1,0 +1,9 @@
+*
+!go.mod
+!go.sum
+!cursor-tab-server/
+!cursor-tab-server/**
+!gen/
+!gen/**
+!internal/
+!internal/**

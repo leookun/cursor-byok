@@ -1,0 +1,148 @@
+[
+  {
+    "function": {
+      "description": "\nTool to search for files matching a glob pattern\n\n- Works fast with codebases of any size\n- Returns matching file paths sorted by modification time\n- Use this tool when you need to find files by name patterns\n- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches that are potentially useful as a batch.\n",
+      "name": "Glob",
+      "parameters": {
+        "properties": {
+          "glob_pattern": {
+            "description": "The glob pattern to match files against.\nPatterns not starting with \"**/\" are automatically prepended with \"**/\" to enable recursive searching.\n\nExamples:\n\t- \"*.js\" (becomes \"**/*.js\") - find all .js files\n\t- \"**/node_modules/**\" - find all node_modules directories\n\t- \"**/test/**/test_*.ts\" - find all test_*.ts files in any test directory",
+            "type": "string"
+          },
+          "target_directory": {
+            "description": "Absolute path to directory to search for files in. If not provided, defaults to Cursor workspace root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "glob_pattern"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "A powerful search tool built on ripgrep\nUsage:\n- Prefer using Grep for search tasks when you know the exact symbols or strings to search for. Whenever possible, use this tool instead of invoking grep or rg as a terminal command. The Grep tool has been optimized for speed and file restrictions inside Cursor.\n- Supports full regex syntax (e.g., \"log.*Error\", \"function\\s+\\w+\")\n- Filter files with glob parameter (e.g., \".js\", \"**/.tsx\") or type parameter (e.g., \"js\", \"py\", \"rust\")\n- Output modes: \"content\" shows matching lines (default), \"files_with_matches\" shows only file paths, \"count\" shows match counts\n- Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use interface\\{\\} to find interface{} in Go code)\n- Multiline matching: By default patterns match within single lines only. For cross-line patterns like struct \\{[\\s\\S]*?field, use multiline: true\n- Results are capped to several thousand output lines for responsiveness; when truncation occurs, the results report \"at least\" counts, but are otherwise accurate.\n- Content output formatting closely follows ripgrep output format: '-' for context lines, ':' for match lines, and all context/match lines below each file group.",
+      "name": "Grep",
+      "parameters": {
+        "properties": {
+          "-A": {
+            "description": "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise.",
+            "type": "integer"
+          },
+          "-B": {
+            "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.",
+            "type": "integer"
+          },
+          "-C": {
+            "description": "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.",
+            "type": "integer"
+          },
+          "-i": {
+            "description": "Case insensitive search (rg -i) Defaults to false",
+            "type": "boolean"
+          },
+          "glob": {
+            "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg --glob",
+            "type": "string"
+          },
+          "head_limit": {
+            "description": "Limit output size. For \"content\" mode: limits total matches shown. For \"files_with_matches\" and \"count\" modes: limits number of files.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "multiline": {
+            "description": "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false.",
+            "type": "boolean"
+          },
+          "offset": {
+            "description": "Skip first N entries. For \"content\" mode: skips first N matches. For \"files_with_matches\" and \"count\" modes: skips first N files. Use with head_limit for pagination.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "output_mode": {
+            "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"content\".",
+            "enum": [
+              "content",
+              "files_with_matches",
+              "count"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "File or directory to search in (rg pattern -- PATH). Defaults to Cursor workspace root.",
+            "type": "string"
+          },
+          "pattern": {
+            "description": "The regular expression pattern to search for in file contents",
+            "type": "string"
+          },
+          "type": {
+            "description": "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Reads a file from the local filesystem. You can access any file directly by using this tool.\nIf the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.\n\nUsage:\n- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters\n- Lines in the output are numbered starting at 1, using following format: LINE_NUMBER|LINE_CONTENT\n- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.\n- If you read a file that exists but has empty contents you will receive 'File is empty.'\n\nImage Support:\n- This tool can also read image files when called with the appropriate path.\n- Supported image formats: jpeg/jpg, png, gif, webp.\n\nPDF Support:\n- PDF files are converted into text content automatically (subject to the same character limits as other files).\n\nLine endings: On Windows or some client read paths, partial reads may display line endings normalized to LF even when the file uses CRLF or CR. Use the visible text normally when reporting evidence.",
+      "name": "Read",
+      "parameters": {
+        "properties": {
+          "limit": {
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "path": {
+            "description": "The absolute path of the file to read.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Lists files and directories under a directory path.\n\nUse this tool when you need directory structure, especially top-level project layout or immediate children of a folder. Do not use Glob(\"*\") or recursive Glob patterns to list a directory; use Ls instead.\n\nYou may provide ignore globs for large or irrelevant directories such as .git, node_modules, dist, build, .cursor-local-assistant-v2/history, or logs.",
+      "name": "Ls",
+      "parameters": {
+        "properties": {
+          "ignore": {
+            "description": "Optional ignore globs for directories or files that should be skipped while listing.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "path": {
+            "description": "The absolute path of the directory to list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  }
+]

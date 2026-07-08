@@ -1,0 +1,5671 @@
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "react-admin/cursor-server/gen/agent/v1;agentv1";
+
+// Copied from: local:agent.v1.AbortArgs (var: n7)
+message AbortArgs {
+}
+
+// Copied from: local:agent.v1.AbortResult (var: r7)
+message AbortResult {
+}
+
+// Copied from: local:agent.v1.ActiveBranchChange (var: c0)
+message ActiveBranchChange {
+  string path = 1;
+  string branch_name = 2;
+}
+
+// Copied from: local:agent.v1.AgentClientMessage (var: Q7)
+message AgentClientMessage {
+  oneof message {
+    AgentRunRequest run_request = 1;
+    ExecClientMessage exec_client_message = 2;
+    ExecClientControlMessage exec_client_control_message = 5;
+    KvClientMessage kv_client_message = 3;
+    ConversationAction conversation_action = 4;
+    InteractionResponse interaction_response = 6;
+    ClientHeartbeat client_heartbeat = 7;
+    PrewarmRequest prewarm_request = 8;
+  }
+}
+
+// Copied from: local:agent.v1.AgentConversationTurn (var: B$)
+message AgentConversationTurn {
+  UserMessage user_message = 1;
+  repeated ConversationStep steps = 2;
+  optional string request_id = 3;
+}
+
+// Copied from: local:agent.v1.AgentConversationTurnStructure (var: J$)
+message AgentConversationTurnStructure {
+  bytes user_message = 1;
+  repeated bytes steps = 2;
+  optional string request_id = 3;
+  optional string encrypted_model = 4;
+}
+
+// Copied from: local:agent.v1.AgentMode (var: sX)
+enum AgentMode {
+  AGENT_MODE_UNSPECIFIED = 0;
+  AGENT_MODE_AGENT = 1;
+  AGENT_MODE_ASK = 2;
+  AGENT_MODE_PLAN = 3;
+  AGENT_MODE_DEBUG = 4;
+  AGENT_MODE_TRIAGE = 5;
+  AGENT_MODE_PROJECT = 6;
+  AGENT_MODE_MULTITASK = 7;
+}
+
+// Copied from: local:agent.v1.AgentRunRequest (var: I1)
+message AgentRunRequest {
+  ConversationStateStructure conversation_state = 1;
+  ConversationAction action = 2;
+  ModelDetails model_details = 3;
+  optional RequestedModel requested_model = 9;
+  McpTools mcp_tools = 4;
+  optional string conversation_id = 5;
+  optional McpFileSystemOptions mcp_file_system_options = 6;
+  optional SkillOptions skill_options = 7;
+  optional string custom_system_prompt = 8;
+  optional bool suggest_next_prompt = 10;
+  optional string subagent_type_name = 11;
+  optional bool exclude_workspace_context = 12;
+  optional string harness = 13;
+  repeated RequestedModel selected_subagent_models = 14;
+  repeated ModelDetails selected_subagent_model_details = 15;
+  optional string conversation_group_id = 16;
+  repeated PreFetchedBlob pre_fetched_blobs = 17;
+  optional string dev_raw_model_slug = 18;
+  optional bool client_supports_inline_images = 19;
+  repeated SubagentModelOverride subagent_model_overrides = 20;
+  optional bool can_create_cloud_subagents = 21;
+  optional bool suppress_subagent_progress_update_tool = 22;
+}
+
+// Copied from: local:agent.v1.AgentServerMessage (var: U7)
+message AgentServerMessage {
+  oneof message {
+    InteractionUpdate interaction_update = 1;
+    ExecServerMessage exec_server_message = 2;
+    ExecServerControlMessage exec_server_control_message = 5;
+    ConversationStateStructure conversation_checkpoint_update = 3;
+    KvServerMessage kv_server_message = 4;
+    InteractionQuery interaction_query = 7;
+  }
+}
+
+// Copied from: local:agent.v1.AgentSkill (var: kz)
+message AgentSkill {
+  string full_path = 1;
+  string content = 2;
+  string description = 3;
+  optional string parse_error = 4;
+  repeated string environments = 5;
+  repeated string disabled_environments = 6;
+  optional string git_remote_origin = 7;
+  bool disable_model_invocation = 8;
+  optional string plugin = 9;
+  optional string marketplace = 10;
+  optional string plugin_id = 11;
+  optional string marketplace_id = 12;
+  repeated string globs = 13;
+}
+
+// Copied from: local:agent.v1.AgentSkillMetadata (var: Sz)
+message AgentSkillMetadata {
+  string full_path = 1;
+  string description = 2;
+  optional string parse_error = 3;
+  repeated string environments = 4;
+  repeated string disabled_environments = 5;
+  optional string git_remote_origin = 6;
+  bool disable_model_invocation = 7;
+  optional string plugin = 8;
+  optional string marketplace = 9;
+  optional string plugin_id = 10;
+  optional string marketplace_id = 11;
+  repeated string globs = 12;
+}
+
+// Copied from: local:agent.v1.AiAttributionArgs (var: lS)
+message AiAttributionArgs {
+  repeated string file_paths = 5;
+  optional int32 start_line = 2;
+  optional int32 end_line = 3;
+  repeated string commit_hashes = 6;
+  optional string output_mode = 7;
+  optional int32 max_commits = 9;
+  optional bool include_line_ranges = 10;
+}
+
+// Copied from: local:agent.v1.AiAttributionError (var: AS)
+message AiAttributionError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.AiAttributionResult (var: cS)
+message AiAttributionResult {
+  oneof result {
+    AiAttributionSuccess success = 1;
+    AiAttributionError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.AiAttributionSuccess (var: dS)
+message AiAttributionSuccess {
+  string attribution_text = 1;
+  optional OutputLocation output_location = 2;
+}
+
+// Copied from: local:agent.v1.AiAttributionToolCall (var: gS)
+message AiAttributionToolCall {
+  AiAttributionArgs args = 1;
+  AiAttributionResult result = 2;
+}
+
+// Copied from: local:agent.v1.ApiKeyCredentials (var: c1)
+message ApiKeyCredentials {
+  string api_key = 1;
+  optional string base_url = 2;
+}
+
+// Copied from: local:agent.v1.AppliedAgentChange (var: xE)
+message AppliedAgentChange {
+  // Copied from: local:agent.v1.AppliedAgentChange.ChangeType (var: OE)
+  enum ChangeType {
+    CHANGE_TYPE_UNSPECIFIED = 0;
+    CHANGE_TYPE_CREATED = 1;
+    CHANGE_TYPE_MODIFIED = 2;
+    CHANGE_TYPE_DELETED = 3;
+  }
+
+  string path = 1;
+  ChangeType change_type = 2;
+  optional string before_content = 3;
+  optional string after_content = 4;
+  optional string error = 5;
+  optional string message_for_model = 6;
+}
+
+// Copied from: local:agent.v1.ApplyAgentDiffArgs (var: PE)
+message ApplyAgentDiffArgs {
+  string agent_id = 1;
+}
+
+// Copied from: local:agent.v1.ApplyAgentDiffError (var: ME)
+message ApplyAgentDiffError {
+  string error = 1;
+  repeated AppliedAgentChange applied_changes = 2;
+}
+
+// Copied from: local:agent.v1.ApplyAgentDiffResult (var: LE)
+message ApplyAgentDiffResult {
+  oneof result {
+    ApplyAgentDiffSuccess success = 1;
+    ApplyAgentDiffError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ApplyAgentDiffSuccess (var: DE)
+message ApplyAgentDiffSuccess {
+  repeated AppliedAgentChange applied_changes = 1;
+}
+
+// Copied from: local:agent.v1.ApplyAgentDiffToolCall (var: RE)
+message ApplyAgentDiffToolCall {
+  ApplyAgentDiffArgs args = 1;
+  ApplyAgentDiffResult result = 2;
+}
+
+// Copied from: local:agent.v1.AskQuestionArgs (var: kG)
+message AskQuestionArgs {
+  // Copied from: local:agent.v1.AskQuestionArgs.Option (var: IG)
+  message Option {
+    string id = 1;
+    string label = 2;
+  }
+
+  // Copied from: local:agent.v1.AskQuestionArgs.Question (var: SG)
+  message Question {
+    string id = 1;
+    string prompt = 2;
+    repeated AskQuestionArgs.Option options = 3;
+    bool allow_multiple = 4;
+  }
+
+  string title = 1;
+  repeated Question questions = 2;
+  bool run_async = 5;
+  string async_original_tool_call_id = 6;
+}
+
+// Copied from: local:agent.v1.AskQuestionAsync (var: vG)
+message AskQuestionAsync {
+}
+
+// Copied from: local:agent.v1.AskQuestionError (var: FG)
+message AskQuestionError {
+  string error_message = 1;
+}
+
+// Copied from: local:agent.v1.AskQuestionInteractionQuery (var: I0)
+message AskQuestionInteractionQuery {
+  AskQuestionArgs args = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.AskQuestionInteractionResponse (var: v0)
+message AskQuestionInteractionResponse {
+  AskQuestionResult result = 1;
+}
+
+// Copied from: local:agent.v1.AskQuestionRejected (var: QG)
+message AskQuestionRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.AskQuestionResult (var: NG)
+message AskQuestionResult {
+  oneof result {
+    AskQuestionSuccess success = 1;
+    AskQuestionError error = 2;
+    AskQuestionRejected rejected = 3;
+    AskQuestionAsync async = 4;
+  }
+}
+
+// Copied from: local:agent.v1.AskQuestionSuccess (var: bG)
+message AskQuestionSuccess {
+  // Copied from: local:agent.v1.AskQuestionSuccess.Answer (var: qG)
+  message Answer {
+    string question_id = 1;
+    repeated string selected_option_ids = 2;
+    string freeform_text = 3;
+  }
+
+  repeated Answer answers = 1;
+}
+
+// Copied from: local:agent.v1.AskQuestionToolCall (var: yG)
+message AskQuestionToolCall {
+  AskQuestionArgs args = 1;
+  AskQuestionResult result = 2;
+}
+
+// Copied from: local:agent.v1.AssistantMessage (var: c$)
+message AssistantMessage {
+  string text = 1;
+}
+
+// Copied from: local:agent.v1.AsyncAskQuestionCompletionAction (var: HZ)
+message AsyncAskQuestionCompletionAction {
+  string original_tool_call_id = 1;
+  AskQuestionArgs original_args = 2;
+  AskQuestionResult result = 3;
+}
+
+// Copied from: local:agent.v1.AwaitArgs (var: dH)
+message AwaitArgs {
+  string task_id = 1;
+  optional uint32 block_until_ms = 2;
+  optional string regex = 3;
+}
+
+// Copied from: local:agent.v1.AwaitError (var: _H)
+message AwaitError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.AwaitResult (var: kH)
+message AwaitResult {
+  oneof result {
+    AwaitTaskComplete complete = 1;
+    AwaitTaskStillRunning still_running = 2;
+    AwaitError error = 3;
+    AwaitSuccess success = 4;
+  }
+}
+
+// Copied from: local:agent.v1.AwaitSuccess (var: yH)
+message AwaitSuccess {
+  oneof await_result {
+    AwaitTaskComplete complete = 1;
+    AwaitTaskStillRunning still_running = 2;
+  }
+}
+
+// Copied from: local:agent.v1.AwaitTaskComplete (var: AH)
+message AwaitTaskComplete {
+  string task_id = 1;
+  uint64 runtime_ms = 2;
+  string output_file_path = 3;
+  uint64 output_length = 4;
+  bool regex_requested = 5;
+  optional string regex_match = 6;
+  optional sint32 exit_code = 7;
+}
+
+// Copied from: local:agent.v1.AwaitTaskStillRunning (var: gH)
+message AwaitTaskStillRunning {
+  string task_id = 1;
+  uint64 runtime_ms = 2;
+  string output_file_path = 3;
+  uint64 output_length = 4;
+  bool regex_requested = 5;
+  optional string regex_match = 6;
+}
+
+// Copied from: local:agent.v1.AwaitToolCall (var: SH)
+message AwaitToolCall {
+  AwaitArgs args = 1;
+  AwaitResult result = 2;
+}
+
+// Copied from: local:agent.v1.AzureCredentials (var: d1)
+message AzureCredentials {
+  string api_key = 1;
+  string base_url = 2;
+  string deployment = 3;
+}
+
+// Copied from: local:agent.v1.BackgroundShellAction (var: aZ)
+message BackgroundShellAction {
+  string tool_call_id = 1;
+}
+
+// Copied from: local:agent.v1.BackgroundShellSpawnArgs (var: tE)
+message BackgroundShellSpawnArgs {
+  string command = 1;
+  string working_directory = 2;
+  string tool_call_id = 3;
+  ShellCommandParsingResult parsing_result = 4;
+  optional SandboxPolicy sandbox_policy = 5;
+  bool enable_write_shell_stdin_tool = 6;
+  optional string description = 7;
+  optional CommandClassifierResult classifier_result = 8;
+  optional ShellOutputNotificationConfig output_notification = 9;
+  optional SmartModeApproval smart_mode_approval = 10;
+  optional ShellHookApprovalRequirement hook_approval_requirement = 11;
+}
+
+// Copied from: local:agent.v1.BackgroundShellSpawnError (var: oE)
+message BackgroundShellSpawnError {
+  string command = 1;
+  string working_directory = 2;
+  string error = 3;
+}
+
+// Copied from: local:agent.v1.BackgroundShellSpawnResult (var: rE)
+message BackgroundShellSpawnResult {
+  oneof result {
+    BackgroundShellSpawnSuccess success = 1;
+    BackgroundShellSpawnError error = 2;
+    ShellRejected rejected = 3;
+    ShellPermissionDenied permission_denied = 4;
+  }
+}
+
+// Copied from: local:agent.v1.BackgroundShellSpawnSuccess (var: iE)
+message BackgroundShellSpawnSuccess {
+  uint32 shell_id = 1;
+  string command = 2;
+  string working_directory = 3;
+  optional uint32 pid = 4;
+}
+
+// Copied from: local:agent.v1.BackgroundSubagentAction (var: lZ)
+message BackgroundSubagentAction {
+  string tool_call_id = 1;
+}
+
+// Copied from: local:agent.v1.BackgroundTaskCompletion (var: nZ)
+message BackgroundTaskCompletion {
+  string task_id = 1;
+  BackgroundTaskKind kind = 2;
+  BackgroundTaskStatus status = 3;
+  string title = 4;
+  optional string detail = 5;
+  optional string output_path = 6;
+  optional string thread_id = 7;
+  BackgroundTaskCompletionReason reason = 8;
+}
+
+// Copied from: local:agent.v1.BackgroundTaskCompletionAction (var: eZ)
+message BackgroundTaskCompletionAction {
+  repeated BackgroundTaskCompletion completions = 1;
+}
+
+// Copied from: local:agent.v1.BackgroundTaskCompletionReason (var: uX)
+enum BackgroundTaskCompletionReason {
+  BACKGROUND_TASK_COMPLETION_REASON_UNSPECIFIED = 0;
+  BACKGROUND_TASK_COMPLETION_REASON_TASK_FINISHED = 1;
+  BACKGROUND_TASK_COMPLETION_REASON_TASK_PROGRESS = 2;
+}
+
+// Copied from: local:agent.v1.BackgroundTaskKind (var: oX)
+enum BackgroundTaskKind {
+  BACKGROUND_TASK_KIND_UNSPECIFIED = 0;
+  BACKGROUND_TASK_KIND_SHELL = 1;
+  BACKGROUND_TASK_KIND_SUBAGENT = 2;
+}
+
+// Copied from: local:agent.v1.BackgroundTaskStatus (var: lX)
+enum BackgroundTaskStatus {
+  BACKGROUND_TASK_STATUS_UNSPECIFIED = 0;
+  BACKGROUND_TASK_STATUS_SUCCESS = 1;
+  BACKGROUND_TASK_STATUS_ERROR = 2;
+  BACKGROUND_TASK_STATUS_ABORTED = 3;
+}
+
+// Copied from: local:agent.v1.BedrockCredentials (var: A1)
+message BedrockCredentials {
+  string access_key = 1;
+  string secret_key = 2;
+  string region = 3;
+  optional string session_token = 4;
+}
+
+// Copied from: local:agent.v1.BlameByFilePathArgs (var: IH)
+message BlameByFilePathArgs {
+  string file_path = 1;
+  optional int32 start_line = 2;
+  optional int32 end_line = 3;
+}
+
+// Copied from: local:agent.v1.BlameByFilePathError (var: NH)
+message BlameByFilePathError {
+  string error_message = 1;
+}
+
+// Copied from: local:agent.v1.BlameByFilePathResult (var: bH)
+message BlameByFilePathResult {
+  oneof result {
+    BlameByFilePathSuccess success = 1;
+    BlameByFilePathError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.BlameByFilePathSuccess (var: vH)
+message BlameByFilePathSuccess {
+  string content = 1;
+}
+
+// Copied from: local:agent.v1.BlameByFilePathToolCall (var: qH)
+message BlameByFilePathToolCall {
+  BlameByFilePathArgs args = 1;
+  BlameByFilePathResult result = 2;
+}
+
+// Copied from: local:agent.v1.BlobEntry (var: pee)
+message BlobEntry {
+  bytes id = 1;
+  bytes value = 2;
+}
+
+// Copied from: local:agent.v1.BugfixResultItem (var: $B)
+message BugfixResultItem {
+  string bug_id = 1;
+  string bug_title = 2;
+  BugfixVerdict verdict = 3;
+  string explanation = 4;
+  optional string severity = 5;
+}
+
+// Copied from: local:agent.v1.BugfixVerdict (var: ZB)
+enum BugfixVerdict {
+  BUGFIX_VERDICT_UNSPECIFIED = 0;
+  BUGFIX_VERDICT_FIXED = 1;
+  BUGFIX_VERDICT_FALSE_POSITIVE = 2;
+  BUGFIX_VERDICT_COULD_NOT_FIX = 3;
+  BUGFIX_VERDICT_RESOLVED_BY_OTHER_FIX = 4;
+}
+
+// Copied from: local:agent.v1.CallFrame (var: cK)
+message CallFrame {
+  optional string function_name = 1;
+  optional string url = 2;
+  optional int32 line_number = 3;
+  optional int32 column_number = 4;
+}
+
+// Copied from: local:agent.v1.CancelAction (var: MZ)
+message CancelAction {
+  string reason = 1;
+  optional InterruptedPendingToolCallResolutions interrupted_pending_tool_call_resolutions = 3;
+}
+
+// Copied from: local:agent.v1.CancelSubagentAction (var: sZ)
+message CancelSubagentAction {
+  string subagent_id = 1;
+}
+
+// Copied from: local:agent.v1.ClickAction (var: SB)
+message ClickAction {
+  optional Coordinate coordinate = 1;
+  MouseButton button = 2;
+  int32 count = 3;
+  optional string modifier_keys = 4;
+}
+
+// Copied from: local:agent.v1.ClientContinuationConfig (var: u6)
+message ClientContinuationConfig {
+  int32 idle_threshold = 1;
+  int32 max_loops = 2;
+  string nudge_message = 3;
+  string escape_message_template = 4;
+  bool collect_background_children = 5;
+  string children_completed_message_template = 6;
+}
+
+// Copied from: local:agent.v1.ClientHeartbeat (var: N7)
+message ClientHeartbeat {
+}
+
+// Copied from: local:agent.v1.CloudSubagentReference (var: n1)
+message CloudSubagentReference {
+  string bc_id = 1;
+  optional string transcript_path = 2;
+}
+
+// Copied from: aiserver.v1.CodeBlock (var: us)
+message CodeBlock {
+  // Copied from: aiserver.v1.CodeBlock.Signatures (var: ms)
+  message Signatures {
+    repeated CursorRange ranges = 1;
+  }
+
+  string relative_workspace_path = 1;
+  optional string file_contents = 2;
+  optional int32 file_contents_length = 9;
+  CursorRange range = 3;
+  string contents = 4;
+  Signatures signatures = 5;
+  optional string override_contents = 6;
+  optional string original_contents = 7;
+  repeated DetailedLine detailed_lines = 8;
+  FileGit file_git_context = 10;
+}
+
+// Copied from: aiserver.v1.CodeResult (var: Jm)
+message CodeResult {
+  CodeBlock code_block = 1;
+  float score = 2;
+}
+
+// Copied from: local:agent.v1.CommandClassifierResult (var: dk)
+message CommandClassifierResult {
+  // Copied from: local:agent.v1.CommandClassifierResult.ClassifiedCommand (var: pk)
+  message ClassifiedCommand {
+    string name = 1;
+    repeated string arguments = 2;
+    optional string suggested_allowlist_entry = 3;
+    repeated string subcommand_tokens = 4;
+  }
+
+  // Copied from: local:agent.v1.CommandClassifierResult.SuggestedSandboxMode (var: Ak)
+  enum SuggestedSandboxMode {
+    SUGGESTED_SANDBOX_MODE_UNSPECIFIED = 0;
+    SUGGESTED_SANDBOX_MODE_SANDBOX = 1;
+    SUGGESTED_SANDBOX_MODE_NO_SANDBOX = 2;
+    SUGGESTED_SANDBOX_MODE_UNDETERMINED = 3;
+  }
+
+  repeated ClassifiedCommand commands = 1;
+  SuggestedSandboxMode suggested_sandbox_mode = 2;
+  bool classification_failed = 3;
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateArgs (var: nW)
+message CommunicateUpdateArgs {
+  optional string current_step = 1;
+  optional string final_summary = 3;
+  optional string completed_subtitle = 4;
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateError (var: aW)
+message CommunicateUpdateError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateHistoryEntry (var: K$)
+message CommunicateUpdateHistoryEntry {
+  string step = 1;
+  uint32 message_index = 3;
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateResult (var: lW)
+message CommunicateUpdateResult {
+  oneof result {
+    CommunicateUpdateSuccess success = 1;
+    CommunicateUpdateError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateSuccess (var: sW)
+message CommunicateUpdateSuccess {
+  string current_step = 1;
+  uint32 message_index = 3;
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateToolCall (var: cW)
+message CommunicateUpdateToolCall {
+  CommunicateUpdateArgs args = 1;
+  CommunicateUpdateResult result = 2;
+}
+
+// Copied from: local:agent.v1.CommunicateUpdateTurnState (var: Z$)
+message CommunicateUpdateTurnState {
+  repeated CommunicateUpdateHistoryEntry history = 1;
+  optional string final_summary = 2;
+  optional string completed_subtitle = 3;
+}
+
+// Copied from: local:agent.v1.ComputerUseAction (var: yB)
+message ComputerUseAction {
+  oneof action {
+    MouseMoveAction mouse_move = 1;
+    ClickAction click = 2;
+    MouseDownAction mouse_down = 3;
+    MouseUpAction mouse_up = 4;
+    DragAction drag = 5;
+    ScrollAction scroll = 6;
+    TypeAction type = 7;
+    KeyAction key = 8;
+    WaitAction wait = 9;
+    ScreenshotAction screenshot = 10;
+    CursorPositionAction cursor_position = 11;
+  }
+}
+
+// Copied from: local:agent.v1.ComputerUseArgs (var: _B)
+message ComputerUseArgs {
+  string tool_call_id = 1;
+  repeated ComputerUseAction actions = 2;
+}
+
+// Copied from: local:agent.v1.ComputerUseError (var: zB)
+message ComputerUseError {
+  string error = 1;
+  int32 action_count = 2;
+  int32 duration_ms = 3;
+  optional string log = 4;
+  optional string screenshot = 5;
+  optional string screenshot_path = 6;
+}
+
+// Copied from: local:agent.v1.ComputerUseResult (var: YB)
+message ComputerUseResult {
+  oneof result {
+    ComputerUseSuccess success = 1;
+    ComputerUseError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ComputerUseSuccess (var: HB)
+message ComputerUseSuccess {
+  int32 action_count = 1;
+  int32 duration_ms = 2;
+  optional string screenshot = 3;
+  optional string log = 4;
+  optional string screenshot_path = 5;
+  optional Coordinate cursor_position = 6;
+}
+
+// Copied from: local:agent.v1.ComputerUseToolCall (var: KB)
+message ComputerUseToolCall {
+  ComputerUseArgs args = 1;
+  ComputerUseResult result = 2;
+}
+
+// Copied from: local:agent.v1.ConversationAction (var: KX)
+message ConversationAction {
+  optional string triggering_auth_id = 11;
+  optional TriggeringUserInfo triggering_user_info = 15;
+  oneof action {
+    UserMessageAction user_message_action = 1;
+    ResumeAction resume_action = 2;
+    CancelAction cancel_action = 3;
+    SummarizeAction summarize_action = 4;
+    ShellCommandAction shell_command_action = 5;
+    StartPlanAction start_plan_action = 6;
+    ExecutePlanAction execute_plan_action = 7;
+    AsyncAskQuestionCompletionAction async_ask_question_completion_action = 8;
+    CancelSubagentAction cancel_subagent_action = 10;
+    BackgroundTaskCompletionAction background_task_completion_action = 12;
+    BackgroundShellAction background_shell_action = 13;
+    BackgroundSubagentAction background_subagent_action = 14;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationHistory (var: AZ)
+message ConversationHistory {
+  repeated ConversationHistoryMessage messages = 1;
+  optional bool replace_user_info = 2;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryAssistantContent (var: vZ)
+message ConversationHistoryAssistantContent {
+  oneof content {
+    ConversationHistoryTextContent text = 1;
+    ConversationHistoryReasoningContent reasoning = 2;
+    ConversationHistoryRedactedReasoningContent redacted_reasoning = 3;
+    ConversationHistoryToolCall tool_call = 4;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationHistoryAssistantMessage (var: IZ)
+message ConversationHistoryAssistantMessage {
+  repeated ConversationHistoryAssistantContent content = 1;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryImageContent (var: SZ)
+message ConversationHistoryImageContent {
+  string data = 1;
+  optional string mime_type = 2;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryMessage (var: gZ)
+message ConversationHistoryMessage {
+  oneof message {
+    ConversationHistoryUserMessage user = 1;
+    ConversationHistoryAssistantMessage assistant = 2;
+    ConversationHistoryToolMessage tool = 3;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationHistoryReasoningContent (var: NZ)
+message ConversationHistoryReasoningContent {
+  string text = 1;
+  optional string signature = 2;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryRedactedReasoningContent (var: bZ)
+message ConversationHistoryRedactedReasoningContent {
+  string data = 1;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryTextContent (var: kZ)
+message ConversationHistoryTextContent {
+  string text = 1;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryToolCall (var: qZ)
+message ConversationHistoryToolCall {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  string args_json = 3;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryToolMessage (var: FZ)
+message ConversationHistoryToolMessage {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  repeated ConversationHistoryToolResultContent content = 3;
+  optional bool is_error = 4;
+}
+
+// Copied from: local:agent.v1.ConversationHistoryToolResultContent (var: QZ)
+message ConversationHistoryToolResultContent {
+  oneof content {
+    ConversationHistoryTextContent text = 1;
+    ConversationHistoryImageContent image = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationHistoryUserContent (var: yZ)
+message ConversationHistoryUserContent {
+  oneof content {
+    ConversationHistoryTextContent text = 1;
+    ConversationHistoryImageContent image = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationHistoryUserMessage (var: _Z)
+message ConversationHistoryUserMessage {
+  repeated ConversationHistoryUserContent content = 1;
+}
+
+// Copied from: local:agent.v1.ConversationPlan (var: y$)
+message ConversationPlan {
+  string plan = 1;
+}
+
+// Copied from: local:agent.v1.ConversationState (var: j$)
+message ConversationState {
+  repeated string root_prompt_messages_json = 1;
+  repeated ConversationTurn turns = 8;
+  repeated TodoItem todos = 3;
+  repeated string pending_tool_calls = 4;
+  ConversationTokenDetails token_details = 5;
+  optional ConversationSummary summary = 6;
+  optional ConversationPlan plan = 7;
+  optional ConversationSummaryArchive summary_archive = 9;
+  map<string, FileState> file_states = 10;
+  repeated ConversationSummaryArchive summary_archives = 11;
+  map<string, PlanRegistryEntry> plans = 12;
+  repeated CommunicateUpdateHistoryEntry communicate_update_history = 13;
+  optional string communicate_update_final_summary = 14;
+  optional string communicate_update_completed_subtitle = 15;
+  map<string, CommunicateUpdateTurnState> communicate_update_states_by_parent_tool_call_id = 16;
+}
+
+// Copied from: local:agent.v1.ConversationStateStructure (var: a1)
+message ConversationStateStructure {
+  repeated bytes root_prompt_messages_json = 1;
+  repeated bytes turns = 8;
+  repeated bytes todos = 3;
+  repeated string pending_tool_calls = 4;
+  ConversationTokenDetails token_details = 5;
+  optional bytes summary = 6;
+  optional bytes plan = 7;
+  repeated string previous_workspace_uris = 9;
+  optional AgentMode mode = 10;
+  optional bytes summary_archive = 11;
+  map<string, bytes> file_states = 12;
+  map<string, FileStateStructure> file_states_v2 = 15;
+  repeated bytes summary_archives = 13;
+  repeated StepTiming turn_timings = 14;
+  map<string, SubagentPersistedState> subagent_states = 16;
+  uint32 self_summary_count = 17;
+  repeated string read_paths = 18;
+  optional string active_branch_name = 19;
+  map<string, PlanRegistryEntry> plans = 20;
+  repeated TrackedGitRepo tracked_git_repo_branches = 21;
+  optional string agent_type = 22;
+  repeated CommunicateUpdateHistoryEntry communicate_update_history = 23;
+  map<string, string> subagent_threads = 24;
+  optional string communicate_update_final_summary = 25;
+  optional string communicate_update_completed_subtitle = 28;
+  map<string, CommunicateUpdateTurnState> communicate_update_states_by_parent_tool_call_id = 29;
+  optional uint64 conversation_started_timestamp_ms = 26;
+  optional string conversation_started_time_zone = 27;
+}
+
+// Copied from: local:agent.v1.ConversationStep (var: zX)
+message ConversationStep {
+  oneof message {
+    AssistantMessage assistant_message = 1;
+    ToolCall tool_call = 2;
+    ThinkingMessage thinking_message = 3;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationSummary (var: P$)
+message ConversationSummary {
+  string summary = 1;
+}
+
+// Copied from: local:agent.v1.ConversationSummaryArchive (var: L$)
+message ConversationSummaryArchive {
+  repeated bytes summarized_messages = 1;
+  string summary = 2;
+  uint32 window_tail = 3;
+  bytes summary_message = 4;
+}
+
+// Copied from: local:agent.v1.ConversationTokenDetails (var: O$)
+message ConversationTokenDetails {
+  uint32 used_tokens = 1;
+  uint32 max_tokens = 2;
+  optional PromptTokenBreakdownSnapshot breakdown = 3;
+}
+
+// Copied from: local:agent.v1.ConversationTurn (var: _$)
+message ConversationTurn {
+  oneof turn {
+    AgentConversationTurn agent_conversation_turn = 1;
+    ShellConversationTurn shell_conversation_turn = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ConversationTurnStructure (var: S$)
+message ConversationTurnStructure {
+  oneof turn {
+    AgentConversationTurnStructure agent_conversation_turn = 1;
+    ShellConversationTurnStructure shell_conversation_turn = 2;
+  }
+}
+
+// Copied from: local:agent.v1.Coordinate (var: gB)
+message Coordinate {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+// Copied from: local:agent.v1.CreatePlanArgs (var: FM)
+message CreatePlanArgs {
+  string plan = 1;
+  repeated TodoItem todos = 2;
+  string overview = 3;
+  string name = 4;
+  bool is_project = 5;
+  repeated Phase phases = 6;
+}
+
+// Copied from: local:agent.v1.CreatePlanError (var: MM)
+message CreatePlanError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.CreatePlanRequestQuery (var: YM)
+message CreatePlanRequestQuery {
+  CreatePlanArgs args = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.CreatePlanRequestResponse (var: HM)
+message CreatePlanRequestResponse {
+  CreatePlanResult result = 1;
+}
+
+// Copied from: local:agent.v1.CreatePlanResult (var: QM)
+message CreatePlanResult {
+  string plan_uri = 3;
+  oneof result {
+    CreatePlanSuccess success = 1;
+    CreatePlanError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.CreatePlanSuccess (var: UM)
+message CreatePlanSuccess {
+}
+
+// Copied from: local:agent.v1.CreatePlanToolCall (var: bM)
+message CreatePlanToolCall {
+  CreatePlanArgs args = 1;
+  CreatePlanResult result = 2;
+}
+
+// Copied from: local:agent.v1.CreatePrAction (var: IV)
+message CreatePrAction {
+  string title = 1;
+  string body = 2;
+  optional string base_branch = 3;
+  optional bool draft = 4;
+  string branch_name = 5;
+  repeated string add_labels = 6;
+  optional string repo_url = 7;
+}
+
+// Copied from: local:agent.v1.CreateTranscriptOverviewRequest (var: K7)
+message CreateTranscriptOverviewRequest {
+  string formatted_conversation = 1;
+}
+
+// Copied from: local:agent.v1.CreateTranscriptOverviewResponse (var: Z7)
+message CreateTranscriptOverviewResponse {
+  string overview = 1;
+}
+
+// Copied from: local:agent.v1.CursorPackage (var: Tz)
+message CursorPackage {
+  string name = 1;
+  string description = 2;
+  string folder_path = 3;
+  bool enabled = 4;
+  optional string parse_error = 5;
+  repeated CursorPackagePrompt prompts = 6;
+  string readme_file_path = 7;
+  PackageType package_type = 8;
+}
+
+// Copied from: local:agent.v1.CursorPackagePrompt (var: hz)
+message CursorPackagePrompt {
+  string name = 1;
+  string file_path = 2;
+}
+
+// Copied from: aiserver.v1.CursorPosition (var: gr)
+message CursorPosition {
+  int32 line = 1;
+  int32 column = 2;
+}
+
+// Copied from: local:agent.v1.CursorPositionAction (var: MB)
+message CursorPositionAction {
+}
+
+// Copied from: aiserver.v1.CursorRange (var: is)
+message CursorRange {
+  CursorPosition start_position = 1;
+  CursorPosition end_position = 2;
+}
+
+// Copied from: local:agent.v1.CursorRule (var: dx)
+message CursorRule {
+  string full_path = 1;
+  string content = 2;
+  CursorRuleType type = 3;
+  CursorRuleSource source = 4;
+  optional string git_remote_origin = 5;
+  optional string parse_error = 6;
+  repeated string environments = 7;
+  repeated string disabled_environments = 8;
+  optional string plugin = 9;
+  optional string marketplace = 10;
+  optional string plugin_id = 11;
+  optional string marketplace_id = 12;
+}
+
+// Copied from: local:agent.v1.CursorRuleSource (var: tx)
+enum CursorRuleSource {
+  CURSOR_RULE_SOURCE_UNSPECIFIED = 0;
+  CURSOR_RULE_SOURCE_TEAM = 1;
+  CURSOR_RULE_SOURCE_USER = 2;
+}
+
+// Copied from: local:agent.v1.CursorRuleType (var: cx)
+message CursorRuleType {
+  oneof type {
+    CursorRuleTypeGlobal global = 1;
+    CursorRuleTypeFileGlobs file_globbed = 2;
+    CursorRuleTypeAgentFetched agent_fetched = 3;
+    CursorRuleTypeManuallyAttached manually_attached = 4;
+  }
+}
+
+// Copied from: local:agent.v1.CursorRuleTypeAgentFetched (var: ax)
+message CursorRuleTypeAgentFetched {
+  string description = 1;
+}
+
+// Copied from: local:agent.v1.CursorRuleTypeFileGlobs (var: sx)
+message CursorRuleTypeFileGlobs {
+  repeated string globs = 1;
+}
+
+// Copied from: local:agent.v1.CursorRuleTypeGlobal (var: nx)
+message CursorRuleTypeGlobal {
+}
+
+// Copied from: local:agent.v1.CursorRuleTypeManuallyAttached (var: lx)
+message CursorRuleTypeManuallyAttached {
+}
+
+// Copied from: local:agent.v1.CustomSubagent (var: HS)
+message CustomSubagent {
+  string full_path = 1;
+  string name = 2;
+  string description = 3;
+  repeated string tools = 4;
+  string model = 5;
+  string prompt = 6;
+  CustomSubagentPermissionMode permission_mode = 7;
+  bool is_background = 8;
+  optional string plugin = 9;
+  optional string marketplace = 10;
+  optional string plugin_id = 11;
+  optional string marketplace_id = 12;
+  bool force_default_model = 13;
+  optional string source = 14;
+}
+
+// Copied from: local:agent.v1.CustomSubagentPermissionMode (var: _S)
+enum CustomSubagentPermissionMode {
+  CUSTOM_SUBAGENT_PERMISSION_MODE_UNSPECIFIED = 0;
+  CUSTOM_SUBAGENT_PERMISSION_MODE_DEFAULT = 1;
+  CUSTOM_SUBAGENT_PERMISSION_MODE_READONLY = 2;
+  CUSTOM_SUBAGENT_PERMISSION_MODE_AGENT_ONLY = 3;
+}
+
+// Copied from: local:agent.v1.DebugModeConfig (var: Gz)
+message DebugModeConfig {
+  string log_path = 1;
+  string server_endpoint = 2;
+  string session_id = 3;
+}
+
+// Copied from: local:agent.v1.DeleteArgs (var: eQ)
+message DeleteArgs {
+  string path = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.DeleteError (var: gQ)
+message DeleteError {
+  string path = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.DeleteFileBusy (var: dQ)
+message DeleteFileBusy {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.DeleteFileNotFound (var: aQ)
+message DeleteFileNotFound {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.DeleteNotFile (var: lQ)
+message DeleteNotFile {
+  string path = 1;
+  string actual_type = 2;
+}
+
+// Copied from: local:agent.v1.DeletePermissionDenied (var: cQ)
+message DeletePermissionDenied {
+  string path = 1;
+  string client_visible_error = 2;
+  bool is_readonly = 3;
+}
+
+// Copied from: local:agent.v1.DeleteRejected (var: AQ)
+message DeleteRejected {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.DeleteResult (var: nQ)
+message DeleteResult {
+  oneof result {
+    DeleteSuccess success = 1;
+    DeleteFileNotFound file_not_found = 2;
+    DeleteNotFile not_file = 3;
+    DeletePermissionDenied permission_denied = 4;
+    DeleteFileBusy file_busy = 5;
+    DeleteRejected rejected = 6;
+    DeleteError error = 7;
+  }
+}
+
+// Copied from: local:agent.v1.DeleteSuccess (var: sQ)
+message DeleteSuccess {
+  string path = 1;
+  string deleted_file = 2;
+  int64 file_size = 3;
+  string prev_content = 4;
+}
+
+// Copied from: local:agent.v1.DeleteToolCall (var: _Q)
+message DeleteToolCall {
+  DeleteArgs args = 1;
+  DeleteResult result = 2;
+}
+
+// Copied from: aiserver.v1.DetailedLine (var: os)
+message DetailedLine {
+  string text = 1;
+  float line_number = 2;
+  bool is_signature = 3;
+}
+
+// Copied from: local:agent.v1.Diagnostic (var: SU)
+message Diagnostic {
+  DiagnosticSeverity severity = 1;
+  Range range = 2;
+  string message = 3;
+  string source = 4;
+  string code = 5;
+  bool is_stale = 6;
+}
+
+// Copied from: local:agent.v1.DiagnosticItem (var: YU)
+message DiagnosticItem {
+  DiagnosticSeverity severity = 1;
+  DiagnosticRange range = 2;
+  string message = 3;
+  string source = 4;
+  string code = 5;
+  bool is_stale = 6;
+}
+
+// Copied from: local:agent.v1.DiagnosticRange (var: HU)
+message DiagnosticRange {
+  Position start = 1;
+  Position end = 2;
+}
+
+// Copied from: local:agent.v1.DiagnosticSeverity (var: hU)
+enum DiagnosticSeverity {
+  DIAGNOSTIC_SEVERITY_UNSPECIFIED = 0;
+  DIAGNOSTIC_SEVERITY_ERROR = 1;
+  DIAGNOSTIC_SEVERITY_WARNING = 2;
+  DIAGNOSTIC_SEVERITY_INFORMATION = 3;
+  DIAGNOSTIC_SEVERITY_HINT = 4;
+}
+
+// Copied from: local:agent.v1.DiagnosticsArgs (var: _U)
+message DiagnosticsArgs {
+  string path = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.DiagnosticsError (var: IU)
+message DiagnosticsError {
+  string path = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.DiagnosticsFileNotFound (var: NU)
+message DiagnosticsFileNotFound {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.DiagnosticsPermissionDenied (var: bU)
+message DiagnosticsPermissionDenied {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.DiagnosticsRejected (var: vU)
+message DiagnosticsRejected {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.DiagnosticsResult (var: yU)
+message DiagnosticsResult {
+  oneof result {
+    DiagnosticsSuccess success = 1;
+    DiagnosticsError error = 2;
+    DiagnosticsRejected rejected = 3;
+    DiagnosticsFileNotFound file_not_found = 4;
+    DiagnosticsPermissionDenied permission_denied = 5;
+  }
+}
+
+// Copied from: local:agent.v1.DiagnosticsSuccess (var: kU)
+message DiagnosticsSuccess {
+  string path = 1;
+  repeated Diagnostic diagnostics = 2;
+  int32 total_diagnostics = 3;
+}
+
+// Copied from: local:agent.v1.DragAction (var: NB)
+message DragAction {
+  repeated Coordinate path = 1;
+  MouseButton button = 2;
+}
+
+// Copied from: local:agent.v1.EditArgs (var: jx)
+message EditArgs {
+  string path = 1;
+  optional string stream_content = 6;
+}
+
+// Copied from: local:agent.v1.EditError (var: uU)
+message EditError {
+  string path = 1;
+  string error = 2;
+  optional string model_visible_error = 5;
+}
+
+// Copied from: local:agent.v1.EditFileNotFound (var: tU)
+message EditFileNotFound {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.EditPrLabelsArgs (var: HW)
+message EditPrLabelsArgs {
+  string tool_call_id = 1;
+  string pr_url = 2;
+  repeated string add_labels = 4;
+  repeated string remove_labels = 5;
+}
+
+// Copied from: local:agent.v1.EditPrLabelsError (var: ZW)
+message EditPrLabelsError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.EditPrLabelsResult (var: zW)
+message EditPrLabelsResult {
+  oneof result {
+    EditPrLabelsSuccess success = 1;
+    EditPrLabelsError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.EditPrLabelsSuccess (var: KW)
+message EditPrLabelsSuccess {
+  string pr_url = 1;
+  int32 pr_number = 2;
+  string message = 3;
+}
+
+// Copied from: local:agent.v1.EditPrLabelsToolCall (var: ez)
+message EditPrLabelsToolCall {
+  EditPrLabelsArgs args = 1;
+  EditPrLabelsResult result = 2;
+}
+
+// Copied from: local:agent.v1.EditReadPermissionDenied (var: rU)
+message EditReadPermissionDenied {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.EditRejected (var: oU)
+message EditRejected {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.EditResult (var: Xx)
+message EditResult {
+  oneof result {
+    EditSuccess success = 1;
+    EditFileNotFound file_not_found = 2;
+    EditReadPermissionDenied read_permission_denied = 3;
+    EditWritePermissionDenied write_permission_denied = 4;
+    EditRejected rejected = 6;
+    EditError error = 7;
+  }
+}
+
+// Copied from: local:agent.v1.EditSuccess (var: $x)
+message EditSuccess {
+  string path = 1;
+  optional int32 lines_added = 3;
+  optional int32 lines_removed = 4;
+  optional string diff_string = 5;
+  optional string before_full_file_content = 6;
+  string after_full_file_content = 7;
+  optional string message = 8;
+}
+
+// Copied from: local:agent.v1.EditToolCall (var: mU)
+message EditToolCall {
+  EditArgs args = 1;
+  EditResult result = 2;
+}
+
+// Copied from: local:agent.v1.EditToolCallDelta (var: fU)
+message EditToolCallDelta {
+  string stream_content_delta = 1;
+}
+
+// Copied from: local:agent.v1.EditWritePermissionDenied (var: iU)
+message EditWritePermissionDenied {
+  string path = 1;
+  string error = 2;
+  bool is_readonly = 3;
+}
+
+// Copied from: local:agent.v1.Error (var: g7)
+message Error {
+  string message = 1;
+}
+
+// Copied from: local:agent.v1.ExecClientControlMessage (var: Z6)
+message ExecClientControlMessage {
+  oneof message {
+    ExecClientStreamClose stream_close = 1;
+    ExecClientThrow throw = 2;
+    ExecClientHeartbeat heartbeat = 3;
+  }
+}
+
+// Copied from: local:agent.v1.ExecClientHeartbeat (var: K6)
+message ExecClientHeartbeat {
+  uint32 id = 1;
+}
+
+// Copied from: local:agent.v1.ExecClientMessage (var: a7)
+message ExecClientMessage {
+  uint32 id = 1;
+  string exec_id = 15;
+  oneof message {
+    ShellResult shell_result = 2;
+    WriteResult write_result = 3;
+    DeleteResult delete_result = 4;
+    GrepResult grep_result = 5;
+    ReadResult read_result = 7;
+    ReadResult redacted_read_result = 29;
+    LsResult ls_result = 8;
+    DiagnosticsResult diagnostics_result = 9;
+    RequestContextResult request_context_result = 10;
+    McpResult mcp_result = 11;
+    ShellStream shell_stream = 14;
+    BackgroundShellSpawnResult background_shell_spawn_result = 16;
+    ListMcpResourcesExecResult list_mcp_resources_exec_result = 17;
+    ReadMcpResourceExecResult read_mcp_resource_exec_result = 18;
+    McpStateExecResult mcp_state_exec_result = 36;
+    FetchResult fetch_result = 20;
+    RecordScreenResult record_screen_result = 21;
+    ComputerUseResult computer_use_result = 22;
+    WriteShellStdinResult write_shell_stdin_result = 23;
+    ExecuteHookResult execute_hook_result = 27;
+    SubagentResult subagent_result = 28;
+    ForceBackgroundShellResult force_background_shell_result = 30;
+    ForceBackgroundSubagentResult force_background_subagent_result = 31;
+    SubagentAwaitResult subagent_await_result = 37;
+    SmartModeClassifierResult smart_mode_classifier_result = 38;
+  }
+}
+
+// Copied from: local:agent.v1.ExecClientStreamClose (var: H6)
+message ExecClientStreamClose {
+  uint32 id = 1;
+}
+
+// Copied from: local:agent.v1.ExecClientThrow (var: z6)
+message ExecClientThrow {
+  uint32 id = 1;
+  string error = 2;
+  optional string stack_trace = 3;
+  optional string error_code = 4;
+}
+
+// Copied from: local:agent.v1.ExecServerAbort (var: q7)
+message ExecServerAbort {
+  uint32 id = 1;
+}
+
+// Copied from: local:agent.v1.ExecServerControlMessage (var: F7)
+message ExecServerControlMessage {
+  oneof message {
+    ExecServerAbort abort = 1;
+  }
+}
+
+// Copied from: local:agent.v1.ExecServerMessage (var: s7)
+message ExecServerMessage {
+  uint32 id = 1;
+  string exec_id = 15;
+  optional SpanContext span_context = 19;
+  oneof message {
+    ShellArgs shell_args = 2;
+    WriteArgs write_args = 3;
+    DeleteArgs delete_args = 4;
+    GrepArgs grep_args = 5;
+    ReadArgs read_args = 7;
+    ReadArgs redacted_read_args = 29;
+    LsArgs ls_args = 8;
+    DiagnosticsArgs diagnostics_args = 9;
+    RequestContextArgs request_context_args = 10;
+    McpArgs mcp_args = 11;
+    ShellArgs shell_stream_args = 14;
+    BackgroundShellSpawnArgs background_shell_spawn_args = 16;
+    ListMcpResourcesExecArgs list_mcp_resources_exec_args = 17;
+    ReadMcpResourceExecArgs read_mcp_resource_exec_args = 18;
+    McpStateExecArgs mcp_state_exec_args = 36;
+    FetchArgs fetch_args = 20;
+    RecordScreenArgs record_screen_args = 21;
+    ComputerUseArgs computer_use_args = 22;
+    WriteShellStdinArgs write_shell_stdin_args = 23;
+    ExecuteHookArgs execute_hook_args = 27;
+    SubagentArgs subagent_args = 28;
+    ForceBackgroundShellArgs force_background_shell_args = 30;
+    ForceBackgroundSubagentArgs force_background_subagent_args = 31;
+    SubagentAwaitArgs subagent_await_args = 37;
+    SmartModeClassifierArgs smart_mode_classifier_args = 38;
+  }
+}
+
+// Copied from: local:agent.v1.ExecuteHookArgs (var: l7)
+message ExecuteHookArgs {
+  ExecuteHookRequest request = 1;
+}
+
+// Copied from: local:agent.v1.ExecuteHookRequest (var: d7)
+message ExecuteHookRequest {
+  oneof request {
+    PreCompactRequestQuery pre_compact = 1;
+    SubagentStartRequestQuery subagent_start = 2;
+    SubagentStopRequestQuery subagent_stop = 3;
+    PreToolUseRequestQuery pre_tool_use = 4;
+    PostToolUseRequestQuery post_tool_use = 5;
+    PostToolUseFailureRequestQuery post_tool_use_failure = 6;
+  }
+}
+
+// Copied from: local:agent.v1.ExecuteHookResponse (var: A7)
+message ExecuteHookResponse {
+  oneof response {
+    PreCompactRequestResponse pre_compact = 1;
+    SubagentStartRequestResponse subagent_start = 2;
+    SubagentStopRequestResponse subagent_stop = 3;
+    PreToolUseRequestResponse pre_tool_use = 4;
+    PostToolUseRequestResponse post_tool_use = 5;
+    PostToolUseFailureRequestResponse post_tool_use_failure = 6;
+  }
+}
+
+// Copied from: local:agent.v1.ExecuteHookResult (var: c7)
+message ExecuteHookResult {
+  ExecuteHookResponse response = 1;
+}
+
+// Copied from: local:agent.v1.ExecutePlanAction (var: e$)
+message ExecutePlanAction {
+  RequestContext request_context = 1;
+  optional ConversationPlan plan = 2;
+  optional string plan_file_uri = 3;
+  optional string plan_file_content = 4;
+  AgentMode execution_mode = 5;
+  optional string kickoff_message_id = 6;
+  optional string plan_id = 7;
+  optional string plan_file_path = 8;
+}
+
+// Copied from: local:agent.v1.ExecutePlanInfo (var: s$)
+message ExecutePlanInfo {
+  string plan_id = 1;
+  string plan_title = 2;
+}
+
+// Copied from: local:agent.v1.ExtraContextEntry (var: Ij)
+message ExtraContextEntry {
+  oneof data_or_blob_id {
+    string data = 1;
+    bytes blob_id = 2;
+  }
+}
+
+// Copied from: local:agent.v1.FeedbackRequestCategory (var: d0)
+message FeedbackRequestCategory {
+  string id = 1;
+  string label = 2;
+}
+
+// Copied from: local:agent.v1.FeedbackRequestCategoryGroup (var: A0)
+message FeedbackRequestCategoryGroup {
+  string id = 1;
+  string prompt = 2;
+  repeated FeedbackRequestCategory categories = 3;
+}
+
+// Copied from: local:agent.v1.FeedbackRequestUpdate (var: g0)
+message FeedbackRequestUpdate {
+  string request_id = 1;
+  optional string canonical_model_name = 2;
+  repeated FeedbackRequestCategory categories = 3;
+  repeated FeedbackRequestCategoryGroup category_groups = 4;
+  bool show_form_immediately = 5;
+}
+
+// Copied from: local:agent.v1.FetchArgs (var: UG)
+message FetchArgs {
+  string url = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.FetchError (var: HG)
+message FetchError {
+  string url = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.FetchResult (var: MG)
+message FetchResult {
+  oneof result {
+    FetchSuccess success = 1;
+    FetchError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.FetchSuccess (var: YG)
+message FetchSuccess {
+  string url = 1;
+  string content = 2;
+  int32 status_code = 3;
+  string content_type = 4;
+}
+
+// Copied from: local:agent.v1.FetchToolCall (var: zG)
+message FetchToolCall {
+  FetchArgs args = 1;
+  FetchResult result = 2;
+}
+
+// Copied from: local:agent.v1.FileDiagnostics (var: MU)
+message FileDiagnostics {
+  string path = 1;
+  repeated DiagnosticItem diagnostics = 2;
+  int32 diagnostics_count = 3;
+}
+
+// Copied from: aiserver.v1.FileGit (var: ps)
+message FileGit {
+  repeated GitCommit commits = 1;
+}
+
+// Copied from: local:agent.v1.FileState (var: G$)
+message FileState {
+  optional string content = 1;
+  optional string initial_content = 2;
+}
+
+// Copied from: local:agent.v1.FileStateStructure (var: V$)
+message FileStateStructure {
+  optional bytes content = 1;
+  optional bytes initial_content = 2;
+}
+
+// Copied from: local:agent.v1.ForceBackgroundShellArgs (var: Tk)
+message ForceBackgroundShellArgs {
+  string tool_call_id = 1;
+}
+
+// Copied from: local:agent.v1.ForceBackgroundShellResult (var: wk)
+message ForceBackgroundShellResult {
+  ForceBackgroundShellStatus status = 1;
+  optional ShellResult shell_result = 2;
+}
+
+// Copied from: local:agent.v1.ForceBackgroundShellStatus (var: nk)
+enum ForceBackgroundShellStatus {
+  FORCE_BACKGROUND_SHELL_STATUS_UNSPECIFIED = 0;
+  FORCE_BACKGROUND_SHELL_STATUS_ACCEPTED = 1;
+  FORCE_BACKGROUND_SHELL_STATUS_NOT_FOUND = 2;
+}
+
+// Copied from: local:agent.v1.ForceBackgroundSubagentArgs (var: C6)
+message ForceBackgroundSubagentArgs {
+  string tool_call_id = 1;
+}
+
+// Copied from: local:agent.v1.ForceBackgroundSubagentResult (var: R6)
+message ForceBackgroundSubagentResult {
+  ForceBackgroundSubagentStatus status = 1;
+}
+
+// Copied from: local:agent.v1.ForceBackgroundSubagentStatus (var: a6)
+enum ForceBackgroundSubagentStatus {
+  FORCE_BACKGROUND_SUBAGENT_STATUS_UNSPECIFIED = 0;
+  FORCE_BACKGROUND_SUBAGENT_STATUS_ACCEPTED = 1;
+  FORCE_BACKGROUND_SUBAGENT_STATUS_NOT_FOUND = 2;
+}
+
+// Copied from: local:agent.v1.GenerateImageArgs (var: YE)
+message GenerateImageArgs {
+  string description = 1;
+  optional string file_path = 2;
+  repeated string reference_image_paths = 5;
+}
+
+// Copied from: local:agent.v1.GenerateImageError (var: KE)
+message GenerateImageError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.GenerateImageRequestQuery (var: eS)
+message GenerateImageRequestQuery {
+  GenerateImageArgs args = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.GenerateImageRequestResponse (var: nS)
+message GenerateImageRequestResponse {
+  // Copied from: local:agent.v1.GenerateImageRequestResponse.Approved (var: sS)
+  message Approved {
+    string description = 1;
+  }
+
+  // Copied from: local:agent.v1.GenerateImageRequestResponse.Rejected (var: aS)
+  message Rejected {
+    string reason = 1;
+  }
+
+  oneof result {
+    Approved approved = 1;
+    Rejected rejected = 2;
+  }
+}
+
+// Copied from: local:agent.v1.GenerateImageResult (var: HE)
+message GenerateImageResult {
+  oneof result {
+    GenerateImageSuccess success = 1;
+    GenerateImageError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.GenerateImageSuccess (var: zE)
+message GenerateImageSuccess {
+  string file_path = 1;
+  string image_data = 2;
+}
+
+// Copied from: local:agent.v1.GenerateImageToolCall (var: ZE)
+message GenerateImageToolCall {
+  GenerateImageArgs args = 1;
+  GenerateImageResult result = 2;
+}
+
+// Copied from: local:agent.v1.GetAllowedModelIntentsRequest (var: lee)
+message GetAllowedModelIntentsRequest {
+}
+
+// Copied from: local:agent.v1.GetAllowedModelIntentsResponse (var: cee)
+message GetAllowedModelIntentsResponse {
+  repeated string model_intents = 1;
+}
+
+// Copied from: local:agent.v1.GetBlobArgs (var: _7)
+message GetBlobArgs {
+  bytes blob_id = 1;
+}
+
+// Copied from: local:agent.v1.GetBlobResult (var: y7)
+message GetBlobResult {
+  optional bytes blob_data = 1;
+}
+
+// Copied from: local:agent.v1.GetDefaultModelForCliRequest (var: see)
+message GetDefaultModelForCliRequest {
+}
+
+// Copied from: local:agent.v1.GetDefaultModelForCliResponse (var: aee)
+message GetDefaultModelForCliResponse {
+  ModelDetails model = 1;
+}
+
+// Copied from: local:agent.v1.GetMcpToolsAgentResult (var: QH)
+message GetMcpToolsAgentResult {
+  oneof result {
+    GetMcpToolsSuccess success = 1;
+    GetMcpToolsError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.GetMcpToolsArgs (var: FH)
+message GetMcpToolsArgs {
+  optional string server = 1;
+  optional string tool_name = 2;
+  optional string pattern = 3;
+  string tool_call_id = 4;
+}
+
+// Copied from: local:agent.v1.GetMcpToolsError (var: MH)
+message GetMcpToolsError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.GetMcpToolsSuccess (var: UH)
+message GetMcpToolsSuccess {
+  string content = 1;
+  optional string output_file_path = 2;
+}
+
+// Copied from: local:agent.v1.GetMcpToolsToolCall (var: YH)
+message GetMcpToolsToolCall {
+  GetMcpToolsArgs args = 1;
+  GetMcpToolsAgentResult result = 2;
+}
+
+// Copied from: local:agent.v1.GetNewChatNudgeLegacyModelPickerRequest (var: Cee)
+message GetNewChatNudgeLegacyModelPickerRequest {
+  string current_model = 1;
+  bool max_mode = 2;
+}
+
+// Copied from: local:agent.v1.GetNewChatNudgeLegacyModelPickerResponse (var: Ree)
+message GetNewChatNudgeLegacyModelPickerResponse {
+  optional NewChatNudge nudge = 1;
+}
+
+// Copied from: local:agent.v1.GetNewChatNudgeParameterizedModelPickerRequest (var: Oee)
+message GetNewChatNudgeParameterizedModelPickerRequest {
+  RequestedModel current_model = 1;
+}
+
+// Copied from: local:agent.v1.GetNewChatNudgeParameterizedModelPickerResponse (var: Gee)
+message GetNewChatNudgeParameterizedModelPickerResponse {
+  optional NewChatNudgeV2 nudge = 1;
+}
+
+// Copied from: local:agent.v1.GetSignedUrlForAttachedMediaRequest (var: wee)
+message GetSignedUrlForAttachedMediaRequest {
+  string conversation_id = 3;
+  optional string key = 1;
+  optional string mime_type = 2;
+  optional int64 content_length_bytes = 4;
+}
+
+// Copied from: local:agent.v1.GetSignedUrlForAttachedMediaResponse (var: Eee)
+message GetSignedUrlForAttachedMediaResponse {
+  string key = 1;
+  string post_url = 2;
+  string get_url = 3;
+  int64 expires_at_unix_ms = 4;
+  int64 refresh_after_unix_ms = 5;
+  map<string, string> post_fields = 6;
+}
+
+// Copied from: local:agent.v1.GetUsableModelsRequest (var: eee)
+message GetUsableModelsRequest {
+  repeated string custom_model_ids = 1;
+}
+
+// Copied from: local:agent.v1.GetUsableModelsResponse (var: nee)
+message GetUsableModelsResponse {
+  repeated ModelDetails models = 1;
+}
+
+// Copied from: aiserver.v1.GitCommit (var: fs)
+message GitCommit {
+  string commit = 1;
+  string author = 2;
+  string date = 3;
+  string message = 4;
+}
+
+// Copied from: local:agent.v1.GitRepoInfo (var: Qz)
+message GitRepoInfo {
+  string path = 1;
+  string status = 2;
+  string branch_name = 3;
+  optional string remote_url = 4;
+  optional bool previous_branch_is_ancestor = 5;
+}
+
+// Copied from: local:agent.v1.GlobToolArgs (var: yQ)
+message GlobToolArgs {
+  optional string target_directory = 1;
+  string glob_pattern = 2;
+}
+
+// Copied from: local:agent.v1.GlobToolCall (var: vQ)
+message GlobToolCall {
+  GlobToolArgs args = 1;
+  GlobToolResult result = 2;
+}
+
+// Copied from: local:agent.v1.GlobToolError (var: SQ)
+message GlobToolError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.GlobToolResult (var: kQ)
+message GlobToolResult {
+  oneof result {
+    GlobToolSuccess success = 1;
+    GlobToolError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.GlobToolSuccess (var: IQ)
+message GlobToolSuccess {
+  string pattern = 1;
+  string path = 2;
+  repeated string files = 3;
+  int32 total_files = 4;
+  bool client_truncated = 5;
+  bool ripgrep_truncated = 6;
+}
+
+// Copied from: local:agent.v1.GrepArgs (var: NQ)
+message GrepArgs {
+  string pattern = 1;
+  optional string path = 2;
+  optional string glob = 3;
+  optional string output_mode = 4;
+  optional int32 context_before = 5;
+  optional int32 context_after = 6;
+  optional int32 context = 7;
+  optional bool case_insensitive = 8;
+  optional string type = 9;
+  optional int32 head_limit = 10;
+  optional bool multiline = 11;
+  optional string sort = 12;
+  optional bool sort_ascending = 13;
+  string tool_call_id = 14;
+  optional SandboxPolicy sandbox_policy = 15;
+  optional int32 offset = 16;
+}
+
+// Copied from: local:agent.v1.GrepContentMatch (var: KQ)
+message GrepContentMatch {
+  int32 line_number = 1;
+  string content = 2;
+  bool content_truncated = 3;
+  bool is_context_line = 4;
+}
+
+// Copied from: local:agent.v1.GrepContentResult (var: HQ)
+message GrepContentResult {
+  repeated GrepFileMatch matches = 1;
+  int32 total_lines = 2;
+  int32 total_matched_lines = 3;
+  bool client_truncated = 4;
+  bool ripgrep_truncated = 5;
+  optional int32 head_limit_applied = 6;
+  optional int32 offset_applied = 7;
+}
+
+// Copied from: local:agent.v1.GrepCountResult (var: UQ)
+message GrepCountResult {
+  repeated GrepFileCount counts = 1;
+  int32 total_files = 2;
+  int32 total_matches = 3;
+  bool client_truncated = 4;
+  bool ripgrep_truncated = 5;
+  optional int32 head_limit_applied = 6;
+  optional int32 offset_applied = 7;
+}
+
+// Copied from: local:agent.v1.GrepError (var: qQ)
+message GrepError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.GrepFileCount (var: MQ)
+message GrepFileCount {
+  string file = 1;
+  int32 count = 2;
+}
+
+// Copied from: local:agent.v1.GrepFileMatch (var: zQ)
+message GrepFileMatch {
+  string file = 1;
+  repeated GrepContentMatch matches = 2;
+}
+
+// Copied from: local:agent.v1.GrepFilesResult (var: YQ)
+message GrepFilesResult {
+  repeated string files = 1;
+  int32 total_files = 2;
+  bool client_truncated = 3;
+  bool ripgrep_truncated = 4;
+  optional int32 head_limit_applied = 5;
+  optional int32 offset_applied = 6;
+}
+
+// Copied from: local:agent.v1.GrepResult (var: bQ)
+message GrepResult {
+  oneof result {
+    GrepSuccess success = 1;
+    GrepError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.GrepStream (var: ZQ)
+message GrepStream {
+  string pattern = 1;
+}
+
+// Copied from: local:agent.v1.GrepSuccess (var: FQ)
+message GrepSuccess {
+  string pattern = 1;
+  string path = 2;
+  string output_mode = 3;
+  map<string, GrepUnionResult> workspace_results = 4;
+  optional GrepUnionResult active_editor_result = 5;
+}
+
+// Copied from: local:agent.v1.GrepToolCall (var: $Q)
+message GrepToolCall {
+  GrepArgs args = 1;
+  GrepResult result = 2;
+}
+
+// Copied from: local:agent.v1.GrepUnionResult (var: QQ)
+message GrepUnionResult {
+  oneof result {
+    GrepCountResult count = 1;
+    GrepFilesResult files = 2;
+    GrepContentResult content = 3;
+  }
+}
+
+// Copied from: local:agent.v1.HeartbeatUpdate (var: z1)
+message HeartbeatUpdate {
+}
+
+// Copied from: local:agent.v1.HooksConfigInfo (var: jz)
+message HooksConfigInfo {
+  repeated string configured_steps = 1;
+}
+
+// Copied from: local:agent.v1.IdeEditorsStateFile (var: dee)
+message IdeEditorsStateFile {
+  string relative_path = 1;
+  string absolute_path = 2;
+  optional bool is_currently_focused = 3;
+  optional int32 current_line_number = 4;
+  optional string current_line_text = 5;
+  optional int32 line_count = 6;
+}
+
+// Copied from: local:agent.v1.IdeEditorsStateLite (var: Aee)
+message IdeEditorsStateLite {
+  repeated IdeEditorsStateFile recently_viewed_files = 1;
+}
+
+// Copied from: local:agent.v1.ImageProto (var: Lz)
+message ImageProto {
+  // Copied from: local:agent.v1.ImageProto.Dimension (var: Fz)
+  message Dimension {
+    int32 width = 1;
+    int32 height = 2;
+  }
+
+  bytes data = 1;
+  string uuid = 2;
+  string path = 3;
+  Dimension dimension = 4;
+  optional string task_specific_description = 6;
+  string mime_type = 7;
+}
+
+// Copied from: local:agent.v1.InteractionQuery (var: k0)
+message InteractionQuery {
+  uint32 id = 1;
+  oneof query {
+    WebSearchRequestQuery web_search_request_query = 2;
+    AskQuestionInteractionQuery ask_question_interaction_query = 3;
+    SwitchModeRequestQuery switch_mode_request_query = 4;
+    CreatePlanRequestQuery create_plan_request_query = 7;
+    SetupVmEnvironmentArgs setup_vm_environment_args = 8;
+    WebFetchRequestQuery web_fetch_request_query = 9;
+    PrManagementRequestQuery pr_management_request_query = 10;
+    McpAuthRequestQuery mcp_auth_request_query = 11;
+    GenerateImageRequestQuery generate_image_request_query = 12;
+    ReplaceEnvArgs replace_env_args = 13;
+  }
+}
+
+// Copied from: local:agent.v1.InteractionResponse (var: S0)
+message InteractionResponse {
+  uint32 id = 1;
+  oneof result {
+    WebSearchRequestResponse web_search_request_response = 2;
+    AskQuestionInteractionResponse ask_question_interaction_response = 3;
+    SwitchModeRequestResponse switch_mode_request_response = 4;
+    CreatePlanRequestResponse create_plan_request_response = 7;
+    SetupVmEnvironmentResult setup_vm_environment_result = 8;
+    WebFetchRequestResponse web_fetch_request_response = 9;
+    PrManagementResult pr_management_result = 10;
+    McpAuthRequestResponse mcp_auth_request_response = 11;
+    GenerateImageRequestResponse generate_image_request_response = 12;
+    ReplaceEnvResult replace_env_result = 13;
+  }
+}
+
+// Copied from: local:agent.v1.InteractionUpdate (var: _0)
+message InteractionUpdate {
+  oneof message {
+    TextDeltaUpdate text_delta = 1;
+    PartialToolCallUpdate partial_tool_call = 7;
+    ToolCallDeltaUpdate tool_call_delta = 15;
+    ToolCallStartedUpdate tool_call_started = 2;
+    ToolCallCompletedUpdate tool_call_completed = 3;
+    ThinkingDeltaUpdate thinking_delta = 4;
+    ThinkingCompletedUpdate thinking_completed = 5;
+    UserMessageAppendedUpdate user_message_appended = 6;
+    TokenDeltaUpdate token_delta = 8;
+    SummaryUpdate summary = 9;
+    SummaryStartedUpdate summary_started = 10;
+    SummaryCompletedUpdate summary_completed = 11;
+    ShellOutputDeltaUpdate shell_output_delta = 12;
+    HeartbeatUpdate heartbeat = 13;
+    TurnEndedUpdate turn_ended = 14;
+    StepStartedUpdate step_started = 16;
+    StepCompletedUpdate step_completed = 17;
+    PromptSuggestionUpdate prompt_suggestion = 18;
+    PostRequestPromptUpdate post_request_prompt = 19;
+    ActiveBranchChange active_branch_change = 20;
+    FeedbackRequestUpdate feedback_request = 21;
+  }
+}
+
+// Copied from: local:agent.v1.InterruptedPendingToolCallResolution (var: cZ)
+message InterruptedPendingToolCallResolution {
+  string tool_call_id = 1;
+  oneof resolution {
+    ShellResult shell_result = 2;
+    TaskResult task_result = 3;
+  }
+}
+
+// Copied from: local:agent.v1.InterruptedPendingToolCallResolutions (var: dZ)
+message InterruptedPendingToolCallResolutions {
+  repeated InterruptedPendingToolCallResolution resolutions = 1;
+}
+
+// Copied from: local:agent.v1.InvocationContext (var: MK)
+message InvocationContext {
+  // Copied from: local:agent.v1.InvocationContext.GithubPR (var: zK)
+  message GithubPR {
+    string title = 1;
+    string description = 2;
+    string comments = 3;
+    optional string ci_failures = 4;
+  }
+
+  // Copied from: local:agent.v1.InvocationContext.IdeState (var: KK)
+  message IdeState {
+    // Copied from: local:agent.v1.InvocationContext.IdeState.File (var: ZK)
+    message File {
+      // Copied from: local:agent.v1.InvocationContext.IdeState.File.CursorPosition (var: eX)
+      message CursorPosition {
+        int32 line = 1;
+        string text = 2;
+      }
+
+      string path = 1;
+      optional string relative_path = 2;
+      optional CursorPosition cursor_position = 3;
+      int32 total_lines = 4;
+      optional string active_command = 5;
+    }
+
+    // Copied from: local:agent.v1.InvocationContext.IdeState.ViewedPullRequest (var: nX)
+    message ViewedPullRequest {
+      int32 number = 1;
+      string url = 2;
+      optional string title = 3;
+      optional string folder_path = 4;
+      optional string summary_json = 5;
+      optional string description = 6;
+    }
+
+    repeated File visible_files = 1;
+    repeated File recently_viewed_files = 2;
+    repeated ViewedPullRequest currently_viewed_prs = 3;
+  }
+
+  // Copied from: local:agent.v1.InvocationContext.MicrosoftTeamsThread (var: HK)
+  message MicrosoftTeamsThread {
+    string thread = 1;
+    optional string channel_name = 2;
+    optional string team_name = 3;
+    optional string channel_description = 4;
+    optional string team_description = 5;
+  }
+
+  // Copied from: local:agent.v1.InvocationContext.SlackThread (var: YK)
+  message SlackThread {
+    string thread = 1;
+    optional string channel_name = 2;
+    optional string channel_purpose = 3;
+    optional string channel_topic = 4;
+  }
+
+  oneof data {
+    SlackThread slack_thread = 1;
+    GithubPR github_pr = 2;
+    IdeState ide_state = 3;
+    MicrosoftTeamsThread microsoft_teams_thread = 4;
+    bytes blob_id = 10;
+  }
+}
+
+// Copied from: local:agent.v1.KeyAction (var: FB)
+message KeyAction {
+  string key = 1;
+  optional int32 hold_duration_ms = 2;
+}
+
+// Copied from: local:agent.v1.KvClientMessage (var: v7)
+message KvClientMessage {
+  uint32 id = 1;
+  oneof message {
+    GetBlobResult get_blob_result = 2;
+    SetBlobResult set_blob_result = 3;
+  }
+}
+
+// Copied from: local:agent.v1.KvServerMessage (var: I7)
+message KvServerMessage {
+  uint32 id = 1;
+  optional SpanContext span_context = 4;
+  oneof message {
+    GetBlobArgs get_blob_args = 2;
+    SetBlobArgs set_blob_args = 3;
+  }
+}
+
+// Copied from: local:agent.v1.ListMcpResourcesError (var: eM)
+message ListMcpResourcesError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.ListMcpResourcesExecArgs (var: HO)
+message ListMcpResourcesExecArgs {
+  optional string server = 1;
+}
+
+// Copied from: local:agent.v1.ListMcpResourcesExecResult (var: zO)
+message ListMcpResourcesExecResult {
+  // Copied from: local:agent.v1.ListMcpResourcesExecResult.McpResource (var: KO)
+  message McpResource {
+    string uri = 1;
+    optional string name = 2;
+    optional string description = 3;
+    optional string mime_type = 4;
+    string server = 5;
+    map<string, string> annotations = 6;
+  }
+
+  oneof result {
+    ListMcpResourcesSuccess success = 1;
+    ListMcpResourcesError error = 2;
+    ListMcpResourcesRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.ListMcpResourcesRejected (var: nM)
+message ListMcpResourcesRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.ListMcpResourcesSuccess (var: ZO)
+message ListMcpResourcesSuccess {
+  repeated ListMcpResourcesExecResult.McpResource resources = 1;
+}
+
+// Copied from: local:agent.v1.ListMcpResourcesToolCall (var: gG)
+message ListMcpResourcesToolCall {
+  ListMcpResourcesExecArgs args = 1;
+  ListMcpResourcesExecResult result = 2;
+}
+
+// Copied from: local:agent.v1.LsArgs (var: zS)
+message LsArgs {
+  string path = 1;
+  repeated string ignore = 2;
+  string tool_call_id = 3;
+  optional SandboxPolicy sandbox_policy = 4;
+  optional uint32 timeout_ms = 5;
+}
+
+// Copied from: local:agent.v1.LsDirectoryTreeNode (var: eB)
+message LsDirectoryTreeNode {
+  // Copied from: local:agent.v1.LsDirectoryTreeNode.File (var: nB)
+  message File {
+    string name = 1;
+    optional TerminalMetadata terminal_metadata = 2;
+  }
+
+  string abs_path = 1;
+  repeated LsDirectoryTreeNode children_dirs = 2;
+  repeated File children_files = 3;
+  bool children_were_processed = 4;
+  map<string, int32> full_subtree_extension_counts = 5;
+  int32 num_files = 6;
+}
+
+// Copied from: local:agent.v1.LsError (var: sB)
+message LsError {
+  string path = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.LsRejected (var: aB)
+message LsRejected {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.LsResult (var: KS)
+message LsResult {
+  oneof result {
+    LsSuccess success = 1;
+    LsError error = 2;
+    LsRejected rejected = 3;
+    LsTimeout timeout = 4;
+  }
+}
+
+// Copied from: local:agent.v1.LsSuccess (var: ZS)
+message LsSuccess {
+  LsDirectoryTreeNode directory_tree_root = 1;
+}
+
+// Copied from: local:agent.v1.LsTimeout (var: lB)
+message LsTimeout {
+  LsDirectoryTreeNode directory_tree_root = 1;
+}
+
+// Copied from: local:agent.v1.LsToolCall (var: pU)
+message LsToolCall {
+  LsArgs args = 1;
+  LsResult result = 2;
+}
+
+// Copied from: local:agent.v1.MatchedInstalledPlugin (var: oj)
+message MatchedInstalledPlugin {
+  string display_name = 1;
+  string description = 2;
+  string matched_keyword = 3;
+  repeated RecentlyAddedPlugin.CapabilityDescriptor skills = 4;
+  repeated RecentlyAddedPlugin.CapabilityDescriptor subagents = 5;
+  repeated RecentlyAddedPlugin.CapabilityDescriptor hooks = 6;
+  repeated RecentlyAddedPlugin.CapabilityDescriptor rules = 7;
+  repeated RecentlyAddedPlugin.CapabilityDescriptor commands = 8;
+  repeated string mcp_servers = 9;
+}
+
+// Copied from: local:agent.v1.McpApproved (var: AO)
+message McpApproved {
+}
+
+// Copied from: local:agent.v1.McpArgs (var: cO)
+message McpArgs {
+  string name = 1;
+  map<string, google.protobuf.Value> args = 2;
+  string tool_call_id = 3;
+  string provider_identifier = 4;
+  string tool_name = 5;
+  optional SmartModeApproval smart_mode_approval = 6;
+  bool smart_mode_approval_only = 7;
+  bool skip_approval = 8;
+}
+
+// Copied from: local:agent.v1.McpAuthArgs (var: HV)
+message McpAuthArgs {
+  string server_identifier = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.McpAuthError (var: ZV)
+message McpAuthError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.McpAuthRejected (var: eH)
+message McpAuthRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.McpAuthRequestQuery (var: sH)
+message McpAuthRequestQuery {
+  McpAuthArgs args = 1;
+}
+
+// Copied from: local:agent.v1.McpAuthRequestResponse (var: aH)
+message McpAuthRequestResponse {
+  // Copied from: local:agent.v1.McpAuthRequestResponse.Approved (var: lH)
+  message Approved {
+  }
+
+  // Copied from: local:agent.v1.McpAuthRequestResponse.Rejected (var: cH)
+  message Rejected {
+    string reason = 1;
+  }
+
+  oneof result {
+    Approved approved = 1;
+    Rejected rejected = 2;
+  }
+}
+
+// Copied from: local:agent.v1.McpAuthResult (var: zV)
+message McpAuthResult {
+  oneof result {
+    McpAuthSuccess success = 1;
+    McpAuthError error = 2;
+    McpAuthRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.McpAuthSuccess (var: KV)
+message McpAuthSuccess {
+  string server_identifier = 1;
+}
+
+// Copied from: local:agent.v1.McpAuthToolCall (var: nH)
+message McpAuthToolCall {
+  McpAuthArgs args = 1;
+  McpAuthResult result = 2;
+}
+
+// Copied from: local:agent.v1.McpDescriptor (var: nO)
+message McpDescriptor {
+  string server_name = 1;
+  string server_identifier = 2;
+  optional string folder_path = 3;
+  optional string server_use_instructions = 4;
+  repeated McpToolDescriptor tools = 5;
+  optional string plugin = 7;
+  optional string marketplace = 8;
+  optional string plugin_db_id = 9;
+  optional string marketplace_id = 10;
+}
+
+// Copied from: local:agent.v1.McpError (var: vO)
+message McpError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.McpFileSystemOptions (var: aO)
+message McpFileSystemOptions {
+  bool enabled = 1;
+  string workspace_project_dir = 2;
+  repeated McpDescriptor mcp_descriptors = 3;
+}
+
+// Copied from: local:agent.v1.McpImageContent (var: kO)
+message McpImageContent {
+  bytes data = 1;
+  string mime_type = 2;
+}
+
+// Copied from: local:agent.v1.McpInstructions (var: eO)
+message McpInstructions {
+  string server_name = 1;
+  string instructions = 2;
+  string server_identifier = 3;
+}
+
+// Copied from: local:agent.v1.McpMetaToolOptions (var: lO)
+message McpMetaToolOptions {
+  bool enabled = 1;
+  repeated McpDescriptor mcp_descriptors = 2;
+}
+
+// Copied from: local:agent.v1.McpPermissionDenied (var: bO)
+message McpPermissionDenied {
+  string error = 1;
+  bool is_readonly = 2;
+}
+
+// Copied from: local:agent.v1.McpRejected (var: NO)
+message McpRejected {
+  string reason = 1;
+  bool is_readonly = 2;
+}
+
+// Copied from: local:agent.v1.McpResult (var: dO)
+message McpResult {
+  oneof result {
+    McpSuccess success = 1;
+    McpError error = 2;
+    McpRejected rejected = 3;
+    McpPermissionDenied permission_denied = 4;
+    McpToolNotFound tool_not_found = 5;
+    McpServerNotFound server_not_found = 6;
+    McpApproved approved = 7;
+  }
+}
+
+// Copied from: local:agent.v1.McpServerNotFound (var: _O)
+message McpServerNotFound {
+  string name = 1;
+  repeated string available_servers = 2;
+}
+
+// Copied from: local:agent.v1.McpStateError (var: MO)
+message McpStateError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.McpStateExecArgs (var: qO)
+message McpStateExecArgs {
+}
+
+// Copied from: local:agent.v1.McpStateExecResult (var: FO)
+message McpStateExecResult {
+  oneof result {
+    McpStateSuccess success = 1;
+    McpStateError error = 2;
+    McpStateRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.McpStateRejected (var: YO)
+message McpStateRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.McpStateServer (var: QO)
+message McpStateServer {
+  string server_name = 1;
+  string server_identifier = 2;
+  optional string plugin = 3;
+  optional string marketplace = 4;
+  repeated McpToolDefinition tools = 5;
+  repeated McpInstructions instructions = 6;
+  optional string status = 7;
+}
+
+// Copied from: local:agent.v1.McpStateSuccess (var: UO)
+message McpStateSuccess {
+  repeated McpStateServer servers = 1;
+}
+
+// Copied from: local:agent.v1.McpSuccess (var: IO)
+message McpSuccess {
+  repeated McpToolResultContentItem content = 1;
+  bool is_error = 2;
+  google.protobuf.Struct structured_content = 3;
+}
+
+// Copied from: local:agent.v1.McpTextContent (var: yO)
+message McpTextContent {
+  string text = 1;
+  optional OutputLocation output_location = 2;
+}
+
+// Copied from: local:agent.v1.McpToolCall (var: yM)
+message McpToolCall {
+  McpArgs args = 1;
+  McpToolResult result = 2;
+}
+
+// Copied from: local:agent.v1.McpToolDefinition (var: KU)
+message McpToolDefinition {
+  string name = 1;
+  string provider_identifier = 4;
+  string tool_name = 5;
+  string description = 2;
+  google.protobuf.Value input_schema = 3;
+}
+
+// Copied from: local:agent.v1.McpToolDescriptor (var: sO)
+message McpToolDescriptor {
+  string tool_name = 1;
+  optional string definition_path = 2;
+  optional string description = 3;
+  optional google.protobuf.Value input_schema = 4;
+}
+
+// Copied from: local:agent.v1.McpToolError (var: gM)
+message McpToolError {
+  string error = 1;
+  string read_tool_def_reminder = 2;
+}
+
+// Copied from: local:agent.v1.McpToolNotFound (var: gO)
+message McpToolNotFound {
+  string name = 1;
+  repeated string available_tools = 2;
+}
+
+// Copied from: local:agent.v1.McpToolResult (var: _M)
+message McpToolResult {
+  oneof result {
+    McpSuccess success = 1;
+    McpToolError error = 2;
+    McpRejected rejected = 3;
+    McpPermissionDenied permission_denied = 4;
+  }
+}
+
+// Copied from: local:agent.v1.McpToolResultContentItem (var: SO)
+message McpToolResultContentItem {
+  oneof content {
+    McpTextContent text = 1;
+    McpImageContent image = 2;
+  }
+}
+
+// Copied from: local:agent.v1.McpTools (var: ZU)
+message McpTools {
+  repeated McpToolDefinition mcp_tools = 1;
+}
+
+// Copied from: local:agent.v1.ModelDetails (var: g1)
+message ModelDetails {
+  string model_id = 1;
+  string display_model_id = 3;
+  string display_name = 4;
+  string display_name_short = 5;
+  repeated string aliases = 6;
+  optional ThinkingDetails thinking_details = 2;
+  optional bool max_mode = 7;
+  oneof credentials {
+    ApiKeyCredentials api_key_credentials = 8;
+    AzureCredentials azure_credentials = 9;
+    BedrockCredentials bedrock_credentials = 10;
+  }
+}
+
+// Copied from: local:agent.v1.MouseButton (var: AB)
+enum MouseButton {
+  MOUSE_BUTTON_UNSPECIFIED = 0;
+  MOUSE_BUTTON_LEFT = 1;
+  MOUSE_BUTTON_RIGHT = 2;
+  MOUSE_BUTTON_MIDDLE = 3;
+  MOUSE_BUTTON_BACK = 4;
+  MOUSE_BUTTON_FORWARD = 5;
+}
+
+// Copied from: local:agent.v1.MouseDownAction (var: IB)
+message MouseDownAction {
+  MouseButton button = 1;
+}
+
+// Copied from: local:agent.v1.MouseMoveAction (var: kB)
+message MouseMoveAction {
+  Coordinate coordinate = 1;
+}
+
+// Copied from: local:agent.v1.MouseUpAction (var: vB)
+message MouseUpAction {
+  MouseButton button = 1;
+}
+
+// Copied from: local:agent.v1.NameAgentRequest (var: M7)
+message NameAgentRequest {
+  string user_message = 1;
+}
+
+// Copied from: local:agent.v1.NameAgentResponse (var: Y7)
+message NameAgentResponse {
+  string name = 1;
+}
+
+// Copied from: local:agent.v1.NetworkPolicy (var: xw)
+message NetworkPolicy {
+  // Copied from: local:agent.v1.NetworkPolicy.DefaultAction (var: Ow)
+  enum DefaultAction {
+    DEFAULT_ACTION_UNSPECIFIED = 0;
+    DEFAULT_ACTION_ALLOW = 1;
+    DEFAULT_ACTION_DENY = 2;
+  }
+
+  optional uint32 version = 1;
+  optional DefaultAction default_action = 2;
+  repeated string deny = 3;
+  repeated string allow = 4;
+  optional NetworkPolicyLoggingConfig logging = 5;
+}
+
+// Copied from: local:agent.v1.NetworkPolicyLoggingConfig (var: Dw)
+message NetworkPolicyLoggingConfig {
+  optional string decision_log_path = 1;
+  optional string log_format = 2;
+}
+
+// Copied from: local:agent.v1.NewChatNudge (var: xee)
+message NewChatNudge {
+  string nudge_id = 1;
+  string target_model = 2;
+  string experiment_name = 3;
+  oneof variant {
+    NudgeBumpVariant bump = 4;
+    NudgeAskVariant ask = 5;
+    NudgeSilentSwitchVariant silent_switch = 6;
+  }
+}
+
+// Copied from: local:agent.v1.NewChatNudgeV2 (var: Vee)
+message NewChatNudgeV2 {
+  string nudge_id = 1;
+  RequestedModel target_model = 2;
+  string experiment_name = 3;
+  oneof variant {
+    NudgeBumpVariant bump = 4;
+    NudgeAskVariant ask = 5;
+    NudgeSilentSwitchVariant silent_switch = 6;
+  }
+}
+
+// Copied from: local:agent.v1.NotifyConversationCloneRequest (var: Bee)
+message NotifyConversationCloneRequest {
+  string conversation_id = 1;
+  string source_conversation_id = 2;
+  string source_request_id = 3;
+}
+
+// Copied from: local:agent.v1.NotifyConversationCloneResponse (var: Jee)
+message NotifyConversationCloneResponse {
+}
+
+// Copied from: local:agent.v1.NudgeAskVariant (var: Lee)
+message NudgeAskVariant {
+  string popup_message = 1;
+  string accept_label = 2;
+}
+
+// Copied from: local:agent.v1.NudgeBumpVariant (var: Pee)
+message NudgeBumpVariant {
+  string banner_message = 1;
+}
+
+// Copied from: local:agent.v1.NudgeSilentSwitchVariant (var: Dee)
+message NudgeSilentSwitchVariant {
+}
+
+// Copied from: local:agent.v1.OutputLocation (var: Kw)
+message OutputLocation {
+  string file_path = 1;
+  int64 size_bytes = 2;
+  int64 line_count = 3;
+}
+
+// Copied from: local:agent.v1.PackageType (var: gz)
+enum PackageType {
+  PACKAGE_TYPE_UNSPECIFIED = 0;
+  PACKAGE_TYPE_CURSOR_PROJECT = 1;
+  PACKAGE_TYPE_CURSOR_PERSONAL = 2;
+  PACKAGE_TYPE_CLAUDE_SKILL = 3;
+  PACKAGE_TYPE_CLAUDE_PLUGIN = 4;
+}
+
+// Copied from: local:agent.v1.PartialToolCallUpdate (var: F1)
+message PartialToolCallUpdate {
+  string call_id = 1;
+  ToolCall tool_call = 2;
+  string args_text_delta = 3;
+  string model_call_id = 4;
+}
+
+// Copied from: local:agent.v1.Phase (var: qM)
+message Phase {
+  string name = 1;
+  repeated TodoItem todos = 2;
+}
+
+// Copied from: local:agent.v1.PlanRegistryEntry (var: k$)
+message PlanRegistryEntry {
+  string id = 1;
+  string path = 2;
+}
+
+// Copied from: local:agent.v1.Position (var: zw)
+message Position {
+  uint32 line = 1;
+  uint32 column = 2;
+}
+
+// Copied from: local:agent.v1.PostRequestPromptUpdate (var: y0)
+message PostRequestPromptUpdate {
+  string title = 1;
+  string message = 2;
+  string button_label = 3;
+  string button_url = 4;
+}
+
+// Copied from: local:agent.v1.PostToolUseFailureRequestQuery (var: K0)
+message PostToolUseFailureRequestQuery {
+  string tool_name = 1;
+  google.protobuf.Struct tool_input = 2;
+  string error_message = 3;
+  string failure_type = 4;
+  int64 duration_ms = 5;
+  string tool_use_id = 6;
+  bool is_interrupt = 7;
+  optional string conversation_id = 8;
+  optional string generation_id = 9;
+  optional string model = 10;
+  optional string model_id = 11;
+  repeated RequestedModel.ModelParameterValue model_params = 12;
+}
+
+// Copied from: local:agent.v1.PostToolUseFailureRequestResponse (var: Z0)
+message PostToolUseFailureRequestResponse {
+}
+
+// Copied from: local:agent.v1.PostToolUseRequestQuery (var: H0)
+message PostToolUseRequestQuery {
+  string tool_name = 1;
+  google.protobuf.Struct tool_input = 2;
+  string tool_output = 3;
+  int64 duration_ms = 4;
+  string tool_use_id = 5;
+  optional string cwd = 6;
+  optional string conversation_id = 7;
+  optional string generation_id = 8;
+  optional string model = 9;
+  optional string model_id = 10;
+  repeated RequestedModel.ModelParameterValue model_params = 11;
+}
+
+// Copied from: local:agent.v1.PostToolUseRequestResponse (var: z0)
+message PostToolUseRequestResponse {
+  optional string additional_context = 1;
+}
+
+// Copied from: local:agent.v1.PrManagementArgs (var: SV)
+message PrManagementArgs {
+  string tool_call_id = 1;
+  oneof action {
+    CreatePrAction create_pr = 2;
+    UpdatePrAction update_pr = 3;
+  }
+}
+
+// Copied from: local:agent.v1.PrManagementError (var: qV)
+message PrManagementError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.PrManagementNeedsConfirmation (var: UV)
+message PrManagementNeedsConfirmation {
+  string message = 1;
+  string discovered_pr_url = 2;
+  int32 discovered_pr_number = 3;
+  string discovered_pr_title = 4;
+  string branch_name = 5;
+}
+
+// Copied from: local:agent.v1.PrManagementRegistered (var: QV)
+message PrManagementRegistered {
+  string message = 1;
+  string title = 2;
+  string body = 3;
+  optional string base_branch = 4;
+  optional bool draft = 5;
+  string branch_name = 6;
+}
+
+// Copied from: local:agent.v1.PrManagementRejected (var: FV)
+message PrManagementRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.PrManagementRequestQuery (var: YV)
+message PrManagementRequestQuery {
+  PrManagementArgs args = 1;
+}
+
+// Copied from: local:agent.v1.PrManagementResult (var: NV)
+message PrManagementResult {
+  oneof result {
+    PrManagementSuccess success = 1;
+    PrManagementError error = 2;
+    PrManagementRejected rejected = 3;
+    PrManagementRegistered registered = 4;
+    PrManagementNeedsConfirmation needs_confirmation = 5;
+  }
+}
+
+// Copied from: local:agent.v1.PrManagementSuccess (var: bV)
+message PrManagementSuccess {
+  string pr_url = 1;
+  int32 pr_number = 2;
+  string message = 3;
+}
+
+// Copied from: local:agent.v1.PrManagementToolCall (var: MV)
+message PrManagementToolCall {
+  PrManagementArgs args = 1;
+  PrManagementResult result = 2;
+}
+
+// Copied from: local:agent.v1.PreCompactRequestQuery (var: N0)
+message PreCompactRequestQuery {
+  string trigger = 1;
+  double context_usage_percent = 2;
+  int64 context_tokens = 3;
+  int64 context_window_size = 4;
+  int32 message_count = 5;
+  int32 messages_to_compact = 6;
+  bool is_first_compaction = 7;
+  optional string conversation_id = 8;
+  optional string generation_id = 9;
+  optional string model = 10;
+  optional string model_id = 11;
+  repeated RequestedModel.ModelParameterValue model_params = 12;
+}
+
+// Copied from: local:agent.v1.PreCompactRequestResponse (var: b0)
+message PreCompactRequestResponse {
+  optional string user_message = 1;
+}
+
+// Copied from: local:agent.v1.PreFetchedBlob (var: S1)
+message PreFetchedBlob {
+  bytes id = 1;
+  bytes value = 2;
+}
+
+// Copied from: local:agent.v1.PreToolUseRequestQuery (var: M0)
+message PreToolUseRequestQuery {
+  string tool_name = 1;
+  google.protobuf.Struct tool_input = 2;
+  string tool_use_id = 3;
+  optional string cwd = 4;
+  optional string conversation_id = 5;
+  optional string generation_id = 6;
+  optional string model = 7;
+  optional string model_id = 8;
+  repeated RequestedModel.ModelParameterValue model_params = 9;
+}
+
+// Copied from: local:agent.v1.PreToolUseRequestResponse (var: Y0)
+message PreToolUseRequestResponse {
+  optional string permission = 1;
+  optional string user_message = 2;
+  optional string agent_message = 3;
+  optional string updated_input = 4;
+}
+
+// Copied from: local:agent.v1.PrecomputedHumanChange (var: $z)
+message PrecomputedHumanChange {
+  string path = 1;
+  repeated PrecomputedHumanChangeRenderedDiff rendered_diffs = 2;
+  bool is_new_file = 3;
+  bool is_deleted_file = 4;
+}
+
+// Copied from: local:agent.v1.PrecomputedHumanChangeRenderedDiff (var: Xz)
+message PrecomputedHumanChangeRenderedDiff {
+  int32 start_line_number = 1;
+  int32 end_line_number_exclusive = 2;
+  repeated string before_context_lines = 3;
+  repeated string removed_lines = 4;
+  repeated string added_lines = 5;
+  repeated string after_context_lines = 6;
+}
+
+// Copied from: local:agent.v1.PreparedTaskSubagent (var: s2)
+message PreparedTaskSubagent {
+  string subagent_id = 1;
+  string subagent_type_name = 2;
+  SubagentType subagent_type = 3;
+  string analytics_subagent_type = 4;
+  string resolved_model_id = 5;
+  bool effective_readonly = 6;
+  bool use_ask_mode_for_subagent = 7;
+  ConversationStateStructure conversation_state = 8;
+  ConversationAction initial_action = 9;
+  uint32 initial_turns_count = 10;
+  string subagent_request_id = 11;
+  string tool_call_id = 12;
+  bool is_resume = 13;
+  optional string parent_request_id = 14;
+  optional string root_parent_request_id = 15;
+  string task_prompt = 16;
+  string task_description = 17;
+  optional SelectedContext selected_context = 18;
+  optional string plugin = 19;
+  optional string marketplace = 20;
+  string parent_model_name = 21;
+  TaskToolCallArgsProto raw_args = 22;
+  SubagentCredentials subagent_credentials = 23;
+  optional string result_suffix = 25;
+  bool enable_execute_hook_exec = 26;
+  repeated string configured_steps = 27;
+  bool readonly_shell_enabled = 28;
+  string tool_name = 29;
+  optional int64 prepared_timestamp_unix_ms = 30;
+  optional string plugin_id = 31;
+  optional string marketplace_id = 32;
+  optional string subagent_source = 33;
+}
+
+// Copied from: local:agent.v1.PrewarmRequest (var: b7)
+message PrewarmRequest {
+  ModelDetails model_details = 1;
+  optional RequestedModel requested_model = 9;
+  optional string conversation_id = 2;
+  ConversationStateStructure conversation_state = 3;
+  McpTools mcp_tools = 4;
+  optional McpFileSystemOptions mcp_file_system_options = 5;
+  optional string best_of_n_group_id = 6;
+  optional bool try_use_best_of_n_promotion = 7;
+  optional string custom_system_prompt = 8;
+  optional bool suggest_next_prompt = 10;
+  optional string subagent_type_name = 11;
+  optional bool exclude_workspace_context = 12;
+  optional string harness = 13;
+  repeated RequestedModel selected_subagent_models = 14;
+  repeated ModelDetails selected_subagent_model_details = 15;
+  optional string conversation_group_id = 16;
+  repeated PreFetchedBlob pre_fetched_blobs = 17;
+  optional bool client_supports_inline_images = 18;
+  repeated SubagentModelOverride subagent_model_overrides = 19;
+  optional bool can_create_cloud_subagents = 20;
+  optional bool suppress_subagent_progress_update_tool = 21;
+}
+
+// Copied from: local:agent.v1.PromptSuggestionUpdate (var: l0)
+message PromptSuggestionUpdate {
+  string suggestion = 1;
+}
+
+// Copied from: local:agent.v1.PromptTokenBreakdownCategory (var: D$)
+message PromptTokenBreakdownCategory {
+  string id = 1;
+  string label = 2;
+  uint32 estimated_tokens = 3;
+  optional uint32 character_count = 4;
+}
+
+// Copied from: local:agent.v1.PromptTokenBreakdownSnapshot (var: x$)
+message PromptTokenBreakdownSnapshot {
+  uint32 total_used_tokens = 1;
+  uint32 max_tokens = 2;
+  repeated PromptTokenBreakdownCategory categories = 3;
+}
+
+// Copied from: local:agent.v1.Range (var: Hw)
+message Range {
+  Position start = 1;
+  Position end = 2;
+}
+
+// Copied from: local:agent.v1.ReadArgs (var: Y8)
+message ReadArgs {
+  string path = 1;
+  string tool_call_id = 2;
+  optional int32 offset = 4;
+  optional uint32 limit = 5;
+  optional string encoding_hint = 6;
+}
+
+// Copied from: local:agent.v1.ReadError (var: K8)
+message ReadError {
+  string path = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.ReadFileNotFound (var: e6)
+message ReadFileNotFound {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.ReadInvalidFile (var: s6)
+message ReadInvalidFile {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.ReadLintsToolArgs (var: FU)
+message ReadLintsToolArgs {
+  repeated string paths = 1;
+}
+
+// Copied from: local:agent.v1.ReadLintsToolCall (var: qU)
+message ReadLintsToolCall {
+  ReadLintsToolArgs args = 1;
+  ReadLintsToolResult result = 2;
+}
+
+// Copied from: local:agent.v1.ReadLintsToolError (var: zU)
+message ReadLintsToolError {
+  string error_message = 1;
+}
+
+// Copied from: local:agent.v1.ReadLintsToolResult (var: QU)
+message ReadLintsToolResult {
+  oneof result {
+    ReadLintsToolSuccess success = 1;
+    ReadLintsToolError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReadLintsToolSuccess (var: UU)
+message ReadLintsToolSuccess {
+  repeated FileDiagnostics file_diagnostics = 1;
+  int32 total_files = 2;
+  int32 total_diagnostics = 3;
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceError (var: cM)
+message ReadMcpResourceError {
+  string uri = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceExecArgs (var: sM)
+message ReadMcpResourceExecArgs {
+  string server = 1;
+  string uri = 2;
+  optional string download_path = 3;
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceExecResult (var: aM)
+message ReadMcpResourceExecResult {
+  oneof result {
+    ReadMcpResourceSuccess success = 1;
+    ReadMcpResourceError error = 2;
+    ReadMcpResourceRejected rejected = 3;
+    ReadMcpResourceNotFound not_found = 4;
+  }
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceNotFound (var: AM)
+message ReadMcpResourceNotFound {
+  string uri = 1;
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceRejected (var: dM)
+message ReadMcpResourceRejected {
+  string uri = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceSuccess (var: lM)
+message ReadMcpResourceSuccess {
+  string uri = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string mime_type = 4;
+  map<string, string> annotations = 7;
+  optional string download_path = 8;
+  oneof content {
+    string text = 5;
+    bytes blob = 6;
+  }
+}
+
+// Copied from: local:agent.v1.ReadMcpResourceToolCall (var: _G)
+message ReadMcpResourceToolCall {
+  ReadMcpResourceExecArgs args = 1;
+  ReadMcpResourceExecResult result = 2;
+}
+
+// Copied from: local:agent.v1.ReadPermissionDenied (var: n6)
+message ReadPermissionDenied {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.ReadRange (var: yx)
+message ReadRange {
+  uint32 start_line = 1;
+  uint32 end_line = 2;
+}
+
+// Copied from: local:agent.v1.ReadRejected (var: Z8)
+message ReadRejected {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.ReadResult (var: H8)
+message ReadResult {
+  oneof result {
+    ReadSuccess success = 1;
+    ReadError error = 2;
+    ReadRejected rejected = 3;
+    ReadFileNotFound file_not_found = 4;
+    ReadPermissionDenied permission_denied = 5;
+    ReadInvalidFile invalid_file = 6;
+  }
+}
+
+// Copied from: local:agent.v1.ReadSuccess (var: z8)
+message ReadSuccess {
+  string path = 1;
+  int32 total_lines = 3;
+  int64 file_size = 4;
+  bool truncated = 6;
+  optional bytes output_blob_id = 7;
+  bool range_applied = 8;
+  oneof output {
+    string content = 2;
+    bytes data = 5;
+  }
+}
+
+// Copied from: local:agent.v1.ReadTodosArgs (var: Ox)
+message ReadTodosArgs {
+  repeated TodoStatus status_filter = 1;
+  repeated string id_filter = 2;
+}
+
+// Copied from: local:agent.v1.ReadTodosError (var: Wx)
+message ReadTodosError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.ReadTodosResult (var: Gx)
+message ReadTodosResult {
+  oneof result {
+    ReadTodosSuccess success = 1;
+    ReadTodosError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReadTodosSuccess (var: Vx)
+message ReadTodosSuccess {
+  repeated TodoItem todos = 1;
+  int32 total_count = 2;
+}
+
+// Copied from: local:agent.v1.ReadTodosToolCall (var: xx)
+message ReadTodosToolCall {
+  ReadTodosArgs args = 1;
+  ReadTodosResult result = 2;
+}
+
+// Copied from: local:agent.v1.ReadToolArgs (var: gx)
+message ReadToolArgs {
+  string path = 1;
+  optional int32 offset = 2;
+  optional int32 limit = 3;
+  optional bool include_line_numbers = 5;
+}
+
+// Copied from: local:agent.v1.ReadToolCall (var: Ax)
+message ReadToolCall {
+  ReadToolArgs args = 1;
+  ReadToolResult result = 2;
+}
+
+// Copied from: local:agent.v1.ReadToolError (var: Sx)
+message ReadToolError {
+  string error_message = 1;
+}
+
+// Copied from: local:agent.v1.ReadToolResult (var: _x)
+message ReadToolResult {
+  oneof result {
+    ReadToolSuccess success = 1;
+    ReadToolError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReadToolSuccess (var: kx)
+message ReadToolSuccess {
+  bool is_empty = 2;
+  bool exceeded_limit = 3;
+  uint32 total_lines = 4;
+  uint32 file_size = 5;
+  string path = 7;
+  optional ReadRange read_range = 8;
+  optional bool include_line_numbers = 11;
+  repeated string related_cursor_rule_paths = 12;
+  repeated CursorRule related_cursor_rules = 13;
+  oneof output {
+    string content = 1;
+    bytes data = 6;
+    bytes data_blob_id = 9;
+    bytes content_blob_id = 10;
+  }
+}
+
+// Copied from: local:agent.v1.RecentAgent (var: aK)
+message RecentAgent {
+  string name = 1;
+  string path = 2;
+  optional string overview = 3;
+}
+
+// Copied from: local:agent.v1.RecentAgentsContext (var: lK)
+message RecentAgentsContext {
+  repeated RecentAgent recent_agents = 1;
+}
+
+// Copied from: local:agent.v1.RecentlyAddedPlugin (var: rj)
+message RecentlyAddedPlugin {
+  // Copied from: local:agent.v1.RecentlyAddedPlugin.CapabilityDescriptor (var: ij)
+  message CapabilityDescriptor {
+    string name = 1;
+    string description = 2;
+  }
+
+  string display_name = 1;
+  string description = 2;
+  repeated CapabilityDescriptor skills = 3;
+  repeated CapabilityDescriptor subagents = 4;
+  repeated CapabilityDescriptor hooks = 5;
+  repeated CapabilityDescriptor rules = 6;
+  repeated CapabilityDescriptor commands = 7;
+  repeated string mcp_servers = 8;
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationFinding (var: nz)
+message RecordCiInvestigationFinding {
+  string check_name = 1;
+  optional string details_url = 2;
+  string tldr = 3;
+  optional string root_cause = 4;
+  optional string failing_signal = 5;
+  optional string suggested_next_step = 6;
+  optional string diff_relation = 7;
+  optional string diff_relation_evidence = 8;
+  optional string flake_assessment = 9;
+  optional string flake_evidence = 10;
+  optional bool rerun_available = 11;
+  optional string rerun_evidence = 12;
+  optional string recommended_action = 13;
+  optional string recommended_action_evidence = 14;
+  optional string confidence = 15;
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationFindingsArgs (var: az)
+message RecordCiInvestigationFindingsArgs {
+  repeated RecordCiInvestigationFinding findings = 1;
+  optional RecordCiInvestigationOverall overall = 2;
+  string tool_call_id = 3;
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationFindingsError (var: cz)
+message RecordCiInvestigationFindingsError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationFindingsResult (var: dz)
+message RecordCiInvestigationFindingsResult {
+  oneof result {
+    RecordCiInvestigationFindingsSuccess success = 1;
+    RecordCiInvestigationFindingsError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationFindingsSuccess (var: lz)
+message RecordCiInvestigationFindingsSuccess {
+  string message = 1;
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationFindingsToolCall (var: Az)
+message RecordCiInvestigationFindingsToolCall {
+  RecordCiInvestigationFindingsArgs args = 1;
+  RecordCiInvestigationFindingsResult result = 2;
+}
+
+// Copied from: local:agent.v1.RecordCiInvestigationOverall (var: sz)
+message RecordCiInvestigationOverall {
+  string summary = 1;
+  repeated string themes = 2;
+  optional string recommended_action = 3;
+  optional string recommended_action_evidence = 4;
+  repeated string check_keys = 5;
+}
+
+// Copied from: local:agent.v1.RecordScreenArgs (var: TE)
+message RecordScreenArgs {
+  RecordingMode mode = 1;
+  string tool_call_id = 2;
+  optional string save_as_filename = 3;
+}
+
+// Copied from: local:agent.v1.RecordScreenDiscardSuccess (var: JE)
+message RecordScreenDiscardSuccess {
+}
+
+// Copied from: local:agent.v1.RecordScreenFailure (var: CE)
+message RecordScreenFailure {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.RecordScreenResult (var: wE)
+message RecordScreenResult {
+  oneof result {
+    RecordScreenStartSuccess start_success = 1;
+    RecordScreenSaveSuccess save_success = 2;
+    RecordScreenDiscardSuccess discard_success = 3;
+    RecordScreenFailure failure = 4;
+  }
+}
+
+// Copied from: local:agent.v1.RecordScreenSaveSuccess (var: BE)
+message RecordScreenSaveSuccess {
+  string path = 1;
+  int64 recording_duration_ms = 2;
+  optional RequestedFilePathRejectedReason requested_file_path_rejected_reason = 3;
+}
+
+// Copied from: local:agent.v1.RecordScreenStartSuccess (var: EE)
+message RecordScreenStartSuccess {
+  bool was_prior_recording_cancelled = 1;
+  bool was_save_as_filename_ignored = 2;
+}
+
+// Copied from: local:agent.v1.RecordScreenToolCall (var: gY)
+message RecordScreenToolCall {
+  RecordScreenArgs args = 1;
+  RecordScreenResult result = 2;
+}
+
+// Copied from: local:agent.v1.RecordingMode (var: hE)
+enum RecordingMode {
+  RECORDING_MODE_UNSPECIFIED = 0;
+  RECORDING_MODE_START_RECORDING = 1;
+  RECORDING_MODE_SAVE_RECORDING = 2;
+  RECORDING_MODE_DISCARD_RECORDING = 3;
+}
+
+// Copied from: local:agent.v1.ReflectArgs (var: yY)
+message ReflectArgs {
+  string unexpected_action_outcomes = 1;
+  string relevant_instructions = 2;
+  string scenario_analysis = 3;
+  string critical_synthesis = 4;
+  string next_steps = 5;
+  string tool_call_id = 6;
+}
+
+// Copied from: local:agent.v1.ReflectError (var: IY)
+message ReflectError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.ReflectResult (var: kY)
+message ReflectResult {
+  oneof result {
+    ReflectSuccess success = 1;
+    ReflectError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReflectSuccess (var: SY)
+message ReflectSuccess {
+}
+
+// Copied from: local:agent.v1.ReflectToolCall (var: vY)
+message ReflectToolCall {
+  ReflectArgs args = 1;
+  ReflectResult result = 2;
+}
+
+// Copied from: local:agent.v1.ReplaceEnvArgs (var: qW)
+message ReplaceEnvArgs {
+  ReplaceEnvConfig config = 1;
+}
+
+// Copied from: local:agent.v1.ReplaceEnvConfig (var: bW)
+message ReplaceEnvConfig {
+  string install_script = 1;
+  string dockerfile_contents = 2;
+}
+
+// Copied from: local:agent.v1.ReplaceEnvFailure (var: QW)
+message ReplaceEnvFailure {
+  string error_message = 1;
+  string setup_logs = 2;
+}
+
+// Copied from: local:agent.v1.ReplaceEnvResult (var: UW)
+message ReplaceEnvResult {
+  oneof result {
+    ReplaceEnvSuccess success = 1;
+    ReplaceEnvFailure failure = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReplaceEnvSuccess (var: FW)
+message ReplaceEnvSuccess {
+  string setup_logs = 1;
+}
+
+// Copied from: local:agent.v1.ReplaceEnvToolCall (var: MW)
+message ReplaceEnvToolCall {
+  ReplaceEnvArgs args = 1;
+  ReplaceEnvResult result = 2;
+  string associated_pod_key = 3;
+}
+
+// Copied from: local:agent.v1.ReplaceEnvToolCallDelta (var: YW)
+message ReplaceEnvToolCallDelta {
+  string associated_pod_key = 1;
+}
+
+// Copied from: local:agent.v1.ReportBugArgs (var: HH)
+message ReportBugArgs {
+  string title = 1;
+  string file = 2;
+  int32 start_line = 3;
+  int32 end_line = 4;
+  string description = 5;
+  string severity = 6;
+  string category = 7;
+  string rationale = 8;
+}
+
+// Copied from: local:agent.v1.ReportBugError (var: KH)
+message ReportBugError {
+  string error_message = 1;
+}
+
+// Copied from: local:agent.v1.ReportBugResult (var: ZH)
+message ReportBugResult {
+  oneof result {
+    ReportBugSuccess success = 1;
+    ReportBugError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReportBugSuccess (var: zH)
+message ReportBugSuccess {
+  string output = 1;
+}
+
+// Copied from: local:agent.v1.ReportBugToolCall (var: eW)
+message ReportBugToolCall {
+  ReportBugArgs args = 1;
+  ReportBugResult result = 2;
+}
+
+// Copied from: local:agent.v1.ReportBugfixResultsArgs (var: tI)
+message ReportBugfixResultsArgs {
+  string summary = 1;
+  repeated BugfixResultItem results = 2;
+}
+
+// Copied from: local:agent.v1.ReportBugfixResultsError (var: iI)
+message ReportBugfixResultsError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.ReportBugfixResultsResult (var: oI)
+message ReportBugfixResultsResult {
+  oneof result {
+    ReportBugfixResultsSuccess success = 1;
+    ReportBugfixResultsError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ReportBugfixResultsSuccess (var: rI)
+message ReportBugfixResultsSuccess {
+  repeated BugfixResultItem results = 1;
+}
+
+// Copied from: local:agent.v1.ReportBugfixResultsToolCall (var: uI)
+message ReportBugfixResultsToolCall {
+  ReportBugfixResultsArgs args = 1;
+  ReportBugfixResultsResult result = 2;
+}
+
+// Copied from: local:agent.v1.RepositoryIndexingInfo (var: yz)
+message RepositoryIndexingInfo {
+  string relative_workspace_path = 1;
+  repeated string remote_urls = 2;
+  repeated string remote_names = 3;
+  string repo_name = 4;
+  string repo_owner = 5;
+  bool is_tracked = 6;
+  bool is_local = 7;
+  optional double orthogonal_transform_seed = 8;
+  string workspace_uri = 9;
+  string path_encryption_key = 10;
+}
+
+// Copied from: local:agent.v1.RequestContext (var: tj)
+message RequestContext {
+  repeated CursorRule rules = 2;
+  RequestContextEnv env = 4;
+  repeated RepositoryIndexingInfo repository_info = 6;
+  repeated McpToolDefinition tools = 7;
+  optional string conversation_notes_listing = 8;
+  optional string shared_notes_listing = 9;
+  repeated GitRepoInfo git_repos = 11;
+  repeated LsDirectoryTreeNode project_layouts = 13;
+  repeated McpInstructions mcp_instructions = 14;
+  optional DebugModeConfig debug_mode_config = 15;
+  optional string cloud_rule = 16;
+  optional bool web_search_enabled = 17;
+  optional SkillOptions skill_options = 18;
+  optional bool repository_info_should_query_prod = 19;
+  map<string, string> file_contents = 20;
+  optional string user_intent_summary = 21;
+  repeated CustomSubagent custom_subagents = 22;
+  optional McpFileSystemOptions mcp_file_system_options = 23;
+  optional bool web_fetch_enabled = 24;
+  optional string hooks_additional_context = 25;
+  optional string commit_attribution_message = 26;
+  optional string pr_attribution_message = 27;
+  optional HooksConfigInfo hooks_config = 28;
+  repeated AgentSkill agent_skills = 29;
+  repeated PrecomputedHumanChange precomputed_human_changes = 30;
+  optional RecentlyAddedPlugin recently_added_plugin = 31;
+  optional bool supports_mcp_auth = 32;
+  optional bool git_repo_info_complete = 33;
+  optional McpMetaToolOptions mcp_meta_tool_options = 34;
+  optional bool read_lints_enabled = 35;
+  optional bool mcp_info_complete = 36;
+  repeated CursorRule non_file_rules = 37;
+  optional MatchedInstalledPlugin matched_installed_plugin = 38;
+  optional bool rules_info_complete = 39;
+  optional bool env_info_complete = 40;
+  optional bool repository_info_complete = 41;
+  optional bool custom_subagents_info_complete = 42;
+  optional bool agent_skills_info_complete = 43;
+  optional bool mcp_file_system_info_complete = 44;
+  optional bool git_status_info_complete = 45;
+}
+
+// Copied from: local:agent.v1.RequestContextArgs (var: Bz)
+message RequestContextArgs {
+  optional string notes_session_id = 2;
+  optional string workspace_id = 3;
+  optional string read_only_pinned_tree_sha = 4;
+  optional string read_only_plugin_cache_root = 5;
+}
+
+// Copied from: local:agent.v1.RequestContextEnv (var: Uz)
+message RequestContextEnv {
+  string os_version = 1;
+  repeated string workspace_paths = 2;
+  string shell = 3;
+  bool sandbox_enabled = 5;
+  string terminals_folder = 7;
+  string agent_shared_notes_folder = 8;
+  string agent_conversation_notes_folder = 9;
+  string time_zone = 10;
+  string project_folder = 11;
+  string agent_transcripts_folder = 12;
+  optional string artifacts_folder = 13;
+  optional bool sandbox_supported = 14;
+  optional bool sandbox_network_has_defaults = 16;
+  repeated string sandbox_network_explicit_allowlist = 17;
+  optional bool secret_redaction_enabled = 18;
+  optional bool computer_use_supported = 19;
+  optional bool is_working_dir_home_dir = 20;
+  optional string process_working_directory = 21;
+  optional bool smart_mode_classifier_auto_mode_enabled = 22;
+  optional string dev_force_next_smart_mode_classifier_block_token = 23;
+}
+
+// Copied from: local:agent.v1.RequestContextError (var: Rz)
+message RequestContextError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.RequestContextRejected (var: Pz)
+message RequestContextRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.RequestContextResult (var: Jz)
+message RequestContextResult {
+  oneof result {
+    RequestContextSuccess success = 1;
+    RequestContextError error = 2;
+    RequestContextRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.RequestContextSuccess (var: Cz)
+message RequestContextSuccess {
+  RequestContext request_context = 1;
+}
+
+// Copied from: local:agent.v1.RequestedFilePathRejectedReason (var: _E)
+enum RequestedFilePathRejectedReason {
+  REQUESTED_FILE_PATH_REJECTED_REASON_UNSPECIFIED = 0;
+  REQUESTED_FILE_PATH_REJECTED_REASON_SLASHES_NOT_ALLOWED = 1;
+}
+
+// Copied from: local:agent.v1.RequestedModel (var: _1)
+message RequestedModel {
+  // Copied from: local:agent.v1.RequestedModel.ModelParameterValue (var: y1)
+  message ModelParameterValue {
+    string id = 1;
+    string value = 2;
+  }
+
+  string model_id = 1;
+  bool max_mode = 2;
+  repeated ModelParameterValue parameters = 3;
+  bool built_in_model = 7;
+  bool is_variant_string_representation = 8;
+  oneof credentials {
+    ApiKeyCredentials api_key_credentials = 4;
+    AzureCredentials azure_credentials = 5;
+    BedrockCredentials bedrock_credentials = 6;
+  }
+}
+
+// Copied from: local:agent.v1.ResumeAction (var: YZ)
+message ResumeAction {
+  RequestContext request_context = 2;
+}
+
+// Copied from: local:agent.v1.SandboxPolicy (var: Mw)
+message SandboxPolicy {
+  // Copied from: local:agent.v1.SandboxPolicy.Type (var: Yw)
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_INSECURE_NONE = 1;
+    TYPE_WORKSPACE_READWRITE = 2;
+    TYPE_WORKSPACE_READONLY = 3;
+  }
+
+  Type type = 1;
+  optional bool network_access = 2;
+  repeated string additional_readwrite_paths = 3;
+  repeated string additional_readonly_paths = 4;
+  optional string debug_output_dir = 5;
+  optional bool disable_tmp_write = 7;
+  optional bool allowlist_escalated = 8;
+  optional bool enable_shared_build_cache = 9;
+  optional NetworkPolicy network_policy = 10;
+  optional bool network_policy_strict = 11;
+  optional bool capture_denies = 12;
+  optional bool skip_statsig_defaults = 13;
+}
+
+// Copied from: local:agent.v1.SandboxPolicyMergeSources (var: Vw)
+message SandboxPolicyMergeSources {
+  optional SandboxPolicy per_user = 1;
+  optional SandboxPolicy per_repo = 2;
+  optional SandboxPolicy team_admin = 3;
+}
+
+// Copied from: local:agent.v1.ScreenshotAction (var: UB)
+message ScreenshotAction {
+}
+
+// Copied from: local:agent.v1.ScrollAction (var: bB)
+message ScrollAction {
+  optional Coordinate coordinate = 1;
+  ScrollDirection direction = 2;
+  int32 amount = 3;
+  optional string modifier_keys = 4;
+}
+
+// Copied from: local:agent.v1.ScrollDirection (var: pB)
+enum ScrollDirection {
+  SCROLL_DIRECTION_UNSPECIFIED = 0;
+  SCROLL_DIRECTION_UP = 1;
+  SCROLL_DIRECTION_DOWN = 2;
+  SCROLL_DIRECTION_LEFT = 3;
+  SCROLL_DIRECTION_RIGHT = 4;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitAction (var: FK)
+message SelectedAgenticGitAction {
+  optional SelectedGitBranchContext branch_context = 5;
+  optional string path_to_template_file = 9;
+  optional string path_to_template_dir = 10;
+  oneof params {
+    SelectedAgenticGitActionCommitParams commit_params = 2;
+    SelectedAgenticGitActionCommitParams commit_and_push_params = 6;
+    SelectedAgenticGitActionPushParams push_params = 3;
+    SelectedAgenticGitActionPushParams create_pr_params = 7;
+    SelectedAgenticGitActionCommitParams create_pr_with_changes_params = 8;
+    SelectedAgenticGitActionFixMergeConflictsParams fix_merge_conflicts_params = 4;
+    SelectedAgenticGitActionBabysitPrInCloudParams babysit_pr_in_cloud_params = 11;
+    SelectedAgenticGitActionPullLocallyParams apply_locally_params = 14;
+    SelectedAgenticGitActionPullLocallyParams checkout_branch_params = 15;
+    SelectedAgenticGitActionCommitParams create_branch_and_commit_params = 12;
+    SelectedAgenticGitActionCommitParams create_branch_commit_and_push_params = 13;
+    SelectedAgenticGitActionUpdateBranchParams update_branch_params = 16;
+  }
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitActionBabysitPrInCloudParams (var: NK)
+message SelectedAgenticGitActionBabysitPrInCloudParams {
+  optional string base_branch = 1;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitActionCommitParams (var: kK)
+message SelectedAgenticGitActionCommitParams {
+  repeated string files_to_commit = 1;
+  repeated string files_to_exclude_from_commit = 2;
+  bool should_stage_all_changes = 3;
+  optional bool create_pr_draft = 4;
+  repeated SelectedAgenticGitFileWithStatus files_to_commit_with_status = 5;
+  repeated SelectedAgenticGitFileWithStatus files_to_exclude_from_commit_with_status = 6;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitActionFixMergeConflictsParams (var: vK)
+message SelectedAgenticGitActionFixMergeConflictsParams {
+  optional string base_branch = 1;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitActionPullLocallyParams (var: qK)
+message SelectedAgenticGitActionPullLocallyParams {
+  string remote_branch = 1;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitActionPushParams (var: IK)
+message SelectedAgenticGitActionPushParams {
+  repeated string files_to_push = 1;
+  optional bool create_pr_draft = 2;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitActionUpdateBranchParams (var: bK)
+message SelectedAgenticGitActionUpdateBranchParams {
+  optional string base_branch = 1;
+}
+
+// Copied from: local:agent.v1.SelectedAgenticGitFileWithStatus (var: SK)
+message SelectedAgenticGitFileWithStatus {
+  string path = 1;
+  optional string status = 2;
+}
+
+// Copied from: local:agent.v1.SelectedBrowser (var: yK)
+message SelectedBrowser {
+  string browser_id = 1;
+  string url = 2;
+  optional string page_title = 3;
+}
+
+// Copied from: local:agent.v1.SelectedCodeSelection (var: Nj)
+message SelectedCodeSelection {
+  string content = 1;
+  string path = 2;
+  optional string relative_path = 3;
+  Range range = 4;
+}
+
+// Copied from: local:agent.v1.SelectedConsoleLog (var: AK)
+message SelectedConsoleLog {
+  string message = 1;
+  double timestamp = 2;
+  string level = 3;
+  string client_name = 4;
+  string session_id = 5;
+  optional StackTrace stack_trace = 6;
+  optional string object_data_json = 7;
+}
+
+// Copied from: local:agent.v1.SelectedContext (var: UK)
+message SelectedContext {
+  repeated SelectedImage selected_images = 1;
+  optional InvocationContext invocation_context = 2;
+  repeated string extra_context = 3;
+  repeated ExtraContextEntry extra_context_entries = 16;
+  repeated SelectedFile files = 4;
+  repeated SelectedCodeSelection code_selections = 5;
+  repeated SelectedTerminal terminals = 6;
+  repeated SelectedTerminalSelection terminal_selections = 7;
+  repeated SelectedFolder folders = 8;
+  repeated SelectedExternalLink external_links = 9;
+  repeated SelectedCursorRule cursor_rules = 10;
+  optional SelectedGitDiff git_diff = 18;
+  optional SelectedGitDiffFromBranchToMain git_diff_from_branch_to_main = 11;
+  repeated SelectedCursorCommand cursor_commands = 12;
+  repeated SelectedDocumentation documentations = 13;
+  repeated SelectedUIElement ui_elements = 14;
+  repeated SelectedConsoleLog console_logs = 15;
+  repeated SelectedGitCommit git_commits = 17;
+  repeated SelectedPastChat past_chats = 19;
+  repeated SelectedGitPRDiffSelection git_pr_diff_selections = 20;
+  repeated SelectedPullRequest selected_pull_requests = 21;
+  repeated SelectedSubagent selected_subagents = 22;
+  repeated SelectedVideo selected_videos = 23;
+  repeated SelectedBrowser selected_browsers = 24;
+  repeated SelectedDocument selected_documents = 25;
+  repeated AgentSkill selected_skills = 26;
+  optional RecentAgentsContext recent_agents_context = 27;
+  optional SelectedAgenticGitAction selected_agentic_git_action = 34;
+}
+
+// Copied from: local:agent.v1.SelectedCursorCommand (var: eK)
+message SelectedCursorCommand {
+  string name = 1;
+  string content = 2;
+  optional SelectedPluginCapabilityRef plugin_capability = 3;
+}
+
+// Copied from: local:agent.v1.SelectedCursorRule (var: Uj)
+message SelectedCursorRule {
+  CursorRule rule = 1;
+}
+
+// Copied from: local:agent.v1.SelectedDocument (var: gj)
+message SelectedDocument {
+  // Copied from: local:agent.v1.SelectedDocument.BlobIdWithData (var: _j)
+  message BlobIdWithData {
+    bytes blob_id = 1;
+    bytes data = 2;
+  }
+
+  string uuid = 2;
+  string filename = 3;
+  string mime_type = 4;
+  string path = 7;
+  oneof data_or_blob_id {
+    bytes blob_id = 1;
+    bytes data = 8;
+    BlobIdWithData blob_id_with_data = 9;
+  }
+}
+
+// Copied from: local:agent.v1.SelectedDocumentation (var: nK)
+message SelectedDocumentation {
+  string doc_id = 1;
+  string name = 2;
+}
+
+// Copied from: local:agent.v1.SelectedExternalLink (var: Qj)
+message SelectedExternalLink {
+  string url = 1;
+  string uuid = 2;
+  optional string pdf_content = 3;
+  optional bool is_pdf = 4;
+  optional string filename = 5;
+  optional bytes blob_id = 6;
+}
+
+// Copied from: local:agent.v1.SelectedFile (var: vj)
+message SelectedFile {
+  string content = 1;
+  string path = 2;
+  optional string relative_path = 3;
+}
+
+// Copied from: local:agent.v1.SelectedFolder (var: Fj)
+message SelectedFolder {
+  string path = 1;
+  optional string relative_path = 2;
+  LsDirectoryTreeNode directory_tree = 3;
+}
+
+// Copied from: local:agent.v1.SelectedGitBranchContext (var: QK)
+message SelectedGitBranchContext {
+  optional string current_branch = 1;
+  optional string base_branch = 2;
+  optional string agent_branch_prefix = 3;
+}
+
+// Copied from: local:agent.v1.SelectedGitCommit (var: Hj)
+message SelectedGitCommit {
+  string sha = 1;
+  string message = 2;
+  optional string description = 3;
+  string diff = 4;
+}
+
+// Copied from: local:agent.v1.SelectedGitDiff (var: Mj)
+message SelectedGitDiff {
+  string content = 1;
+  int32 full_content_length_char_count = 2;
+}
+
+// Copied from: local:agent.v1.SelectedGitDiffFromBranchToMain (var: Yj)
+message SelectedGitDiffFromBranchToMain {
+  string content = 1;
+  int32 full_content_length_char_count = 2;
+}
+
+// Copied from: local:agent.v1.SelectedGitPRDiffSelection (var: Kj)
+message SelectedGitPRDiffSelection {
+  string pr_url = 1;
+  string file_path = 2;
+  int32 start_line = 3;
+  int32 end_line = 4;
+  optional string diff_content = 5;
+  optional bytes blob_id = 6;
+}
+
+// Copied from: local:agent.v1.SelectedImage (var: cj)
+message SelectedImage {
+  // Copied from: local:agent.v1.SelectedImage.BlobIdWithData (var: dj)
+  message BlobIdWithData {
+    bytes blob_id = 1;
+    bytes data = 2;
+  }
+
+  // Copied from: local:agent.v1.SelectedImage.Dimension (var: Aj)
+  message Dimension {
+    int32 width = 1;
+    int32 height = 2;
+  }
+
+  string uuid = 2;
+  string path = 3;
+  Dimension dimension = 4;
+  string mime_type = 7;
+  oneof data_or_blob_id {
+    bytes blob_id = 1;
+    bytes data = 8;
+    BlobIdWithData blob_id_with_data = 9;
+  }
+}
+
+// Copied from: local:agent.v1.SelectedPastChat (var: sK)
+message SelectedPastChat {
+  string agent_id = 1;
+  string name = 2;
+}
+
+// Copied from: local:agent.v1.SelectedPluginCapabilityRef (var: Zj)
+message SelectedPluginCapabilityRef {
+  string plugin_id = 1;
+  SelectedPluginCapabilityType capability_type = 2;
+  string source_path = 3;
+  string snapshot_token = 4;
+  optional string resolved_commit_sha = 5;
+}
+
+// Copied from: local:agent.v1.SelectedPluginCapabilityType (var: uj)
+enum SelectedPluginCapabilityType {
+  SELECTED_PLUGIN_CAPABILITY_TYPE_UNSPECIFIED = 0;
+  SELECTED_PLUGIN_CAPABILITY_TYPE_COMMAND = 1;
+  SELECTED_PLUGIN_CAPABILITY_TYPE_SKILL = 2;
+  SELECTED_PLUGIN_CAPABILITY_TYPE_SUBAGENT = 3;
+}
+
+// Copied from: local:agent.v1.SelectedPullRequest (var: zj)
+message SelectedPullRequest {
+  int32 number = 1;
+  string url = 2;
+  optional string title = 3;
+  string folder_path = 4;
+  optional string summary_json = 5;
+  optional string description = 6;
+  optional bytes blob_id = 7;
+}
+
+// Copied from: local:agent.v1.SelectedSubagent (var: _K)
+message SelectedSubagent {
+  string name = 1;
+}
+
+// Copied from: local:agent.v1.SelectedTerminal (var: bj)
+message SelectedTerminal {
+  string content = 1;
+  optional string title = 2;
+  optional string path = 3;
+}
+
+// Copied from: local:agent.v1.SelectedTerminalSelection (var: qj)
+message SelectedTerminalSelection {
+  string content = 1;
+  optional string title = 2;
+  optional string path = 3;
+  Range range = 4;
+}
+
+// Copied from: local:agent.v1.SelectedUIElement (var: gK)
+message SelectedUIElement {
+  string element = 1;
+  string xpath = 2;
+  string text_content = 3;
+  string extra = 4;
+  optional string component = 5;
+  optional string component_props_json = 6;
+}
+
+// Copied from: local:agent.v1.SelectedVideo (var: yj)
+message SelectedVideo {
+  // Copied from: local:agent.v1.SelectedVideo.BlobIdWithData (var: kj)
+  message BlobIdWithData {
+    bytes blob_id = 1;
+    bytes data = 2;
+  }
+
+  // Copied from: local:agent.v1.SelectedVideo.SignedUrl (var: Sj)
+  message SignedUrl {
+    string url = 1;
+    string key = 2;
+    int64 expires_at_unix_ms = 3;
+    int64 refresh_after_unix_ms = 4;
+    string conversation_id = 5;
+  }
+
+  string uuid = 2;
+  string path = 3;
+  optional float fps = 4;
+  string mime_type = 7;
+  string filename = 10;
+  bool materialize_to_filesystem = 12;
+  oneof data_or_blob_id {
+    bytes blob_id = 1;
+    bytes data = 8;
+    BlobIdWithData blob_id_with_data = 9;
+    SignedUrl signed_url = 11;
+  }
+}
+
+// Copied from: local:agent.v1.SemSearchToolArgs (var: SM)
+message SemSearchToolArgs {
+  string query = 1;
+  repeated string target_directories = 2;
+  string explanation = 3;
+}
+
+// Copied from: local:agent.v1.SemSearchToolCall (var: kM)
+message SemSearchToolCall {
+  SemSearchToolArgs args = 1;
+  SemSearchToolResult result = 2;
+}
+
+// Copied from: local:agent.v1.SemSearchToolError (var: NM)
+message SemSearchToolError {
+  string error_message = 1;
+}
+
+// Copied from: local:agent.v1.SemSearchToolResult (var: IM)
+message SemSearchToolResult {
+  oneof result {
+    SemSearchToolSuccess success = 1;
+    SemSearchToolError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.SemSearchToolSuccess (var: vM)
+message SemSearchToolSuccess {
+  string results = 1;
+  repeated CodeResult code_results = 2;
+}
+
+// Copied from: local:agent.v1.SendFinalSummaryArgs (var: dW)
+message SendFinalSummaryArgs {
+  optional string final_summary = 1;
+}
+
+// Copied from: local:agent.v1.SendFinalSummaryError (var: gW)
+message SendFinalSummaryError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.SendFinalSummaryResult (var: _W)
+message SendFinalSummaryResult {
+  oneof result {
+    SendFinalSummarySuccess success = 1;
+    SendFinalSummaryError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.SendFinalSummarySuccess (var: AW)
+message SendFinalSummarySuccess {
+  string final_summary = 1;
+}
+
+// Copied from: local:agent.v1.SendFinalSummaryToolCall (var: yW)
+message SendFinalSummaryToolCall {
+  SendFinalSummaryArgs args = 1;
+  SendFinalSummaryResult result = 2;
+}
+
+// Copied from: local:agent.v1.SetActiveBranchArgs (var: SX)
+message SetActiveBranchArgs {
+  string path = 1;
+  string branch_name = 2;
+}
+
+// Copied from: local:agent.v1.SetActiveBranchError (var: vX)
+message SetActiveBranchError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.SetActiveBranchResult (var: NX)
+message SetActiveBranchResult {
+  oneof result {
+    SetActiveBranchSuccess success = 1;
+    SetActiveBranchError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.SetActiveBranchSuccess (var: IX)
+message SetActiveBranchSuccess {
+}
+
+// Copied from: local:agent.v1.SetActiveBranchToolCall (var: bX)
+message SetActiveBranchToolCall {
+  SetActiveBranchArgs args = 1;
+  SetActiveBranchResult result = 2;
+}
+
+// Copied from: local:agent.v1.SetBlobArgs (var: k7)
+message SetBlobArgs {
+  bytes blob_id = 1;
+  bytes blob_data = 2;
+}
+
+// Copied from: local:agent.v1.SetBlobResult (var: S7)
+message SetBlobResult {
+  optional Error error = 1;
+}
+
+// Copied from: local:agent.v1.SetupVmEnvironmentArgs (var: NY)
+message SetupVmEnvironmentArgs {
+  string install_command = 2;
+  string start_command = 3;
+  string dockerfile_contents = 4;
+}
+
+// Copied from: local:agent.v1.SetupVmEnvironmentResult (var: bY)
+message SetupVmEnvironmentResult {
+  oneof result {
+    SetupVmEnvironmentSuccess success = 1;
+  }
+}
+
+// Copied from: local:agent.v1.SetupVmEnvironmentSuccess (var: qY)
+message SetupVmEnvironmentSuccess {
+}
+
+// Copied from: local:agent.v1.SetupVmEnvironmentToolCall (var: FY)
+message SetupVmEnvironmentToolCall {
+  SetupVmEnvironmentArgs args = 1;
+  SetupVmEnvironmentResult result = 2;
+}
+
+// Copied from: local:agent.v1.ShellAbortReason (var: rk)
+enum ShellAbortReason {
+  SHELL_ABORT_REASON_UNSPECIFIED = 0;
+  SHELL_ABORT_REASON_USER_ABORT = 1;
+  SHELL_ABORT_REASON_TIMEOUT = 2;
+}
+
+// Copied from: local:agent.v1.ShellArgs (var: Ik)
+message ShellArgs {
+  string command = 1;
+  string working_directory = 2;
+  int32 timeout = 3;
+  string tool_call_id = 4;
+  repeated string simple_commands = 5;
+  bool has_input_redirect = 6;
+  bool has_output_redirect = 7;
+  ShellCommandParsingResult parsing_result = 8;
+  optional SandboxPolicy requested_sandbox_policy = 9;
+  optional uint64 file_output_threshold_bytes = 10;
+  bool is_background = 11;
+  bool skip_approval = 12;
+  TimeoutBehavior timeout_behavior = 13;
+  optional int32 hard_timeout = 14;
+  optional string description = 15;
+  optional CommandClassifierResult classifier_result = 16;
+  bool close_stdin = 17;
+  optional ShellOutputNotificationConfig output_notification = 18;
+  optional SmartModeApproval smart_mode_approval = 19;
+  optional ShellHookApprovalRequirement hook_approval_requirement = 20;
+}
+
+// Copied from: local:agent.v1.ShellBackgroundReason (var: tk)
+enum ShellBackgroundReason {
+  SHELL_BACKGROUND_REASON_UNSPECIFIED = 0;
+  SHELL_BACKGROUND_REASON_TIMEOUT = 1;
+  SHELL_BACKGROUND_REASON_USER_REQUEST = 2;
+}
+
+// Copied from: local:agent.v1.ShellCommand (var: A$)
+message ShellCommand {
+  string command = 1;
+}
+
+// Copied from: local:agent.v1.ShellCommandAction (var: KZ)
+message ShellCommandAction {
+  ShellCommand shell_command = 1;
+  string exec_id = 2;
+}
+
+// Copied from: local:agent.v1.ShellCommandParsingResult (var: sk)
+message ShellCommandParsingResult {
+  // Copied from: local:agent.v1.ShellCommandParsingResult.ExecutableCommand (var: lk)
+  message ExecutableCommand {
+    string name = 1;
+    repeated ShellCommandParsingResult.ExecutableCommandArg args = 2;
+    string full_text = 3;
+  }
+
+  // Copied from: local:agent.v1.ShellCommandParsingResult.ExecutableCommandArg (var: ak)
+  message ExecutableCommandArg {
+    string type = 1;
+    string value = 2;
+  }
+
+  // Copied from: local:agent.v1.ShellCommandParsingResult.Redirect (var: ck)
+  message Redirect {
+    string operator = 1;
+    repeated uint32 destination_fds = 2;
+    string target_node_type = 3;
+    optional string target_text = 4;
+  }
+
+  bool parsing_failed = 1;
+  repeated ExecutableCommand executable_commands = 2;
+  bool has_redirects = 3;
+  bool has_command_substitution = 4;
+  optional bool all_redirects_are_dev_null = 5;
+  repeated Redirect redirects = 6;
+}
+
+// Copied from: local:agent.v1.ShellConversationTurn (var: C$)
+message ShellConversationTurn {
+  ShellCommand shell_command = 1;
+  ShellOutput shell_output = 2;
+}
+
+// Copied from: local:agent.v1.ShellConversationTurnStructure (var: R$)
+message ShellConversationTurnStructure {
+  bytes shell_command = 1;
+  bytes shell_output = 2;
+}
+
+// Copied from: local:agent.v1.ShellFailure (var: Yk)
+message ShellFailure {
+  string command = 1;
+  string working_directory = 2;
+  int32 exit_code = 3;
+  string signal = 4;
+  string stdout = 5;
+  string stderr = 6;
+  int32 execution_time = 7;
+  optional OutputLocation output_location = 8;
+  optional string interleaved_output = 9;
+  optional ShellAbortReason abort_reason = 10;
+  bool aborted = 11;
+  optional int32 local_execution_time_ms = 12;
+}
+
+// Copied from: local:agent.v1.ShellHookApprovalRequirement (var: Ek)
+message ShellHookApprovalRequirement {
+  // Copied from: local:agent.v1.ShellHookApprovalRequirement.Kind (var: Bk)
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_FORCE_PROMPT = 1;
+  }
+
+  Kind kind = 1;
+  optional string reason = 2;
+}
+
+// Copied from: local:agent.v1.ShellOutput (var: g$)
+message ShellOutput {
+  string stdout = 1;
+  string stderr = 2;
+  int32 exit_code = 3;
+}
+
+// Copied from: local:agent.v1.ShellOutputDeltaUpdate (var: Z1)
+message ShellOutputDeltaUpdate {
+  oneof event {
+    ShellStreamStdout stdout = 1;
+    ShellStreamStderr stderr = 2;
+    ShellStreamExit exit = 3;
+    ShellStreamStart start = 4;
+  }
+}
+
+// Copied from: local:agent.v1.ShellOutputNotificationConfig (var: hk)
+message ShellOutputNotificationConfig {
+  string pattern = 1;
+  string reason = 2;
+  optional double debounce = 3;
+  optional int32 notification_limit = 4;
+}
+
+// Copied from: local:agent.v1.ShellPartialResult (var: eE)
+message ShellPartialResult {
+  string stdout_delta = 1;
+  string stderr_delta = 2;
+}
+
+// Copied from: local:agent.v1.ShellPermissionDenied (var: Kk)
+message ShellPermissionDenied {
+  string command = 1;
+  string working_directory = 2;
+  string error = 3;
+  bool is_readonly = 4;
+}
+
+// Copied from: local:agent.v1.ShellRejected (var: zk)
+message ShellRejected {
+  string command = 1;
+  string working_directory = 2;
+  string reason = 3;
+  bool is_readonly = 4;
+}
+
+// Copied from: local:agent.v1.ShellResult (var: vk)
+message ShellResult {
+  optional SandboxPolicy sandbox_policy = 101;
+  optional bool is_background = 102;
+  optional string terminals_folder = 103;
+  optional uint32 pid = 104;
+  oneof result {
+    ShellSuccess success = 1;
+    ShellFailure failure = 2;
+    ShellTimeout timeout = 3;
+    ShellRejected rejected = 4;
+    ShellSpawnError spawn_error = 5;
+    ShellPermissionDenied permission_denied = 7;
+  }
+}
+
+// Copied from: local:agent.v1.ShellSpawnError (var: Zk)
+message ShellSpawnError {
+  string command = 1;
+  string working_directory = 2;
+  string error = 3;
+}
+
+// Copied from: local:agent.v1.ShellStream (var: Uk)
+message ShellStream {
+  oneof event {
+    ShellStreamStdout stdout = 1;
+    ShellStreamStderr stderr = 2;
+    ShellStreamExit exit = 3;
+    ShellStreamStart start = 4;
+    ShellRejected rejected = 5;
+    ShellPermissionDenied permission_denied = 6;
+    ShellStreamBackgrounded backgrounded = 7;
+  }
+}
+
+// Copied from: local:agent.v1.ShellStreamBackgrounded (var: Qk)
+message ShellStreamBackgrounded {
+  uint32 shell_id = 1;
+  string command = 2;
+  string working_directory = 3;
+  optional uint32 pid = 4;
+  optional int32 ms_to_wait = 5;
+  optional ShellBackgroundReason reason = 6;
+}
+
+// Copied from: local:agent.v1.ShellStreamExit (var: qk)
+message ShellStreamExit {
+  uint32 code = 1;
+  string cwd = 2;
+  optional OutputLocation output_location = 3;
+  bool aborted = 4;
+  optional ShellAbortReason abort_reason = 5;
+  optional int32 local_execution_time_ms = 6;
+}
+
+// Copied from: local:agent.v1.ShellStreamStart (var: Fk)
+message ShellStreamStart {
+  optional SandboxPolicy sandbox_policy = 1;
+}
+
+// Copied from: local:agent.v1.ShellStreamStderr (var: bk)
+message ShellStreamStderr {
+  string data = 1;
+}
+
+// Copied from: local:agent.v1.ShellStreamStdout (var: Nk)
+message ShellStreamStdout {
+  string data = 1;
+}
+
+// Copied from: local:agent.v1.ShellSuccess (var: Mk)
+message ShellSuccess {
+  string command = 1;
+  string working_directory = 2;
+  int32 exit_code = 3;
+  string signal = 4;
+  string stdout = 5;
+  string stderr = 6;
+  int32 execution_time = 7;
+  optional OutputLocation output_location = 8;
+  optional uint32 shell_id = 9;
+  optional string interleaved_output = 10;
+  optional uint32 pid = 11;
+  optional int32 ms_to_wait = 12;
+  optional int32 local_execution_time_ms = 13;
+  optional ShellBackgroundReason background_reason = 14;
+}
+
+// Copied from: local:agent.v1.ShellTimeout (var: Hk)
+message ShellTimeout {
+  string command = 1;
+  string working_directory = 2;
+  int32 timeout_ms = 3;
+}
+
+// Copied from: local:agent.v1.ShellToolCall (var: HD)
+message ShellToolCall {
+  ShellArgs args = 1;
+  ShellResult result = 2;
+  optional string description = 3;
+}
+
+// Copied from: local:agent.v1.ShellToolCallDelta (var: ZD)
+message ShellToolCallDelta {
+  oneof delta {
+    ShellToolCallStdoutDelta stdout = 1;
+    ShellToolCallStderrDelta stderr = 2;
+  }
+}
+
+// Copied from: local:agent.v1.ShellToolCallStderrDelta (var: KD)
+message ShellToolCallStderrDelta {
+  string content = 1;
+}
+
+// Copied from: local:agent.v1.ShellToolCallStdoutDelta (var: zD)
+message ShellToolCallStdoutDelta {
+  string content = 1;
+}
+
+// Copied from: local:agent.v1.SimulatedMsgReason (var: cX)
+enum SimulatedMsgReason {
+  SIMULATED_MSG_REASON_UNSPECIFIED = 0;
+  SIMULATED_MSG_REASON_PLAN_EXECUTION = 1;
+  SIMULATED_MSG_REASON_COMMIT_REMINDER = 2;
+  SIMULATED_MSG_REASON_BACKGROUND_TASK_COMPLETION = 3;
+  SIMULATED_MSG_REASON_DIFF_TAB_COMMIT = 4;
+  SIMULATED_MSG_REASON_DIFF_TAB_COMMIT_AND_PUSH = 5;
+  SIMULATED_MSG_REASON_DIFF_TAB_PUSH = 6;
+  SIMULATED_MSG_REASON_DIFF_TAB_CREATE_PR = 7;
+  SIMULATED_MSG_REASON_DIFF_TAB_FIX_MERGE_CONFLICTS = 8;
+  SIMULATED_MSG_REASON_USER_SENT_TO_SUBAGENT = 9;
+  SIMULATED_MSG_REASON_USER_INTERRUPTED_SUBAGENT = 10;
+  SIMULATED_MSG_REASON_USER_QUEUED_TO_SUBAGENT = 11;
+  SIMULATED_MSG_REASON_BABYSIT_PR_IN_CLOUD = 12;
+  SIMULATED_MSG_REASON_CI_PANEL_INVESTIGATE_FAILURE = 13;
+  SIMULATED_MSG_REASON_MULTITASK = 14;
+  SIMULATED_MSG_REASON_BUILD_IN_PARALLEL = 15;
+  SIMULATED_MSG_REASON_MULTITASK_SPLIT_PRS = 16;
+  SIMULATED_MSG_REASON_APPLY_LOCALLY = 17;
+  SIMULATED_MSG_REASON_CHECKOUT_BRANCH = 18;
+  SIMULATED_MSG_REASON_DIFF_TAB_UPDATE_BRANCH = 19;
+  SIMULATED_MSG_REASON_PR_TAB_BUGBOT_FIX = 20;
+  SIMULATED_MSG_REASON_SESSION_GOAL_FOLLOWUP = 21;
+}
+
+// Copied from: local:agent.v1.SkillDescriptor (var: Vz)
+message SkillDescriptor {
+  string name = 1;
+  string description = 2;
+  string folder_path = 3;
+  bool enabled = 4;
+  optional string parse_error = 5;
+  string readme_file_path = 6;
+  PackageType package_type = 7;
+}
+
+// Copied from: local:agent.v1.SkillOptions (var: Wz)
+message SkillOptions {
+  repeated SkillDescriptor skill_descriptors = 1;
+}
+
+// Copied from: local:agent.v1.SmartModeApproval (var: Zw)
+message SmartModeApproval {
+  string request_id = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.SmartModeClassifierArgs (var: F6)
+message SmartModeClassifierArgs {
+  string tool_call_id = 1;
+  optional string parent_conversation_id = 2;
+  SmartModeRiskTarget target = 3;
+  repeated SmartModeClassifierConversationMessage conversation_context = 4;
+}
+
+// Copied from: local:agent.v1.SmartModeClassifierConversationMessage (var: q6)
+message SmartModeClassifierConversationMessage {
+  string role = 1;
+  string content = 2;
+}
+
+// Copied from: local:agent.v1.SmartModeClassifierDecision (var: P6)
+enum SmartModeClassifierDecision {
+  SMART_MODE_CLASSIFIER_DECISION_UNSPECIFIED = 0;
+  SMART_MODE_CLASSIFIER_DECISION_ALLOW = 1;
+  SMART_MODE_CLASSIFIER_DECISION_BLOCK = 2;
+}
+
+// Copied from: local:agent.v1.SmartModeClassifierError (var: Y6)
+message SmartModeClassifierError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.SmartModeClassifierResult (var: U6)
+message SmartModeClassifierResult {
+  oneof result {
+    SmartModeClassifierSuccess success = 1;
+    SmartModeClassifierError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.SmartModeClassifierSuccess (var: M6)
+message SmartModeClassifierSuccess {
+  SmartModeClassifierDecision decision = 1;
+  optional string block_reason = 2;
+}
+
+// Copied from: local:agent.v1.SmartModeRiskTarget (var: Q6)
+message SmartModeRiskTarget {
+  string action = 1;
+  google.protobuf.Struct arguments = 2;
+}
+
+// Copied from: local:agent.v1.SpanContext (var: e7)
+message SpanContext {
+  string trace_id = 1;
+  string span_id = 2;
+  optional uint32 trace_flags = 3;
+  optional string trace_state = 4;
+}
+
+// Copied from: local:agent.v1.StackTrace (var: dK)
+message StackTrace {
+  repeated CallFrame call_frames = 1;
+  optional string raw_stack_trace = 2;
+}
+
+// Copied from: local:agent.v1.StartGrindExecutionArgs (var: QY)
+message StartGrindExecutionArgs {
+  optional string explanation = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.StartGrindExecutionError (var: YY)
+message StartGrindExecutionError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.StartGrindExecutionResult (var: UY)
+message StartGrindExecutionResult {
+  oneof result {
+    StartGrindExecutionSuccess success = 1;
+    StartGrindExecutionError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.StartGrindExecutionSuccess (var: MY)
+message StartGrindExecutionSuccess {
+}
+
+// Copied from: local:agent.v1.StartGrindExecutionToolCall (var: HY)
+message StartGrindExecutionToolCall {
+  StartGrindExecutionArgs args = 1;
+  StartGrindExecutionResult result = 2;
+}
+
+// Copied from: local:agent.v1.StartGrindPlanningArgs (var: zY)
+message StartGrindPlanningArgs {
+  optional string explanation = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.StartGrindPlanningError (var: eV)
+message StartGrindPlanningError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.StartGrindPlanningResult (var: KY)
+message StartGrindPlanningResult {
+  oneof result {
+    StartGrindPlanningSuccess success = 1;
+    StartGrindPlanningError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.StartGrindPlanningSuccess (var: ZY)
+message StartGrindPlanningSuccess {
+}
+
+// Copied from: local:agent.v1.StartGrindPlanningToolCall (var: nV)
+message StartGrindPlanningToolCall {
+  StartGrindPlanningArgs args = 1;
+  StartGrindPlanningResult result = 2;
+}
+
+// Copied from: local:agent.v1.StartPlanAction (var: ZZ)
+message StartPlanAction {
+  UserMessage user_message = 1;
+  RequestContext request_context = 2;
+  bool is_spec = 3;
+}
+
+// Copied from: local:agent.v1.StepCompletedUpdate (var: a0)
+message StepCompletedUpdate {
+  uint64 step_id = 1;
+  int64 step_duration_ms = 2;
+}
+
+// Copied from: local:agent.v1.StepStartedUpdate (var: s0)
+message StepStartedUpdate {
+  uint64 step_id = 1;
+}
+
+// Copied from: local:agent.v1.StepTiming (var: W$)
+message StepTiming {
+  uint64 duration_ms = 1;
+  uint64 timestamp_ms = 2;
+}
+
+// Copied from: local:agent.v1.SubagentArgs (var: o6)
+message SubagentArgs {
+  string tool_call_id = 1;
+  string subagent_type = 2;
+  string model_id = 3;
+  string prompt = 4;
+  bool readonly = 5;
+  optional string resume_agent_id = 6;
+  optional bool run_in_background = 7;
+  ClientContinuationConfig continuation_config = 8;
+  optional string parent_conversation_id = 9;
+  optional bool interrupt = 13;
+  TaskMode mode = 14;
+  optional string fork_agent_id = 15;
+  optional string root_parent_conversation_id = 16;
+  optional SelectedContext selected_context = 17;
+  optional bool direct_meta_parent_child_subagent = 18;
+  SubagentExecutionEnvironment environment = 19;
+  optional string cloud_base_branch = 20;
+  oneof credentials {
+    ApiKeyCredentials api_key_credentials = 10;
+    AzureCredentials azure_credentials = 11;
+    BedrockCredentials bedrock_credentials = 12;
+  }
+}
+
+// Copied from: local:agent.v1.SubagentAwaitArgs (var: f6)
+message SubagentAwaitArgs {
+  string agent_id = 1;
+  uint32 timeout_ms = 2;
+}
+
+// Copied from: local:agent.v1.SubagentAwaitComplete (var: h6)
+message SubagentAwaitComplete {
+  string agent_id = 1;
+  optional string transcript_path = 2;
+  int32 tool_call_count = 3;
+  optional string final_message = 4;
+}
+
+// Copied from: local:agent.v1.SubagentAwaitError (var: E6)
+message SubagentAwaitError {
+  optional string agent_id = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.SubagentAwaitNotFound (var: w6)
+message SubagentAwaitNotFound {
+  string agent_id = 1;
+}
+
+// Copied from: local:agent.v1.SubagentAwaitResult (var: p6)
+message SubagentAwaitResult {
+  oneof result {
+    SubagentAwaitComplete complete = 1;
+    SubagentAwaitStillRunning still_running = 2;
+    SubagentAwaitNotFound not_found = 3;
+    SubagentAwaitError error = 4;
+  }
+}
+
+// Copied from: local:agent.v1.SubagentAwaitStillRunning (var: T6)
+message SubagentAwaitStillRunning {
+  string agent_id = 1;
+  optional string transcript_path = 2;
+}
+
+// Copied from: local:agent.v1.SubagentBackgroundReason (var: aX)
+enum SubagentBackgroundReason {
+  SUBAGENT_BACKGROUND_REASON_UNSPECIFIED = 0;
+  SUBAGENT_BACKGROUND_REASON_AGENT_REQUEST = 1;
+  SUBAGENT_BACKGROUND_REASON_USER_REQUEST = 2;
+  SUBAGENT_BACKGROUND_REASON_QUEUED_FOLLOW_UP = 3;
+}
+
+// Copied from: local:agent.v1.SubagentCredentials (var: n2)
+message SubagentCredentials {
+  oneof credentials {
+    ApiKeyCredentials api_key_credentials = 1;
+    AzureCredentials azure_credentials = 2;
+    BedrockCredentials bedrock_credentials = 3;
+  }
+}
+
+// Copied from: local:agent.v1.SubagentError (var: J6)
+message SubagentError {
+  optional string agent_id = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.SubagentExecutionEnvironment (var: iX)
+enum SubagentExecutionEnvironment {
+  SUBAGENT_EXECUTION_ENVIRONMENT_UNSPECIFIED = 0;
+  SUBAGENT_EXECUTION_ENVIRONMENT_LOCAL = 1;
+  SUBAGENT_EXECUTION_ENVIRONMENT_CLOUD = 2;
+}
+
+// Copied from: local:agent.v1.SubagentModelOverride (var: k1)
+message SubagentModelOverride {
+  string subagent_type = 1;
+  oneof selection {
+    RequestedModel model = 2;
+    bool inherit = 3;
+    bool disabled = 4;
+  }
+}
+
+// Copied from: local:agent.v1.SubagentPersistedState (var: e1)
+message SubagentPersistedState {
+  ConversationStateStructure conversation_state = 1;
+  uint64 created_timestamp_ms = 2;
+  uint64 last_used_timestamp_ms = 3;
+  SubagentType subagent_type = 4;
+  optional string model_id = 5;
+  SubagentExecutionEnvironment environment = 6;
+  optional CloudSubagentReference cloud_subagent = 7;
+}
+
+// Copied from: local:agent.v1.SubagentResult (var: m6)
+message SubagentResult {
+  oneof result {
+    SubagentSuccess success = 1;
+    SubagentError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.SubagentStartRequestQuery (var: q0)
+message SubagentStartRequestQuery {
+  string subagent_id = 1;
+  string subagent_type = 2;
+  string task = 3;
+  string parent_conversation_id = 4;
+  optional string tool_call_id = 5;
+  optional string subagent_model = 6;
+  bool is_parallel_worker = 7;
+  optional string git_branch = 8;
+  optional string conversation_id = 9;
+  optional string generation_id = 10;
+  optional string model = 11;
+  optional string model_id = 12;
+  repeated RequestedModel.ModelParameterValue model_params = 13;
+}
+
+// Copied from: local:agent.v1.SubagentStartRequestResponse (var: F0)
+message SubagentStartRequestResponse {
+  optional string permission = 1;
+  optional string user_message = 2;
+}
+
+// Copied from: local:agent.v1.SubagentStopRequestQuery (var: Q0)
+message SubagentStopRequestQuery {
+  string subagent_id = 1;
+  string subagent_type = 2;
+  string status = 3;
+  int64 duration_ms = 4;
+  optional string summary = 5;
+  string parent_conversation_id = 6;
+  int32 message_count = 7;
+  int32 tool_call_count = 8;
+  optional string error_message = 9;
+  repeated string modified_files = 10;
+  optional string git_branch = 11;
+  optional string conversation_id = 12;
+  optional string generation_id = 13;
+  optional string model = 14;
+  int32 loop_count = 15;
+  optional string task = 16;
+  optional string description = 17;
+  optional string model_id = 18;
+  repeated RequestedModel.ModelParameterValue model_params = 19;
+}
+
+// Copied from: local:agent.v1.SubagentStopRequestResponse (var: U0)
+message SubagentStopRequestResponse {
+  optional string followup_message = 1;
+}
+
+// Copied from: local:agent.v1.SubagentSuccess (var: B6)
+message SubagentSuccess {
+  string agent_id = 1;
+  optional string final_message = 2;
+  int32 tool_call_count = 3;
+  SubagentBackgroundReason background_reason = 4;
+  optional string transcript_path = 5;
+}
+
+// Copied from: local:agent.v1.SubagentType (var: yS)
+message SubagentType {
+  oneof type {
+    SubagentTypeUnspecified unspecified = 1;
+    SubagentTypeComputerUse computer_use = 2;
+    SubagentTypeCustom custom = 3;
+    SubagentTypeExplore explore = 4;
+    SubagentTypeMediaReview media_review = 5;
+    SubagentTypeBash bash = 6;
+    SubagentTypeBrowserUse browser_use = 7;
+    SubagentTypeShell shell = 8;
+    SubagentTypeVmSetupHelper vm_setup_helper = 9;
+    SubagentTypeDebug debug = 10;
+    SubagentTypeCursorGuide cursor_guide = 11;
+    SubagentTypeWatchVideo watch_video = 12;
+  }
+}
+
+// Copied from: local:agent.v1.SubagentTypeBash (var: NS)
+message SubagentTypeBash {
+}
+
+// Copied from: local:agent.v1.SubagentTypeBrowserUse (var: qS)
+message SubagentTypeBrowserUse {
+}
+
+// Copied from: local:agent.v1.SubagentTypeComputerUse (var: SS)
+message SubagentTypeComputerUse {
+}
+
+// Copied from: local:agent.v1.SubagentTypeCursorGuide (var: US)
+message SubagentTypeCursorGuide {
+}
+
+// Copied from: local:agent.v1.SubagentTypeCustom (var: YS)
+message SubagentTypeCustom {
+  string name = 1;
+}
+
+// Copied from: local:agent.v1.SubagentTypeDebug (var: QS)
+message SubagentTypeDebug {
+}
+
+// Copied from: local:agent.v1.SubagentTypeExplore (var: IS)
+message SubagentTypeExplore {
+}
+
+// Copied from: local:agent.v1.SubagentTypeMediaReview (var: vS)
+message SubagentTypeMediaReview {
+}
+
+// Copied from: local:agent.v1.SubagentTypeShell (var: bS)
+message SubagentTypeShell {
+}
+
+// Copied from: local:agent.v1.SubagentTypeUnspecified (var: kS)
+message SubagentTypeUnspecified {
+}
+
+// Copied from: local:agent.v1.SubagentTypeVmSetupHelper (var: FS)
+message SubagentTypeVmSetupHelper {
+}
+
+// Copied from: local:agent.v1.SubagentTypeWatchVideo (var: MS)
+message SubagentTypeWatchVideo {
+}
+
+// Copied from: local:agent.v1.SummarizeAction (var: zZ)
+message SummarizeAction {
+}
+
+// Copied from: local:agent.v1.SummaryCompletedUpdate (var: K1)
+message SummaryCompletedUpdate {
+  optional string hook_message = 1;
+}
+
+// Copied from: local:agent.v1.SummaryStartedUpdate (var: H1)
+message SummaryStartedUpdate {
+}
+
+// Copied from: local:agent.v1.SummaryUpdate (var: Y1)
+message SummaryUpdate {
+  string summary = 1;
+}
+
+// Copied from: local:agent.v1.SwitchModeArgs (var: KG)
+message SwitchModeArgs {
+  string target_mode_id = 1;
+  optional string explanation = 2;
+  string tool_call_id = 3;
+}
+
+// Copied from: local:agent.v1.SwitchModeError (var: nY)
+message SwitchModeError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.SwitchModeRejected (var: sY)
+message SwitchModeRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.SwitchModeRequestQuery (var: lY)
+message SwitchModeRequestQuery {
+  SwitchModeArgs args = 1;
+}
+
+// Copied from: local:agent.v1.SwitchModeRequestResponse (var: cY)
+message SwitchModeRequestResponse {
+  // Copied from: local:agent.v1.SwitchModeRequestResponse.Approved (var: dY)
+  message Approved {
+  }
+
+  // Copied from: local:agent.v1.SwitchModeRequestResponse.Rejected (var: AY)
+  message Rejected {
+    string reason = 1;
+  }
+
+  oneof result {
+    Approved approved = 1;
+    Rejected rejected = 2;
+  }
+}
+
+// Copied from: local:agent.v1.SwitchModeResult (var: ZG)
+message SwitchModeResult {
+  oneof result {
+    SwitchModeSuccess success = 1;
+    SwitchModeError error = 2;
+    SwitchModeRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.SwitchModeSuccess (var: eY)
+message SwitchModeSuccess {
+  string from_mode_id = 1;
+  string to_mode_id = 2;
+}
+
+// Copied from: local:agent.v1.SwitchModeToolCall (var: aY)
+message SwitchModeToolCall {
+  SwitchModeArgs args = 1;
+  SwitchModeResult result = 2;
+}
+
+// Copied from: local:agent.v1.TaskArgs (var: dX)
+message TaskArgs {
+  string description = 1;
+  string prompt = 2;
+  SubagentType subagent_type = 3;
+  optional string model = 4;
+  optional string resume = 5;
+  optional string agent_id = 6;
+  repeated string attachments = 7;
+  TaskMode mode = 8;
+  repeated string responding_to_message_ids = 9;
+  SubagentExecutionEnvironment environment = 10;
+}
+
+// Copied from: local:agent.v1.TaskError (var: gX)
+message TaskError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.TaskMode (var: TS)
+enum TaskMode {
+  TASK_MODE_UNSPECIFIED = 0;
+  TASK_MODE_AGENT = 1;
+  TASK_MODE_PLAN = 2;
+}
+
+// Copied from: local:agent.v1.TaskResult (var: _X)
+message TaskResult {
+  oneof result {
+    TaskSuccess success = 1;
+    TaskError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.TaskSuccess (var: AX)
+message TaskSuccess {
+  repeated ConversationStep conversation_steps = 1;
+  optional string agent_id = 2;
+  bool is_background = 3;
+  optional uint64 duration_ms = 4;
+  optional string result_suffix = 5;
+  SubagentBackgroundReason background_reason = 6;
+  optional string transcript_path = 7;
+}
+
+// Copied from: local:agent.v1.TaskToolCall (var: yX)
+message TaskToolCall {
+  TaskArgs args = 1;
+  TaskResult result = 2;
+}
+
+// Copied from: local:agent.v1.TaskToolCallArgsProto (var: e2)
+message TaskToolCallArgsProto {
+  string description = 1;
+  string prompt = 2;
+  optional string model = 3;
+  string subagent_type = 4;
+  optional string resume = 5;
+  optional bool readonly = 6;
+  optional bool run_in_background = 7;
+  repeated string attachments = 8;
+  SubagentExecutionEnvironment environment = 9;
+  optional string cloud_base_branch = 10;
+}
+
+// Copied from: local:agent.v1.TaskToolCallDelta (var: kX)
+message TaskToolCallDelta {
+  InteractionUpdate interaction_update = 1;
+}
+
+// Copied from: local:agent.v1.TerminalMetadata (var: cB)
+message TerminalMetadata {
+  // Copied from: local:agent.v1.TerminalMetadata.Command (var: dB)
+  message Command {
+    string command = 1;
+    optional int32 exit_code = 2;
+    optional int64 timestamp_ms = 3;
+    optional int64 duration_ms = 4;
+  }
+
+  optional string cwd = 1;
+  repeated Command last_commands = 2;
+  optional int64 last_modified_ms = 3;
+  optional Command current_command = 4;
+}
+
+// Copied from: local:agent.v1.TextDeltaUpdate (var: v1)
+message TextDeltaUpdate {
+  string text = 1;
+}
+
+// Copied from: local:agent.v1.ThinkingCompletedUpdate (var: U1)
+message ThinkingCompletedUpdate {
+  int32 thinking_duration_ms = 1;
+}
+
+// Copied from: local:agent.v1.ThinkingDeltaUpdate (var: Q1)
+message ThinkingDeltaUpdate {
+  string text = 1;
+  optional ThinkingStyle thinking_style = 2;
+}
+
+// Copied from: local:agent.v1.ThinkingDetails (var: l1)
+message ThinkingDetails {
+}
+
+// Copied from: local:agent.v1.ThinkingMessage (var: d$)
+message ThinkingMessage {
+  string text = 1;
+  uint32 duration_ms = 2;
+}
+
+// Copied from: local:agent.v1.ThinkingStyle (var: mX)
+enum ThinkingStyle {
+  THINKING_STYLE_UNSPECIFIED = 0;
+  THINKING_STYLE_DEFAULT = 1;
+  THINKING_STYLE_CODEX = 2;
+  THINKING_STYLE_GPT5 = 3;
+}
+
+// Copied from: local:agent.v1.TimeoutBehavior (var: ek)
+enum TimeoutBehavior {
+  TIMEOUT_BEHAVIOR_UNSPECIFIED = 0;
+  TIMEOUT_BEHAVIOR_CANCEL = 1;
+  TIMEOUT_BEHAVIOR_BACKGROUND = 2;
+}
+
+// Copied from: local:agent.v1.TodoItem (var: Jx)
+message TodoItem {
+  string id = 1;
+  string content = 2;
+  TodoStatus status = 3;
+  int64 created_at = 4;
+  int64 updated_at = 5;
+  repeated string dependencies = 6;
+}
+
+// Copied from: local:agent.v1.TodoStatus (var: Ix)
+enum TodoStatus {
+  TODO_STATUS_UNSPECIFIED = 0;
+  TODO_STATUS_PENDING = 1;
+  TODO_STATUS_IN_PROGRESS = 2;
+  TODO_STATUS_COMPLETED = 3;
+  TODO_STATUS_CANCELLED = 4;
+}
+
+// Copied from: local:agent.v1.TokenDeltaUpdate (var: M1)
+message TokenDeltaUpdate {
+  int32 tokens = 1;
+}
+
+// Copied from: local:agent.v1.ToolCall (var: qX)
+message ToolCall {
+  oneof tool {
+    ShellToolCall shell_tool_call = 1;
+    DeleteToolCall delete_tool_call = 3;
+    GlobToolCall glob_tool_call = 4;
+    GrepToolCall grep_tool_call = 5;
+    ReadToolCall read_tool_call = 8;
+    UpdateTodosToolCall update_todos_tool_call = 9;
+    ReadTodosToolCall read_todos_tool_call = 10;
+    EditToolCall edit_tool_call = 12;
+    LsToolCall ls_tool_call = 13;
+    ReadLintsToolCall read_lints_tool_call = 14;
+    McpToolCall mcp_tool_call = 15;
+    SemSearchToolCall sem_search_tool_call = 16;
+    CreatePlanToolCall create_plan_tool_call = 17;
+    WebSearchToolCall web_search_tool_call = 18;
+    TaskToolCall task_tool_call = 19;
+    ListMcpResourcesToolCall list_mcp_resources_tool_call = 20;
+    ReadMcpResourceToolCall read_mcp_resource_tool_call = 21;
+    ApplyAgentDiffToolCall apply_agent_diff_tool_call = 22;
+    AskQuestionToolCall ask_question_tool_call = 23;
+    FetchToolCall fetch_tool_call = 24;
+    SwitchModeToolCall switch_mode_tool_call = 25;
+    GenerateImageToolCall generate_image_tool_call = 28;
+    RecordScreenToolCall record_screen_tool_call = 29;
+    ComputerUseToolCall computer_use_tool_call = 30;
+    WriteShellStdinToolCall write_shell_stdin_tool_call = 31;
+    ReflectToolCall reflect_tool_call = 32;
+    SetupVmEnvironmentToolCall setup_vm_environment_tool_call = 33;
+    TruncatedToolCall truncated_tool_call = 34;
+    StartGrindExecutionToolCall start_grind_execution_tool_call = 35;
+    StartGrindPlanningToolCall start_grind_planning_tool_call = 36;
+    WebFetchToolCall web_fetch_tool_call = 37;
+    ReportBugfixResultsToolCall report_bugfix_results_tool_call = 38;
+    AiAttributionToolCall ai_attribution_tool_call = 39;
+    PrManagementToolCall pr_management_tool_call = 40;
+    McpAuthToolCall mcp_auth_tool_call = 41;
+    AwaitToolCall await_tool_call = 42;
+    BlameByFilePathToolCall blame_by_file_path_tool_call = 43;
+    GetMcpToolsToolCall get_mcp_tools_tool_call = 44;
+    ReportBugToolCall report_bug_tool_call = 45;
+    SetActiveBranchToolCall set_active_branch_tool_call = 46;
+    CommunicateUpdateToolCall communicate_update_tool_call = 48;
+    SendFinalSummaryToolCall send_final_summary_tool_call = 49;
+    UpdatePrCodeTourToolCall update_pr_code_tour_tool_call = 50;
+    ReplaceEnvToolCall replace_env_tool_call = 51;
+    EditPrLabelsToolCall edit_pr_labels_tool_call = 52;
+    RecordCiInvestigationFindingsToolCall record_ci_investigation_findings_tool_call = 53;
+  }
+}
+
+// Copied from: local:agent.v1.ToolCallCompletedUpdate (var: b1)
+message ToolCallCompletedUpdate {
+  string call_id = 1;
+  ToolCall tool_call = 2;
+  string model_call_id = 3;
+}
+
+// Copied from: local:agent.v1.ToolCallDelta (var: HX)
+message ToolCallDelta {
+  oneof delta {
+    ShellToolCallDelta shell_tool_call_delta = 1;
+    TaskToolCallDelta task_tool_call_delta = 2;
+    EditToolCallDelta edit_tool_call_delta = 3;
+    ReplaceEnvToolCallDelta replace_env_tool_call_delta = 4;
+  }
+}
+
+// Copied from: local:agent.v1.ToolCallDeltaUpdate (var: q1)
+message ToolCallDeltaUpdate {
+  string call_id = 1;
+  ToolCallDelta tool_call_delta = 2;
+  string model_call_id = 3;
+}
+
+// Copied from: local:agent.v1.ToolCallStartedUpdate (var: N1)
+message ToolCallStartedUpdate {
+  string call_id = 1;
+  ToolCall tool_call = 2;
+  string model_call_id = 3;
+}
+
+// Copied from: local:agent.v1.TrackedGitRepo (var: s1)
+message TrackedGitRepo {
+  string repo_path = 1;
+  string branch_name = 2;
+}
+
+// Copied from: local:agent.v1.TriggeringUserInfo (var: ZX)
+message TriggeringUserInfo {
+  optional string auth_id = 1;
+  optional int32 user_id = 2;
+}
+
+// Copied from: local:agent.v1.TruncatedToolCall (var: YX)
+message TruncatedToolCall {
+  bytes original_step_blob_id = 1;
+  TruncatedToolCallArgs args = 2;
+  TruncatedToolCallResult result = 3;
+}
+
+// Copied from: local:agent.v1.TruncatedToolCallArgs (var: FX)
+message TruncatedToolCallArgs {
+}
+
+// Copied from: local:agent.v1.TruncatedToolCallError (var: UX)
+message TruncatedToolCallError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.TruncatedToolCallResult (var: MX)
+message TruncatedToolCallResult {
+  oneof result {
+    TruncatedToolCallSuccess success = 1;
+    TruncatedToolCallError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.TruncatedToolCallSuccess (var: QX)
+message TruncatedToolCallSuccess {
+}
+
+// Copied from: local:agent.v1.TurnEndedUpdate (var: e0)
+message TurnEndedUpdate {
+  optional int64 input_tokens = 1;
+  optional int64 output_tokens = 2;
+  optional int64 cache_read_tokens = 3;
+  optional int64 cache_write_tokens = 4;
+}
+
+// Copied from: local:agent.v1.TypeAction (var: qB)
+message TypeAction {
+  string text = 1;
+}
+
+// Copied from: local:agent.v1.UpdateConversationMetadataRequest (var: H7)
+message UpdateConversationMetadataRequest {
+  string conversation_id = 1;
+  optional string name = 2;
+}
+
+// Copied from: local:agent.v1.UpdateConversationMetadataResponse (var: z7)
+message UpdateConversationMetadataResponse {
+}
+
+// Copied from: local:agent.v1.UpdatePrAction (var: vV)
+message UpdatePrAction {
+  optional string pr_url = 1;
+  optional string title = 2;
+  optional string body = 3;
+  optional string base_branch = 4;
+  optional string branch_name = 5;
+  repeated string add_labels = 6;
+  repeated string remove_labels = 7;
+  optional string repo_url = 8;
+}
+
+// Copied from: local:agent.v1.UpdatePrCodeTourArgs (var: kW)
+message UpdatePrCodeTourArgs {
+  string feedback = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.UpdatePrCodeTourError (var: vW)
+message UpdatePrCodeTourError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.UpdatePrCodeTourResult (var: SW)
+message UpdatePrCodeTourResult {
+  oneof result {
+    UpdatePrCodeTourSuccess success = 1;
+    UpdatePrCodeTourError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.UpdatePrCodeTourSuccess (var: IW)
+message UpdatePrCodeTourSuccess {
+  string revision_id = 1;
+  string message = 2;
+}
+
+// Copied from: local:agent.v1.UpdatePrCodeTourToolCall (var: NW)
+message UpdatePrCodeTourToolCall {
+  UpdatePrCodeTourArgs args = 1;
+  UpdatePrCodeTourResult result = 2;
+}
+
+// Copied from: local:agent.v1.UpdateTodosArgs (var: Rx)
+message UpdateTodosArgs {
+  repeated TodoItem todos = 1;
+  bool merge = 2;
+}
+
+// Copied from: local:agent.v1.UpdateTodosError (var: Dx)
+message UpdateTodosError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.UpdateTodosResult (var: Px)
+message UpdateTodosResult {
+  oneof result {
+    UpdateTodosSuccess success = 1;
+    UpdateTodosError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.UpdateTodosSuccess (var: Lx)
+message UpdateTodosSuccess {
+  repeated TodoItem todos = 1;
+  int32 total_count = 2;
+  bool was_merge = 3;
+}
+
+// Copied from: local:agent.v1.UpdateTodosToolCall (var: Cx)
+message UpdateTodosToolCall {
+  UpdateTodosArgs args = 1;
+  UpdateTodosResult result = 2;
+}
+
+// Copied from: local:agent.v1.UploadConversationBlobsRequest (var: hee)
+message UploadConversationBlobsRequest {
+  string conversation_id = 1;
+  repeated BlobEntry blobs = 2;
+  int32 chunk_index = 3;
+  int32 total_chunks = 4;
+}
+
+// Copied from: local:agent.v1.UploadConversationBlobsResponse (var: Tee)
+message UploadConversationBlobsResponse {
+}
+
+// Copied from: local:agent.v1.UserDisplayInfo (var: n$)
+message UserDisplayInfo {
+  int32 user_id = 1;
+  optional string display_name = 2;
+  optional string email = 3;
+  optional string profile_picture_url = 4;
+}
+
+// Copied from: local:agent.v1.UserGitContext (var: Mz)
+message UserGitContext {
+  optional string username = 1;
+  optional string email = 2;
+}
+
+// Copied from: local:agent.v1.UserMessage (var: a$)
+message UserMessage {
+  // Copied from: local:agent.v1.UserMessage.SimulatedMessageMetadata (var: l$)
+  message SimulatedMessageMetadata {
+    optional string title = 1;
+    optional string task_id = 2;
+  }
+
+  string text = 1;
+  string message_id = 2;
+  optional SelectedContext selected_context = 3;
+  AgentMode mode = 4;
+  optional bool is_simulated_msg = 5;
+  optional string best_of_n_group_id = 6;
+  optional bool try_use_best_of_n_promotion = 7;
+  optional string rich_text = 8;
+  optional SimulatedMsgReason simulated_msg_reason = 9;
+  bytes conversation_state_blob_id = 10;
+  optional string subagent_system_reminder = 11;
+  optional TriggeringUserInfo triggering_user_info = 13;
+  optional ExecutePlanInfo execute_plan_info = 14;
+  optional SimulatedMessageMetadata simulated_message_metadata = 15;
+  optional string prompt_reference_id = 16;
+  optional string thread_id = 17;
+  optional bytes text_blob_id = 18;
+  optional bytes rich_text_blob_id = 19;
+}
+
+// Copied from: local:agent.v1.UserMessageAction (var: UZ)
+message UserMessageAction {
+  UserMessage user_message = 1;
+  RequestContext request_context = 2;
+  optional bool send_to_interaction_listener = 3;
+  repeated UserMessage prepend_user_messages = 4;
+  optional InterruptedPendingToolCallResolutions interrupted_pending_tool_call_resolutions = 6;
+  optional ConversationHistory conversation_history = 7;
+}
+
+// Copied from: local:agent.v1.UserMessageAppendedUpdate (var: n0)
+message UserMessageAppendedUpdate {
+  UserMessage user_message = 1;
+}
+
+// Copied from: local:agent.v1.WaitAction (var: QB)
+message WaitAction {
+  int32 duration_ms = 1;
+}
+
+// Copied from: local:agent.v1.WebFetchArgs (var: sV)
+message WebFetchArgs {
+  string url = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.WebFetchError (var: cV)
+message WebFetchError {
+  string url = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.WebFetchRejected (var: dV)
+message WebFetchRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.WebFetchRequestQuery (var: gV)
+message WebFetchRequestQuery {
+  WebFetchArgs args = 1;
+  bool skip_approval = 2;
+}
+
+// Copied from: local:agent.v1.WebFetchRequestResponse (var: _V)
+message WebFetchRequestResponse {
+  // Copied from: local:agent.v1.WebFetchRequestResponse.Approved (var: yV)
+  message Approved {
+  }
+
+  // Copied from: local:agent.v1.WebFetchRequestResponse.Rejected (var: kV)
+  message Rejected {
+    string reason = 1;
+  }
+
+  oneof result {
+    Approved approved = 1;
+    Rejected rejected = 2;
+  }
+}
+
+// Copied from: local:agent.v1.WebFetchResult (var: aV)
+message WebFetchResult {
+  oneof result {
+    WebFetchSuccess success = 1;
+    WebFetchError error = 2;
+    WebFetchRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.WebFetchSuccess (var: lV)
+message WebFetchSuccess {
+  string url = 1;
+  string markdown = 2;
+  optional OutputLocation output_location = 3;
+}
+
+// Copied from: local:agent.v1.WebFetchToolCall (var: AV)
+message WebFetchToolCall {
+  WebFetchArgs args = 1;
+  WebFetchResult result = 2;
+}
+
+// Copied from: local:agent.v1.WebSearchArgs (var: zM)
+message WebSearchArgs {
+  string search_term = 1;
+  string tool_call_id = 2;
+}
+
+// Copied from: local:agent.v1.WebSearchError (var: eG)
+message WebSearchError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.WebSearchReference (var: sG)
+message WebSearchReference {
+  string title = 1;
+  string url = 2;
+  string chunk = 3;
+}
+
+// Copied from: local:agent.v1.WebSearchRejected (var: nG)
+message WebSearchRejected {
+  string reason = 1;
+}
+
+// Copied from: local:agent.v1.WebSearchRequestQuery (var: lG)
+message WebSearchRequestQuery {
+  WebSearchArgs args = 1;
+}
+
+// Copied from: local:agent.v1.WebSearchRequestResponse (var: cG)
+message WebSearchRequestResponse {
+  // Copied from: local:agent.v1.WebSearchRequestResponse.Approved (var: dG)
+  message Approved {
+  }
+
+  // Copied from: local:agent.v1.WebSearchRequestResponse.Rejected (var: AG)
+  message Rejected {
+    string reason = 1;
+  }
+
+  oneof result {
+    Approved approved = 1;
+    Rejected rejected = 2;
+  }
+}
+
+// Copied from: local:agent.v1.WebSearchResult (var: KM)
+message WebSearchResult {
+  oneof result {
+    WebSearchSuccess success = 1;
+    WebSearchError error = 2;
+    WebSearchRejected rejected = 3;
+  }
+}
+
+// Copied from: local:agent.v1.WebSearchSuccess (var: ZM)
+message WebSearchSuccess {
+  repeated WebSearchReference references = 1;
+}
+
+// Copied from: local:agent.v1.WebSearchToolCall (var: aG)
+message WebSearchToolCall {
+  WebSearchArgs args = 1;
+  WebSearchResult result = 2;
+}
+
+// Copied from: local:agent.v1.WriteArgs (var: N8)
+message WriteArgs {
+  string path = 1;
+  string file_text = 2;
+  string tool_call_id = 3;
+  bool return_file_content_after_write = 4;
+  bytes file_bytes = 5;
+  optional string encoding_hint = 6;
+}
+
+// Copied from: local:agent.v1.WriteError (var: U8)
+message WriteError {
+  string path = 1;
+  string error = 2;
+}
+
+// Copied from: local:agent.v1.WriteNoSpace (var: Q8)
+message WriteNoSpace {
+  string path = 1;
+}
+
+// Copied from: local:agent.v1.WritePermissionDenied (var: F8)
+message WritePermissionDenied {
+  string path = 1;
+  string directory = 2;
+  string operation = 3;
+  string error = 4;
+  bool is_readonly = 5;
+}
+
+// Copied from: local:agent.v1.WriteRejected (var: M8)
+message WriteRejected {
+  string path = 1;
+  string reason = 2;
+}
+
+// Copied from: local:agent.v1.WriteResult (var: b8)
+message WriteResult {
+  oneof result {
+    WriteSuccess success = 1;
+    WritePermissionDenied permission_denied = 3;
+    WriteNoSpace no_space = 4;
+    WriteError error = 5;
+    WriteRejected rejected = 6;
+  }
+}
+
+// Copied from: local:agent.v1.WriteShellStdinArgs (var: uE)
+message WriteShellStdinArgs {
+  uint32 shell_id = 1;
+  string chars = 2;
+}
+
+// Copied from: local:agent.v1.WriteShellStdinError (var: pE)
+message WriteShellStdinError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.WriteShellStdinResult (var: mE)
+message WriteShellStdinResult {
+  oneof result {
+    WriteShellStdinSuccess success = 1;
+    WriteShellStdinError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.WriteShellStdinSuccess (var: fE)
+message WriteShellStdinSuccess {
+  uint32 shell_id = 1;
+  uint32 terminal_file_length_before_input_written = 2;
+}
+
+// Copied from: local:agent.v1.WriteShellStdinToolCall (var: _Y)
+message WriteShellStdinToolCall {
+  WriteShellStdinArgs args = 1;
+  WriteShellStdinResult result = 2;
+}
+
+// Copied from: local:agent.v1.WriteSuccess (var: q8)
+message WriteSuccess {
+  string path = 1;
+  int32 lines_created = 2;
+  int32 file_size = 3;
+  optional string file_content_after_write = 4;
+}
+

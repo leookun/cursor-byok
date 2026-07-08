@@ -1,0 +1,26 @@
+# Docker image for building this app's Linux amd64 binary from macOS/Linux hosts.
+
+ARG BASE_IMAGE=debian:trixie
+FROM ${BASE_IMAGE}
+
+ARG GO_TARBALL_URL=https://go.dev/dl/go1.25.0.linux-amd64.tar.gz
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates curl git nodejs yarnpkg pkg-config gcc libc6-dev \
+    libgtk-3-dev libwebkit2gtk-4.1-dev \
+    && curl -fsSL "${GO_TARBALL_URL}" -o /tmp/go.tar.gz \
+    && rm -rf /usr/local/go \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && ln -sf /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
+    && ln -sf /usr/bin/yarnpkg /usr/local/bin/yarn \
+    && rm -f /tmp/go.tar.gz \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY build-linux.sh /usr/local/bin/build-linux.sh
+
+RUN chmod +x /usr/local/bin/build-linux.sh
+
+WORKDIR /app
+ENTRYPOINT ["/usr/local/bin/build-linux.sh"]
