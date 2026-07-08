@@ -23,6 +23,7 @@ import (
 
 	bridge "cursor/internal/bridge"
 	"cursor/internal/certs"
+	"cursor/internal/i18n"
 	"cursor/internal/logger"
 	"cursor/internal/mitm"
 	"cursor/internal/netproxy"
@@ -264,22 +265,23 @@ func Run(resources EmbeddedResources) error {
 
 	systray := app.SystemTray.New()
 	menu := app.Menu.New()
-	statusItem := menu.Add("状态：未启动").SetEnabled(false)
+	tray := i18n.Tray()
+	statusItem := menu.Add(tray.StatusStopped).SetEnabled(false)
 	menu.AddSeparator()
-	startItem := menu.Add("启动服务")
-	stopItem := menu.Add("停止服务")
-	menu.Add("检查更新").OnClick(func(ctx *application.Context) {
+	startItem := menu.Add(tray.StartService)
+	stopItem := menu.Add(tray.StopService)
+	menu.Add(tray.CheckUpdates).OnClick(func(ctx *application.Context) {
 		updateManager.CheckNow(true)
 	})
 	menu.AddSeparator()
-	menu.Add("显示窗口").OnClick(func(ctx *application.Context) {
+	menu.Add(tray.ShowWindow).OnClick(func(ctx *application.Context) {
 		showMainWindow()
 	})
-	menu.Add("隐藏窗口").OnClick(func(ctx *application.Context) {
+	menu.Add(tray.HideWindow).OnClick(func(ctx *application.Context) {
 		window.Hide()
 	})
 	menu.AddSeparator()
-	menu.Add("退出").OnClick(func(ctx *application.Context) {
+	menu.Add(tray.Quit).OnClick(func(ctx *application.Context) {
 		proxyService.ShutdownForQuit()
 		app.Quit()
 	})
@@ -287,11 +289,11 @@ func Run(resources EmbeddedResources) error {
 	refreshTray := func() {
 		state := proxyService.GetState()
 		if state.Running {
-			statusItem.SetLabel("状态：运行中")
+			statusItem.SetLabel(tray.StatusRunning)
 			startItem.SetEnabled(false)
 			stopItem.SetEnabled(true)
 		} else {
-			statusItem.SetLabel("状态：未启动")
+			statusItem.SetLabel(tray.StatusStopped)
 			startItem.SetEnabled(true)
 			stopItem.SetEnabled(false)
 		}
