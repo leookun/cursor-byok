@@ -11,6 +11,7 @@ import {
   appViewState,
   openConfigWindow,
   openModelConfigWindow,
+  openMcpConfigWindow,
   saveRoutingMode,
   syncHomeMetrics,
   syncServiceState,
@@ -127,6 +128,14 @@ async function handleOpenModelConfig() {
   }
 }
 
+async function handleOpenMcpConfig() {
+  try {
+    await openMcpConfigWindow();
+  } catch (error) {
+    await showActionError("打开失败", toUserError(error));
+  }
+}
+
 async function handleDirectModeChange(enabled) {
   const result = await saveRoutingMode(enabled ? "upstream" : "local");
   if (!result.ok) {
@@ -202,6 +211,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="center-row gap-2">
           <Button variant="default" @click="handleOpenConfig">设置文件夹</Button>
+          <Button variant="default" @click="handleOpenMcpConfig">MCP 管理</Button>
           <Button variant="primary" @click="handleOpenModelConfig">模型配置</Button>
         </div>
       </div>

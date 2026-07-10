@@ -485,6 +485,7 @@ func (adapter *OpenAIAdapter) streamChatCompletions(ctx context.Context, req Str
 		recordLLMSummaryArtifact(req, buildLLMSummaryPayload(req, "openai", modelID, startedAt, time.Time{}, finishedAt, "", 0, 0, 0, 0, err))
 		return err
 	}
+	applyOpenAIFastServiceTier(bodyMap, req.OpenAIFast)
 	body = bodyMap
 	requestURL := OpenAIEndpointURL(baseURL, req.OpenAIEndpoint)
 	recordLLMRequestArtifact(req, "openai", modelID, "POST", requestURL, body)
@@ -513,7 +514,7 @@ func (adapter *OpenAIAdapter) streamChatCompletions(ctx context.Context, req Str
 		return httpReq, nil
 	}
 
-	resp, err := doProviderRequestWithRetry(streamCtx, adapter.client, "openai", req.RequestID, req.ModelCallID, buildHTTPRequest)
+	resp, err := doProviderRequestMaybeWS(streamCtx, adapter.client, "openai", req.RequestID, req.ModelCallID, requestURL, apiKey, payload, req, buildHTTPRequest)
 	if err != nil {
 		if idleErr := streamIdle.Err(); idleErr != nil {
 			err = idleErr
@@ -963,6 +964,7 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 		recordLLMSummaryArtifact(req, buildLLMSummaryPayload(req, "openai", modelID, startedAt, time.Time{}, finishedAt, "", 0, 0, 0, 0, err))
 		return err
 	}
+	applyOpenAIFastServiceTier(bodyMap, req.OpenAIFast)
 	body = bodyMap
 
 	requestURL := OpenAIEndpointURL(baseURL, req.OpenAIEndpoint)
@@ -992,7 +994,7 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 		return httpReq, nil
 	}
 
-	resp, err := doProviderRequestWithRetry(streamCtx, adapter.client, "openai", req.RequestID, req.ModelCallID, buildHTTPRequest)
+	resp, err := doProviderRequestMaybeWS(streamCtx, adapter.client, "openai", req.RequestID, req.ModelCallID, requestURL, apiKey, payload, req, buildHTTPRequest)
 	if err != nil {
 		if idleErr := streamIdle.Err(); idleErr != nil {
 			err = idleErr
@@ -1448,6 +1450,13 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 		}
 		return fmt.Errorf("openai responses stream failed")
 	}
+
+	// 静默心跳：长推理首 token 前（1.0x/xhigh 常达数十秒无数据）给 Cursor 补发
+	// 空的思考心跳，避免其误判断线反复 reconnecting。stop 在函数返回时触发；
+	// 上游真断/真挂时看门狗仍会中止、错误照常抛出，不会“无限思考”。
+	var keepaliveStop func()
+	sink, keepaliveStop = newStreamKeepalive(streamCtx, sink, "openai", modelID)
+	defer keepaliveStop()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), openAIStreamMaxTokenSize)

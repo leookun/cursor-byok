@@ -48,6 +48,24 @@ func ApplyAnthropicExtraParams(body map[string]any, enabled bool, paramsJSON str
 	return applyExtraParams(body, enabled, paramsJSON, "anthropic extra params json")
 }
 
+// applyOpenAIFastServiceTier 让「Fast 开关」成为 service_tier=priority 的唯一来源，
+// 在「额外参数 JSON」合并之后调用，从而覆盖用户手填的 service_tier：
+//   - fast=true  ：强制写入 service_tier=priority（Codex fast，约 1.5x）。
+//   - fast=false ：若请求体里存在 priority（无论来自额外参数还是其他），一律剔除，
+//     即“以开关为准，忽略配置的 priority”。其它 tier（如 flex）保持不动。
+func applyOpenAIFastServiceTier(body map[string]any, fast bool) {
+	if body == nil {
+		return
+	}
+	if fast {
+		body["service_tier"] = "priority"
+		return
+	}
+	if v, ok := body["service_tier"].(string); ok && strings.EqualFold(strings.TrimSpace(v), "priority") {
+		delete(body, "service_tier")
+	}
+}
+
 func applyExtraParams(body map[string]any, enabled bool, paramsJSON string, label string) error {
 	if !enabled {
 		return nil

@@ -18,9 +18,14 @@ import (
 	serverconfig "cursor/internal/backend/server/config"
 	"cursor/internal/backend/server/upstream"
 	"cursor/internal/logger"
+	"cursor/internal/mcphub"
 	"cursor/internal/netproxy"
 	legacyruntime "cursor/internal/runtime"
 )
+
+// mcpHubMountPath 是 MCP 网关对 Cursor 暴露的挂载路径，最终端点为
+// http://<BackendListenAddr>/mcp/hub。
+const mcpHubMountPath = "/mcp/hub"
 
 const healthPath = "/healthz"
 
@@ -37,7 +42,8 @@ type Host struct {
 
 	lastRunErr error
 
-	mux http.Handler
+	mux    http.Handler
+	mcpHub *mcphub.Hub
 }
 
 func NewHost(store *serverconfig.Store) (*Host, error) {
@@ -55,6 +61,15 @@ func NewHost(store *serverconfig.Store) (*Host, error) {
 		configs:    configs,
 		healthHTTP: newLoopbackHTTPClient(),
 	}
+	// MCP 网关：后端列表从配置实时读取，保存配置后无需重启即可生效。
+	host.mcpHub = mcphub.NewHub(func() []mcphub.Backend {
+		current := configs.Current()
+		out := make([]mcphub.Backend, 0, len(current.MCPServers))
+		for _, item := range current.MCPServers {
+			out = append(out, mcphub.Backend{Name: item.Name, URL: item.URL, Enabled: item.Enabled})
+		}
+		return out
+	})
 	if err := host.rebuild(cfg); err != nil {
 		return nil, err
 	}
@@ -283,6 +298,7 @@ func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 			server.ErrorEncoder(),
 		),
 		server.Mount(ads.RoutePrefix, ads.NewHTTPHandler(appdata.AdsRootPath())),
+		server.Mount(mcpHubMountPath, host.mcpHub.Handler()),
 		server.GET(healthPath,
 			server.Name("healthz"),
 			server.HTTP(),

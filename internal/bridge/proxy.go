@@ -101,6 +101,22 @@ func (s *ProxyService) GetModelAdapterTestResults() []ModelAdapterTestResult {
 	return s.core.GetModelAdapterTestResults()
 }
 
+// MCPTestResult 定义 MCP 后端连通性测试结果。
+type MCPTestResult = client.MCPTestResult
+
+// TestMCPServer 测试指定 MCP 后端连通性，返回其工具数量与名称，供管理界面使用。
+func (s *ProxyService) TestMCPServer(rawURL string) MCPTestResult {
+	return s.core.TestMCPServer(rawURL)
+}
+
+// CursorMcpApplyResult 定义一键写入 Cursor mcp.json 的结果。
+type CursorMcpApplyResult = client.CursorMcpApplyResult
+
+// ApplyCursorMcpHubConfig 一键把 Cursor 的 mcp.json 重写为仅指向本网关端点（自动备份原文件）。
+func (s *ProxyService) ApplyCursorMcpHubConfig() CursorMcpApplyResult {
+	return s.core.ApplyCursorMcpHubConfig()
+}
+
 // GetDeviceID 用于处理与 GetDeviceID 相关的逻辑。
 func (s *ProxyService) GetDeviceID() (string, error) {
 	return s.core.GetDeviceID()

@@ -1,10 +1,11 @@
 module cursor
 
-go 1.25.0
+go 1.25.5
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
 	connectrpc.com/connect v1.19.1
+	github.com/coder/websocket v1.8.14
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/elazarl/goproxy v1.7.2
 	github.com/firecrawl/html-to-markdown v0.0.0-20260312013131-1af9901a5d61
@@ -13,6 +14,7 @@ require (
 	github.com/jhump/protoreflect v1.18.0
 	github.com/leaanthony/u v1.1.1
 	github.com/lmittmann/tint v1.1.2
+	github.com/mark3labs/mcp-go v0.56.0
 	github.com/mattn/go-colorable v0.1.14
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
@@ -35,7 +37,6 @@ require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/coder/websocket v1.8.14 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
@@ -49,6 +50,7 @@ require (
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/jhump/protoreflect/v2 v2.0.0-beta.1 // indirect
@@ -61,9 +63,12 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.52.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
+	github.com/spf13/cast v1.10.0 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
