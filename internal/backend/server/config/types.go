@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,7 @@ const (
 
 type ModelAdapterConfig struct {
 	ID                          string `json:"id,omitempty" yaml:"-"`
+	GroupID                     string `json:"groupID,omitempty" yaml:"-"`
 	DisplayName                 string `json:"displayName" yaml:"displayName"`
 	Type                        string `json:"type" yaml:"type"`
 	BaseURL                     string `json:"baseURL" yaml:"baseURL"`
@@ -43,6 +45,17 @@ type ModelAdapterConfig struct {
 	ThinkingBudgetTokens        int    `json:"thinkingBudgetTokens" yaml:"thinkingBudgetTokens"`
 }
 
+type ModelGroupConfig struct {
+	ID                   string `json:"id,omitempty" yaml:"-"`
+	Name                 string `json:"name" yaml:"name"`
+	Type                 string `json:"type" yaml:"type"`
+	BaseURL              string `json:"baseURL" yaml:"baseURL"`
+	APIKey               string `json:"apiKey" yaml:"apiKey"`
+	OpenAIEndpoint       string `json:"openAIEndpoint,omitempty" yaml:"openAIEndpoint,omitempty"`
+	CustomHeadersEnabled bool   `json:"customHeadersEnabled" yaml:"customHeadersEnabled"`
+	CustomHeadersJSON    string `json:"customHeadersJSON" yaml:"customHeadersJSON"`
+}
+
 type RoutingConfig struct {
 	Mode string `json:"mode" yaml:"mode"`
 }
@@ -56,7 +69,9 @@ type Config struct {
 	ProviderStreamIdleTimeout int                  `json:"providerStreamIdleTimeout" yaml:"providerStreamIdleTimeout"`
 	BackendListenAddr         string               `json:"backendListenAddr" yaml:"backendListenAddr"`
 	ProxyListenAddr           string               `json:"proxyListenAddr" yaml:"proxyListenAddr"`
+	ModelGroups               []ModelGroupConfig   `json:"modelGroups" yaml:"modelGroups"`
 	ModelAdapters             []ModelAdapterConfig `json:"modelAdapters" yaml:"modelAdapters"`
+	ActiveModelGroupID        string               `json:"activeModelGroupID,omitempty" yaml:"activeModelGroupID,omitempty"`
 	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
@@ -68,6 +83,7 @@ func DefaultConfig() Config {
 		ProviderStreamIdleTimeout: DefaultProviderStreamIdleTimeoutSeconds,
 		BackendListenAddr:         DefaultBackendListenAddr,
 		ProxyListenAddr:           DefaultProxyListenAddr,
+		ModelGroups:               []ModelGroupConfig{},
 		ModelAdapters:             []ModelAdapterConfig{},
 		Routing: RoutingConfig{
 			Mode: DefaultRoutingMode,
@@ -100,7 +116,103 @@ func NormalizeConfig(input Config) (Config, error) {
 		return Config{}, err
 	}
 	output.ModelAdapters = adapters
+	groups, err := NormalizeModelGroupConfigs(input.ModelGroups)
+	if err != nil {
+		return Config{}, err
+	}
+	seenGroupIDs := make(map[string]struct{}, len(groups)+len(adapters))
+	for _, group := range groups {
+		seenGroupIDs[group.ID] = struct{}{}
+	}
+	for _, adapter := range adapters {
+		if _, exists := seenGroupIDs[adapter.GroupID]; exists {
+			continue
+		}
+		groups = append(groups, ModelGroupConfig{
+			ID:                   adapter.GroupID,
+			Name:                 defaultModelGroupName(adapter.BaseURL),
+			Type:                 adapter.Type,
+			BaseURL:              adapter.BaseURL,
+			APIKey:               adapter.APIKey,
+			OpenAIEndpoint:       adapter.OpenAIEndpoint,
+			CustomHeadersEnabled: adapter.CustomHeadersEnabled,
+			CustomHeadersJSON:    adapter.CustomHeadersJSON,
+		})
+		seenGroupIDs[adapter.GroupID] = struct{}{}
+	}
+	output.ModelGroups = groups
+	requestedGroupID := strings.TrimSpace(input.ActiveModelGroupID)
+	for _, group := range groups {
+		if group.ID == requestedGroupID {
+			output.ActiveModelGroupID = requestedGroupID
+			break
+		}
+	}
 	return output, nil
+}
+
+func NormalizeModelGroupConfigs(input []ModelGroupConfig) ([]ModelGroupConfig, error) {
+	if len(input) == 0 {
+		return []ModelGroupConfig{}, nil
+	}
+	normalized := make([]ModelGroupConfig, 0, len(input))
+	seenGroupIDs := make(map[string]struct{}, len(input))
+	for _, item := range input {
+		baseURL, err := modelchannel.NormalizeBaseURL(item.BaseURL)
+		if err != nil {
+			return nil, err
+		}
+		next := ModelGroupConfig{
+			Name:                 strings.TrimSpace(item.Name),
+			Type:                 normalizeModelAdapterType(item.Type),
+			BaseURL:              baseURL,
+			APIKey:               strings.TrimSpace(item.APIKey),
+			CustomHeadersEnabled: item.CustomHeadersEnabled,
+			CustomHeadersJSON:    strings.TrimSpace(item.CustomHeadersJSON),
+		}
+		if next.Type == "openai" {
+			next.OpenAIEndpoint = modelchannel.NormalizeOpenAIEndpoint(next.Type, item.OpenAIEndpoint)
+		}
+		switch {
+		case next.Name == "":
+			return nil, errors.New("模型分组 name 不能为空")
+		case next.Type == "":
+			return nil, errors.New("模型分组 type 仅支持 openai 或 anthropic")
+		case next.APIKey == "":
+			return nil, errors.New("模型分组 apiKey 不能为空")
+		case next.Type == "openai" && next.OpenAIEndpoint == "":
+			return nil, errors.New("模型分组 openAIEndpoint 仅支持 /v1/responses、/v1/chat/completions 或 /custom")
+		case next.CustomHeadersEnabled:
+			if err := validateHeadersJSON(next.CustomHeadersJSON); err != nil {
+				return nil, err
+			}
+		}
+		next.ID = modelchannel.BuildGroupID(next.Type, next.BaseURL, next.APIKey, next.CustomHeadersEnabled, next.CustomHeadersJSON)
+		if _, exists := seenGroupIDs[next.ID]; exists {
+			return nil, errors.New("模型分组不能重复，请检查 type、baseURL、apiKey 和自定义请求头")
+		}
+		seenGroupIDs[next.ID] = struct{}{}
+		normalized = append(normalized, next)
+	}
+	return normalized, nil
+}
+
+func defaultModelGroupName(baseURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err == nil && strings.TrimSpace(parsed.Host) != "" {
+		return parsed.Host
+	}
+	return strings.TrimSpace(baseURL)
+}
+
+func FindModelGroupConfig(config Config, groupID string) (ModelGroupConfig, bool) {
+	targetID := strings.TrimSpace(groupID)
+	for _, group := range config.ModelGroups {
+		if group.ID == targetID {
+			return group, true
+		}
+	}
+	return ModelGroupConfig{}, false
 }
 
 func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterConfig, error) {
@@ -171,6 +283,7 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 			return nil, errors.New("模型适配器 anthropicThinkingEffort 仅支持 low、medium、high、xhigh、max")
 		}
 		next.ID = modelchannel.BuildChannelID(next.BaseURL, next.ModelID, next.APIKey, next.DisplayName, next.OpenAIEndpoint)
+		next.GroupID = modelchannel.BuildGroupID(next.Type, next.BaseURL, next.APIKey, next.CustomHeadersEnabled, next.CustomHeadersJSON)
 		if _, exists := seenChannelIDs[next.ID]; exists {
 			return nil, errors.New("模型适配器渠道不能重复，请检查 url、modelID、apiKey、displayName、endpoint 组合")
 		}
@@ -178,6 +291,20 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		normalized = append(normalized, next)
 	}
 	return normalized, nil
+}
+
+func ActiveModelAdapterConfigs(config Config) []ModelAdapterConfig {
+	activeGroupID := strings.TrimSpace(config.ActiveModelGroupID)
+	if activeGroupID == "" {
+		return []ModelAdapterConfig{}
+	}
+	active := make([]ModelAdapterConfig, 0, len(config.ModelAdapters))
+	for _, adapter := range config.ModelAdapters {
+		if strings.TrimSpace(adapter.GroupID) == activeGroupID {
+			active = append(active, adapter)
+		}
+	}
+	return active
 }
 
 func validateJSONMap(value string, fieldName string) error {

@@ -143,25 +143,30 @@ func (manager *Manager) Subscribe(listener func(Config)) func() {
 
 func (manager *Manager) LegacyRuntimeSnapshot(_ context.Context) (legacyruntime.RuntimeConfigSnapshot, error) {
 	cfg := manager.Current()
-	adapters := make([]legacyruntime.ModelAdapterConfig, 0, len(cfg.ModelAdapters))
-	for _, item := range cfg.ModelAdapters {
+	activeAdapters := ActiveModelAdapterConfigs(cfg)
+	adapters := make([]legacyruntime.ModelAdapterConfig, 0, len(activeAdapters))
+	for _, item := range activeAdapters {
 		adapters = append(adapters, legacyruntime.ModelAdapterConfig{
-			ID:                       item.ID,
-			DisplayName:              item.DisplayName,
-			Type:                     item.Type,
-			BaseURL:                  item.BaseURL,
-			APIKey:                   item.APIKey,
-			TooltipData:              item.TooltipData,
-			ModelID:                  item.ModelID,
-			ReasoningEffort:          item.ReasoningEffort,
-			OpenAIEndpoint:           item.OpenAIEndpoint,
-			OpenAIExtraParamsEnabled: item.OpenAIExtraParamsEnabled,
-			OpenAIExtraParamsJSON:    item.OpenAIExtraParamsJSON,
-			ContextWindowTokens:      item.ContextWindowTokens,
-			MaxCompletionTokens:      item.MaxCompletionTokens,
-			AnthropicMaxTokens:       item.AnthropicMaxTokens,
-			AnthropicThinkingEffort:  item.AnthropicThinkingEffort,
-			ThinkingBudgetTokens:     item.ThinkingBudgetTokens,
+			ID:                          item.ID,
+			DisplayName:                 item.DisplayName,
+			Type:                        item.Type,
+			BaseURL:                     item.BaseURL,
+			APIKey:                      item.APIKey,
+			TooltipData:                 item.TooltipData,
+			ModelID:                     item.ModelID,
+			ReasoningEffort:             item.ReasoningEffort,
+			OpenAIEndpoint:              item.OpenAIEndpoint,
+			OpenAIExtraParamsEnabled:    item.OpenAIExtraParamsEnabled,
+			OpenAIExtraParamsJSON:       item.OpenAIExtraParamsJSON,
+			CustomHeadersEnabled:        item.CustomHeadersEnabled,
+			CustomHeadersJSON:           item.CustomHeadersJSON,
+			AnthropicExtraParamsEnabled: item.AnthropicExtraParamsEnabled,
+			AnthropicExtraParamsJSON:    item.AnthropicExtraParamsJSON,
+			ContextWindowTokens:         item.ContextWindowTokens,
+			MaxCompletionTokens:         item.MaxCompletionTokens,
+			AnthropicMaxTokens:          item.AnthropicMaxTokens,
+			AnthropicThinkingEffort:     item.AnthropicThinkingEffort,
+			ThinkingBudgetTokens:        item.ThinkingBudgetTokens,
 		})
 	}
 	return legacyruntime.RuntimeConfigSnapshot{

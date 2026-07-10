@@ -24,6 +24,12 @@ type ModelAdapterTestResult = client.ModelAdapterTestResult
 // ModelAdapterTestResultsPayload 定义测速结果事件载荷。
 type ModelAdapterTestResultsPayload = client.ModelAdapterTestResultsPayload
 
+// UpstreamModelInfo 定义从上游发现的模型信息。
+type UpstreamModelInfo = client.UpstreamModelInfo
+
+// ModelDiscoveryResult 定义上游模型发现结果。
+type ModelDiscoveryResult = client.ModelDiscoveryResult
+
 // LicenseActionRequest 定义了当前模块中的 LicenseActionRequest 类型。
 type LicenseActionRequest = client.LicenseActionRequest
 
@@ -99,6 +105,16 @@ func (s *ProxyService) TestModelAdapter(adapter ModelAdapterConfig) (ModelAdapte
 // GetModelAdapterTestResults 用于处理与 GetModelAdapterTestResults 相关的逻辑。
 func (s *ProxyService) GetModelAdapterTestResults() []ModelAdapterTestResult {
 	return s.core.GetModelAdapterTestResults()
+}
+
+// DiscoverModelAdapterModels 获取指定渠道上游公开的模型列表。
+func (s *ProxyService) DiscoverModelAdapterModels(adapterID string) (ModelDiscoveryResult, error) {
+	return s.core.DiscoverModelAdapterModels(adapterID)
+}
+
+// DiscoverModelGroupModels 获取已持久化分组上游公开的模型列表。
+func (s *ProxyService) DiscoverModelGroupModels(groupID string) (ModelDiscoveryResult, error) {
+	return s.core.DiscoverModelGroupModels(groupID)
 }
 
 // GetDeviceID 用于处理与 GetDeviceID 相关的逻辑。

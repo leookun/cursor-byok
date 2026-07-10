@@ -7,6 +7,7 @@
     "dev": "vite",
     "build:dev": "node ./scripts/run-vite-build.mjs --minify false --mode development",
     "build": "node ./scripts/run-vite-build.mjs --mode production",
+    "test": "node --test",
     "preview": "vite preview"
   },
   "dependencies": {

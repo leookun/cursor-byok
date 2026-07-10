@@ -3,6 +3,7 @@ import { Events } from "@wailsio/runtime";
 import dayjs from "dayjs";
 import {
   checkForUpdates,
+  discoverModelGroupModels,
   getAppVersion,
   getHomeMetricsSummary,
   getModelAdapterTestResults,
@@ -18,6 +19,7 @@ import {
   stopProxyService,
   testModelAdapter,
 } from "@/services/clientApi";
+import { buildDiscoveredModelAdditions } from "@/utils/modelDiscovery";
 
 const APP_STATE_STORAGE_KEY = "cursor-client:runtime-state:v2";
 const GENERIC_SERVICE_ERROR = "服务错误";
@@ -368,6 +370,7 @@ export function normalizeModelAdapter(source) {
     : "";
   return {
     id: asString(raw.id),
+    groupID: asString(raw.groupID),
     displayName: asString(raw.displayName || raw.name),
     type: SUPPORTED_MODEL_ADAPTER_TYPES.has(normalizedType) ? normalizedType : "",
     baseURL: normalizeBaseURL(raw.baseURL || raw.url),
@@ -538,7 +541,9 @@ function normalizeConfig(source) {
     providerStreamIdleTimeout: asPositiveInteger(raw.providerStreamIdleTimeout),
     backendListenAddr: asString(raw.configBackendListenAddr) || asString(raw.backendListenAddr),
     proxyListenAddr: asString(raw.configProxyListenAddr) || asString(raw.proxyListenAddr),
+    modelGroups: normalizeModelGroups(raw.modelGroups),
     modelAdapters: normalizeModelAdapters(raw.modelAdapters),
+    activeModelGroupID: asString(raw.activeModelGroupID),
     routing: {
       mode: normalizeRouteMode(routing.mode),
     },
@@ -583,7 +588,9 @@ function buildConfigPayload(source = appState) {
     providerStreamIdleTimeout: normalized.providerStreamIdleTimeout,
     backendListenAddr: normalized.backendListenAddr,
     proxyListenAddr: normalized.proxyListenAddr,
-    modelAdapters: normalized.modelAdapters.map(({ id, ...adapter }) => adapter),
+    modelGroups: normalized.modelGroups.map(({ id, ...group }) => group),
+    modelAdapters: normalized.modelAdapters.map(({ id, groupID, ...adapter }) => adapter),
+    activeModelGroupID: normalized.activeModelGroupID,
     routing: normalized.routing,
     homeMetrics: normalized.homeMetrics,
     lastAgentModelHash: normalized.lastAgentModelHash,
@@ -593,10 +600,14 @@ function buildConfigPayload(source = appState) {
 function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
   const normalized = normalizeConfig(config);
   if (modelAdaptersOnly) {
+    appState.modelGroups = normalized.modelGroups;
     appState.modelAdapters = normalized.modelAdapters;
+    appState.activeModelGroupID = normalized.activeModelGroupID;
     return normalized;
   }
+  appState.modelGroups = normalized.modelGroups;
   appState.modelAdapters = normalized.modelAdapters;
+  appState.activeModelGroupID = normalized.activeModelGroupID;
   appState.configBackendListenAddr = normalized.backendListenAddr;
   appState.configProxyListenAddr = normalized.proxyListenAddr;
   appState.routingMode = normalized.routing.mode;
@@ -622,6 +633,13 @@ async function persistConfigPayload(config, { modelAdaptersOnly = false } = {}) 
     return {
       ok: false,
       error: validationError,
+    };
+  }
+  const groupValidationError = validateModelGroups(payload.modelGroups);
+  if (groupValidationError) {
+    return {
+      ok: false,
+      error: groupValidationError,
     };
   }
 
@@ -826,7 +844,9 @@ const cachedConfig = normalizeConfig(cachedState);
 
 export const appState = reactive({
   appVersion: "",
+  modelGroups: cachedConfig.modelGroups,
   modelAdapters: cachedConfig.modelAdapters,
+  activeModelGroupID: cachedConfig.activeModelGroupID,
   modelAdapterTestResults: {},
   configBackendListenAddr: cachedConfig.backendListenAddr,
   configProxyListenAddr: cachedConfig.proxyListenAddr,
@@ -1164,6 +1184,220 @@ export async function saveModelAdapterAt(index, adapter) {
     ...result,
     index: targetIndex,
     adapter: appState.modelAdapters[targetIndex] ?? null,
+  };
+}
+
+export async function saveModelGroup(group) {
+  const currentConfig = await loadPersistedUserConfig();
+  const nextGroups = normalizeModelGroups(currentConfig.modelGroups);
+  nextGroups.push(normalizeModelGroup(group));
+  return persistConfigPayload(
+    {
+      ...currentConfig,
+      modelGroups: nextGroups,
+    },
+    { modelAdaptersOnly: true },
+  );
+}
+
+export async function updateModelGroup(groupID, group) {
+  const targetGroupID = asString(groupID);
+  if (!targetGroupID) {
+    return { ok: false, error: "模型分组不存在，无法编辑" };
+  }
+  const currentConfig = await loadPersistedUserConfig();
+  const currentGroups = normalizeModelGroups(currentConfig.modelGroups);
+  const targetIndex = currentGroups.findIndex((item) => item.id === targetGroupID);
+  if (targetIndex < 0) {
+    return { ok: false, error: "模型分组不存在或已删除" };
+  }
+  const nextGroup = normalizeModelGroup(group);
+  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters).map((adapter) => {
+    if (adapter.groupID !== targetGroupID) {
+      return adapter;
+    }
+    return normalizeModelAdapter({
+      ...adapter,
+      type: nextGroup.type,
+      baseURL: nextGroup.baseURL,
+      apiKey: nextGroup.apiKey,
+      openAIEndpoint: nextGroup.openAIEndpoint,
+      customHeadersEnabled: nextGroup.customHeadersEnabled,
+      customHeadersJSON: nextGroup.customHeadersJSON,
+    });
+  });
+  currentGroups.splice(targetIndex, 1, nextGroup);
+  return persistConfigPayload(
+    {
+      ...currentConfig,
+      modelGroups: currentGroups,
+      modelAdapters: nextAdapters,
+    },
+    { modelAdaptersOnly: true },
+  );
+}
+
+export function createEmptyModelGroup(type = "openai") {
+  const normalizedType = asString(type).toLowerCase();
+  return {
+    id: "",
+    name: "",
+    type: SUPPORTED_MODEL_ADAPTER_TYPES.has(normalizedType) ? normalizedType : "openai",
+    baseURL: "",
+    apiKey: "",
+    openAIEndpoint: normalizedType === "openai" ? OPENAI_ENDPOINT_RESPONSES : "",
+    customHeadersEnabled: false,
+    customHeadersJSON: CUSTOM_HEADERS_DEFAULT_JSON,
+  };
+}
+
+export function normalizeModelGroup(source) {
+  const raw = source && typeof source === "object" ? source : {};
+  const type = asString(raw.type).toLowerCase();
+  return {
+    id: asString(raw.id || raw.groupID),
+    name: asString(raw.name),
+    type: SUPPORTED_MODEL_ADAPTER_TYPES.has(type) ? type : "",
+    baseURL: normalizeBaseURL(raw.baseURL || raw.url),
+    apiKey: asString(raw.apiKey || raw.key),
+    openAIEndpoint: type === "openai"
+      ? normalizeOpenAIEndpoint(raw.openAIEndpoint ?? raw.endpoint)
+      : "",
+    customHeadersEnabled: asBoolean(raw.customHeadersEnabled ?? raw.custom_headers_enabled),
+    customHeadersJSON: asString(raw.customHeadersJSON ?? raw.custom_headers_json) || CUSTOM_HEADERS_DEFAULT_JSON,
+  };
+}
+
+export function normalizeModelGroups(source) {
+  return asArray(source).map((item) => normalizeModelGroup(item));
+}
+
+export function validateModelGroups(source) {
+  const groups = normalizeModelGroups(source);
+  const seen = new Set();
+  for (const [index, group] of groups.entries()) {
+    const prefix = `分组 ${index + 1}`;
+    if (!group.name) {
+      return `${prefix} 的名字不能为空`;
+    }
+    if (!SUPPORTED_MODEL_ADAPTER_TYPES.has(group.type)) {
+      return `${prefix} 的类型仅支持 OpenAI 或 Anthropic`;
+    }
+    if (!group.baseURL) {
+      return `${prefix} 的请求地址不能为空`;
+    }
+    if (!group.apiKey) {
+      return `${prefix} 的 Key 不能为空`;
+    }
+    if (group.type === "openai" && !isValidOpenAIEndpoint(group.openAIEndpoint)) {
+      return `${prefix} 的接口请求仅支持 /v1/responses、/v1/chat/completions 或自定义路径`;
+    }
+    if (group.customHeadersEnabled) {
+      const headersError = validateHeadersJSON(group.customHeadersJSON);
+      if (headersError) {
+        return `${prefix} 的 ${headersError}`;
+      }
+    }
+    const identity = JSON.stringify([
+      group.type,
+      group.baseURL,
+      group.apiKey,
+      group.customHeadersEnabled,
+      group.customHeadersEnabled ? group.customHeadersJSON : "",
+    ]);
+    if (seen.has(identity)) {
+      return `${prefix} 与现有分组的渠道配置重复`;
+    }
+    seen.add(identity);
+  }
+  return "";
+}
+
+export async function activateModelAdapterGroup(groupID) {
+  const targetGroupID = asString(groupID);
+  if (!targetGroupID) {
+    return { ok: false, error: "渠道分组尚未保存，无法使用" };
+  }
+  const currentConfig = await loadPersistedUserConfig();
+  if (!currentConfig.modelGroups.some((group) => group.id === targetGroupID)) {
+    return { ok: false, error: "渠道分组不存在或已变更" };
+  }
+  return persistConfigPayload(
+    {
+      ...currentConfig,
+      activeModelGroupID: targetGroupID,
+    },
+    { modelAdaptersOnly: true },
+  );
+}
+
+export async function deleteModelGroup(groupID) {
+  const targetGroupID = asString(groupID);
+  if (!targetGroupID) {
+    return { ok: false, error: "模型分组不存在，无法删除" };
+  }
+  const currentConfig = await loadPersistedUserConfig();
+  if (!currentConfig.modelGroups.some((group) => group.id === targetGroupID)) {
+    return { ok: false, error: "模型分组不存在或已删除" };
+  }
+  return persistConfigPayload(
+    {
+      ...currentConfig,
+      modelGroups: currentConfig.modelGroups.filter((group) => group.id !== targetGroupID),
+      modelAdapters: currentConfig.modelAdapters.filter((adapter) => adapter.groupID !== targetGroupID),
+    },
+    { modelAdaptersOnly: true },
+  );
+}
+
+export async function discoverAndAddModelAdapters(group) {
+  const requestedGroup = normalizeModelGroup(group);
+  if (!requestedGroup.id) {
+    return { ok: false, error: "模型分组不存在或尚未保存", discovered: 0, added: 0, skipped: 0 };
+  }
+  const discovery = await discoverModelGroupModels(requestedGroup.id);
+  const currentConfig = await loadPersistedUserConfig();
+  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters);
+  const currentGroup = normalizeModelGroups(currentConfig.modelGroups)
+    .find((item) => item.id === requestedGroup.id);
+  if (!currentGroup) {
+    return { ok: false, error: "模型分组已删除或认证配置已变更，请重新获取", discovered: 0, added: 0, skipped: 0 };
+  }
+  const currentTemplate = normalizeModelAdapter({
+    ...createEmptyModelAdapter(),
+    groupID: currentGroup.id,
+    type: currentGroup.type,
+    baseURL: currentGroup.baseURL,
+    apiKey: currentGroup.apiKey,
+    openAIEndpoint: currentGroup.openAIEndpoint,
+    customHeadersEnabled: currentGroup.customHeadersEnabled,
+    customHeadersJSON: currentGroup.customHeadersJSON,
+  });
+  const merge = buildDiscoveredModelAdditions(nextAdapters, currentTemplate, discovery?.models);
+  const additions = merge.additions.map((item) => normalizeModelAdapter(item));
+
+  if (additions.length === 0) {
+    return {
+      ok: true,
+      error: "",
+      discovered: merge.discovered,
+      added: 0,
+      skipped: merge.skipped,
+    };
+  }
+
+  const result = await persistConfigPayload(
+    {
+      ...currentConfig,
+      modelAdapters: [...nextAdapters, ...additions],
+    },
+    { modelAdaptersOnly: true },
+  );
+  return {
+    ...result,
+    discovered: merge.discovered,
+    added: result.ok ? additions.length : 0,
+    skipped: merge.skipped,
   };
 }
 
