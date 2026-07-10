@@ -27,6 +27,7 @@ type WindowService struct {
 	updater           *updater.Manager
 	modelConfigWindow *application.WebviewWindow
 	modelEditorWindow *application.WebviewWindow
+	mcpConfigWindow   *application.WebviewWindow
 	editorCtx         *modelEditorContext
 	mu                sync.RWMutex
 }
@@ -142,6 +143,67 @@ func (s *WindowService) OpenModelConfigWindow() {
 	})
 
 	s.modelConfigWindow = win
+}
+
+// OpenMcpConfigWindow 打开 MCP 管理独立窗口。如果窗口已存在则聚焦。
+func (s *WindowService) OpenMcpConfigWindow() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.app == nil {
+		return
+	}
+
+	if s.mcpConfigWindow != nil {
+		s.mcpConfigWindow.Show()
+		s.mcpConfigWindow.Focus()
+		return
+	}
+
+	win := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:               "MCP 管理",
+		Width:               980,
+		Height:              700,
+		MinWidth:            820,
+		MinHeight:           560,
+		DisableResize:       false,
+		Frameless:           goruntime.GOOS == "windows",
+		URL:                 "/#/mcp-config",
+		Hidden:              false,
+		HideOnEscape:        false,
+		MinimiseButtonState: application.ButtonEnabled,
+		MaximiseButtonState: application.ButtonEnabled,
+		CloseButtonState:    application.ButtonEnabled,
+		BackgroundColour:    application.RGBA{Red: 25, Green: 25, Blue: 25, Alpha: 255},
+		Mac: application.MacWindow{
+			Backdrop:      application.MacBackdropLiquidGlass,
+			DisableShadow: false,
+			TitleBar: application.MacTitleBar{
+				AppearsTransparent:   true,
+				Hide:                 false,
+				HideTitle:            true,
+				FullSizeContent:      true,
+				UseToolbar:           false,
+				HideToolbarSeparator: true,
+			},
+			WebviewPreferences: application.MacWebviewPreferences{
+				FullscreenEnabled:                   u.True,
+				TextInteractionEnabled:              u.True,
+				AllowsBackForwardNavigationGestures: u.False,
+			},
+		},
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: false,
+		},
+	})
+
+	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.mcpConfigWindow = nil
+	})
+
+	s.mcpConfigWindow = win
 }
 
 // OpenModelEditorWindow 打开模型编辑器独立窗口。

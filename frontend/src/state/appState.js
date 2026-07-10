@@ -13,10 +13,13 @@ import {
   openLogsDirectory,
   openModelConfig,
   openModelEditor,
+  openMcpConfig,
   saveUserConfig,
   startProxyService,
   stopProxyService,
   testModelAdapter,
+  testMcpServer,
+  applyCursorMcpHubConfig,
 } from "@/services/clientApi";
 
 const APP_STATE_STORAGE_KEY = "cursor-client:runtime-state:v2";
@@ -269,6 +272,9 @@ export function createEmptyModelAdapter() {
     modelID: "",
     reasoningEffort: "medium",
     openAIEndpoint: OPENAI_ENDPOINT_RESPONSES,
+    openAIFast: false,
+    openAIForceWS: false,
+    openAIWSFallback: "retry_10m",
     openAIExtraParamsEnabled: false,
     openAIExtraParamsJSON: OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
     customHeadersEnabled: false,
@@ -296,6 +302,12 @@ function normalizeOpenAIEndpoint(value) {
 
 function isValidOpenAIEndpoint(value) {
   return normalizeOpenAIEndpoint(value) !== "";
+}
+
+// normalizeOpenAIWSFallback 归一化「WS 失败回退」策略，非法/空值回落到默认（10 分钟）。
+function normalizeOpenAIWSFallback(value) {
+  const text = asString(value).toLowerCase();
+  return ["retry_5m", "retry_10m", "never"].includes(text) ? text : "retry_10m";
 }
 
 function validateJSONObject(value, label) {
@@ -352,6 +364,16 @@ export function normalizeModelAdapter(source) {
   const normalizedOpenAIEndpoint = normalizeOpenAIEndpoint(
     raw.openAIEndpoint ?? raw.openaiEndpoint ?? raw.open_ai_endpoint ?? raw.endpoint,
   );
+  const openAIFast = normalizedType === "openai"
+    ? asBoolean(raw.openAIFast ?? raw.openaiFast ?? raw.open_ai_fast)
+    : false;
+  // Fast 开启时必须走 WS（fast 只能经 WS 兑现）；Fast 关闭时 WS 由用户自选。
+  const openAIForceWS = normalizedType === "openai"
+    ? (openAIFast || asBoolean(raw.openAIForceWS ?? raw.openaiForceWS ?? raw.open_ai_force_ws))
+    : false;
+  const openAIWSFallback = normalizedType === "openai"
+    ? normalizeOpenAIWSFallback(raw.openAIWSFallback ?? raw.openaiWSFallback ?? raw.open_ai_ws_fallback)
+    : "retry_10m";
   const openAIExtraParamsEnabled = normalizedType === "openai"
     ? asBoolean(raw.openAIExtraParamsEnabled ?? raw.openaiExtraParamsEnabled ?? raw.open_ai_extra_params_enabled)
     : false;
@@ -378,6 +400,9 @@ export function normalizeModelAdapter(source) {
       ? normalizedReasoningEffort
       : "medium",
     openAIEndpoint: normalizedType === "openai" ? normalizedOpenAIEndpoint : "",
+    openAIFast,
+    openAIForceWS,
+    openAIWSFallback,
     openAIExtraParamsEnabled,
     openAIExtraParamsJSON,
     customHeadersEnabled,
@@ -406,6 +431,56 @@ export function normalizeModelAdapter(source) {
 
 export function normalizeModelAdapters(source) {
   return asArray(source).map((item) => normalizeModelAdapter(item));
+}
+
+export function createEmptyMcpServer() {
+  return {
+    name: "",
+    url: "",
+    enabled: true,
+  };
+}
+
+export function normalizeMcpServer(source) {
+  const raw = source && typeof source === "object" ? source : {};
+  return {
+    name: asString(raw.name),
+    url: asString(raw.url),
+    enabled: asBoolean(raw.enabled, true),
+  };
+}
+
+export function normalizeMcpServers(source) {
+  return asArray(source).map((item) => normalizeMcpServer(item));
+}
+
+export function validateMcpServers(source) {
+  const servers = normalizeMcpServers(source);
+  const seenNames = new Set();
+  for (const [index, server] of servers.entries()) {
+    const prefix = `MCP 后端 ${index + 1}`;
+    if (!server.name) {
+      return `${prefix} 的名称不能为空`;
+    }
+    if (!server.url) {
+      return `${prefix} 的地址不能为空`;
+    }
+    let parsed;
+    try {
+      parsed = new URL(server.url);
+    } catch (_error) {
+      return `${prefix} 的地址必须是完整的 http/https URL`;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return `${prefix} 的地址必须是 http/https`;
+    }
+    const key = server.name.toLowerCase();
+    if (seenNames.has(key)) {
+      return `MCP 后端名称重复：${server.name}，请使用唯一名称`;
+    }
+    seenNames.add(key);
+  }
+  return "";
 }
 
 export function validateModelAdapters(source) {
@@ -539,6 +614,7 @@ function normalizeConfig(source) {
     backendListenAddr: asString(raw.configBackendListenAddr) || asString(raw.backendListenAddr),
     proxyListenAddr: asString(raw.configProxyListenAddr) || asString(raw.proxyListenAddr),
     modelAdapters: normalizeModelAdapters(raw.modelAdapters),
+    mcpServers: normalizeMcpServers(raw.mcpServers),
     routing: {
       mode: normalizeRouteMode(routing.mode),
     },
@@ -584,19 +660,25 @@ function buildConfigPayload(source = appState) {
     backendListenAddr: normalized.backendListenAddr,
     proxyListenAddr: normalized.proxyListenAddr,
     modelAdapters: normalized.modelAdapters.map(({ id, ...adapter }) => adapter),
+    mcpServers: normalized.mcpServers,
     routing: normalized.routing,
     homeMetrics: normalized.homeMetrics,
     lastAgentModelHash: normalized.lastAgentModelHash,
   };
 }
 
-function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
+function applyConfigToState(config, { modelAdaptersOnly = false, mcpServersOnly = false } = {}) {
   const normalized = normalizeConfig(config);
   if (modelAdaptersOnly) {
     appState.modelAdapters = normalized.modelAdapters;
     return normalized;
   }
+  if (mcpServersOnly) {
+    appState.mcpServers = normalized.mcpServers;
+    return normalized;
+  }
   appState.modelAdapters = normalized.modelAdapters;
+  appState.mcpServers = normalized.mcpServers;
   appState.configBackendListenAddr = normalized.backendListenAddr;
   appState.configProxyListenAddr = normalized.proxyListenAddr;
   appState.routingMode = normalized.routing.mode;
@@ -608,7 +690,7 @@ async function loadPersistedUserConfig() {
   return normalizeConfig(await loadUserConfig());
 }
 
-async function persistConfigPayload(config, { modelAdaptersOnly = false } = {}) {
+async function persistConfigPayload(config, { modelAdaptersOnly = false, mcpServersOnly = false } = {}) {
   const payload = buildConfigPayload(config);
   const configValidationError = validateConfigPayload(payload);
   if (configValidationError) {
@@ -624,12 +706,19 @@ async function persistConfigPayload(config, { modelAdaptersOnly = false } = {}) 
       error: validationError,
     };
   }
+  const mcpValidationError = validateMcpServers(payload.mcpServers);
+  if (mcpValidationError) {
+    return {
+      ok: false,
+      error: mcpValidationError,
+    };
+  }
 
   appState.configSaving = true;
   try {
     await saveUserConfig(payload);
     const persisted = await loadPersistedUserConfig();
-    applyConfigToState(persisted, { modelAdaptersOnly });
+    applyConfigToState(persisted, { modelAdaptersOnly, mcpServersOnly });
     return {
       ok: true,
       error: "",
@@ -827,6 +916,7 @@ const cachedConfig = normalizeConfig(cachedState);
 export const appState = reactive({
   appVersion: "",
   modelAdapters: cachedConfig.modelAdapters,
+  mcpServers: cachedConfig.mcpServers,
   modelAdapterTestResults: {},
   configBackendListenAddr: cachedConfig.backendListenAddr,
   configProxyListenAddr: cachedConfig.proxyListenAddr,
@@ -1330,6 +1420,132 @@ export async function openConfigWindow() {
 
 export async function openModelConfigWindow() {
   await openModelConfig();
+}
+
+export async function openMcpConfigWindow() {
+  await openMcpConfig();
+}
+
+// mcpHubEndpoint 返回 MCP 网关对 Cursor 暴露的端点 URL，供管理界面展示/复制。
+export function mcpHubEndpoint() {
+  const addr =
+    asString(appState.backendListenAddr) ||
+    asString(appState.configBackendListenAddr) ||
+    "127.0.0.1:18090";
+  return `http://${addr}/mcp/hub`;
+}
+
+export async function saveMcpServerAt(index, server) {
+  const currentConfig = await loadPersistedUserConfig();
+  const nextServers = normalizeMcpServers(currentConfig.mcpServers);
+  const nextServer = normalizeMcpServer(server);
+  const targetIndex = index >= 0 && index < nextServers.length ? index : nextServers.length;
+
+  if (index >= 0 && index < nextServers.length) {
+    nextServers.splice(index, 1, nextServer);
+  } else {
+    nextServers.push(nextServer);
+  }
+
+  const result = await persistConfigPayload(
+    { ...currentConfig, mcpServers: nextServers },
+    { mcpServersOnly: true },
+  );
+  if (!result.ok) {
+    return result;
+  }
+  return {
+    ...result,
+    index: targetIndex,
+    server: appState.mcpServers[targetIndex] ?? null,
+  };
+}
+
+export async function deleteMcpServerAt(index) {
+  const currentConfig = await loadPersistedUserConfig();
+  const nextServers = normalizeMcpServers(currentConfig.mcpServers);
+  if (index < 0 || index >= nextServers.length) {
+    return { ok: false, error: "MCP 后端不存在，无法删除" };
+  }
+  nextServers.splice(index, 1);
+  return persistConfigPayload(
+    { ...currentConfig, mcpServers: nextServers },
+    { mcpServersOnly: true },
+  );
+}
+
+// incrementMcpUrlPort 将 URL 的端口 +1（保留协议/主机/路径），无显式端口则原样返回。
+function incrementMcpUrlPort(rawUrl) {
+  const text = asString(rawUrl);
+  const match = text.match(/^(https?:\/\/[^/:]+):(\d+)(\/.*)?$/i);
+  if (!match) {
+    return text;
+  }
+  const host = match[1];
+  const nextPort = Math.min(65535, Number(match[2]) + 1);
+  const path = match[3] || "";
+  return `${host}:${nextPort}${path}`;
+}
+
+// buildNextMcpName 基于源名称生成一个未被占用的唯一名称（末尾数字自增，无数字则追加 -2）。
+function buildNextMcpName(existingServers, sourceName) {
+  const taken = new Set(
+    normalizeMcpServers(existingServers)
+      .map((server) => server.name.toLowerCase())
+      .filter(Boolean),
+  );
+  const text = asString(sourceName) || "mcp";
+  const match = text.match(/^(.*?)([-_ ]?)(\d+)$/);
+  const base = match ? match[1] : text;
+  const sep = match ? match[2] || "-" : "-";
+  let next = match ? Number(match[3]) + 1 : 2;
+  let candidate = `${base}${sep}${next}`;
+  while (taken.has(candidate.toLowerCase())) {
+    next += 1;
+    candidate = `${base}${sep}${next}`;
+  }
+  return candidate;
+}
+
+export async function duplicateMcpServerAt(index) {
+  const currentConfig = await loadPersistedUserConfig();
+  const nextServers = normalizeMcpServers(currentConfig.mcpServers);
+  if (index < 0 || index >= nextServers.length) {
+    return { ok: false, error: "MCP 后端不存在，无法复制" };
+  }
+  const source = normalizeMcpServer(nextServers[index]);
+  const duplicate = {
+    name: buildNextMcpName(nextServers, source.name),
+    url: incrementMcpUrlPort(source.url),
+    enabled: source.enabled,
+  };
+  nextServers.splice(index + 1, 0, duplicate);
+  return persistConfigPayload(
+    { ...currentConfig, mcpServers: nextServers },
+    { mcpServersOnly: true },
+  );
+}
+
+export async function toggleMcpServerAt(index, enabled) {
+  const currentConfig = await loadPersistedUserConfig();
+  const nextServers = normalizeMcpServers(currentConfig.mcpServers);
+  if (index < 0 || index >= nextServers.length) {
+    return { ok: false, error: "MCP 后端不存在" };
+  }
+  nextServers[index] = { ...nextServers[index], enabled: asBoolean(enabled) };
+  return persistConfigPayload(
+    { ...currentConfig, mcpServers: nextServers },
+    { mcpServersOnly: true },
+  );
+}
+
+export async function testMcpServerConnection(url) {
+  return testMcpServer(asString(url));
+}
+
+// applyCursorMcpConfig 一键把 Cursor 的 mcp.json 重写为仅指向本网关端点（后端自动备份原文件）。
+export async function applyCursorMcpConfig() {
+  return applyCursorMcpHubConfig();
 }
 
 export async function openModelEditorWindow(index, adapter) {

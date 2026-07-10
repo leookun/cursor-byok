@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,9 @@ type ModelAdapterConfig struct {
 	ModelID                     string `json:"modelID" yaml:"modelID"`
 	ReasoningEffort             string `json:"reasoningEffort" yaml:"reasoningEffort"`
 	OpenAIEndpoint              string `json:"openAIEndpoint" yaml:"openAIEndpoint"`
+	OpenAIFast                  bool   `json:"openAIFast" yaml:"openAIFast"`
+	OpenAIForceWS               bool   `json:"openAIForceWS" yaml:"openAIForceWS"`
+	OpenAIWSFallback            string `json:"openAIWSFallback" yaml:"openAIWSFallback"`
 	OpenAIExtraParamsEnabled    bool   `json:"openAIExtraParamsEnabled" yaml:"openAIExtraParamsEnabled"`
 	OpenAIExtraParamsJSON       string `json:"openAIExtraParamsJSON" yaml:"openAIExtraParamsJSON"`
 	CustomHeadersEnabled        bool   `json:"customHeadersEnabled" yaml:"customHeadersEnabled"`
@@ -51,12 +55,20 @@ type HomeMetricsConfig struct {
 	IncludeCacheWriteInHitRate bool `json:"includeCacheWriteInHitRate" yaml:"includeCacheWriteInHitRate"`
 }
 
+// MCPServerConfig 描述一个被 MCP 网关聚合的上游后端。
+type MCPServerConfig struct {
+	Name    string `json:"name" yaml:"name"`
+	URL     string `json:"url" yaml:"url"`
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+}
+
 type Config struct {
 	Log                       bool                 `json:"log" yaml:"log"`
 	ProviderStreamIdleTimeout int                  `json:"providerStreamIdleTimeout" yaml:"providerStreamIdleTimeout"`
 	BackendListenAddr         string               `json:"backendListenAddr" yaml:"backendListenAddr"`
 	ProxyListenAddr           string               `json:"proxyListenAddr" yaml:"proxyListenAddr"`
 	ModelAdapters             []ModelAdapterConfig `json:"modelAdapters" yaml:"modelAdapters"`
+	MCPServers                []MCPServerConfig    `json:"mcpServers" yaml:"mcpServers"`
 	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
@@ -69,6 +81,7 @@ func DefaultConfig() Config {
 		BackendListenAddr:         DefaultBackendListenAddr,
 		ProxyListenAddr:           DefaultProxyListenAddr,
 		ModelAdapters:             []ModelAdapterConfig{},
+		MCPServers:                []MCPServerConfig{},
 		Routing: RoutingConfig{
 			Mode: DefaultRoutingMode,
 		},
@@ -100,7 +113,47 @@ func NormalizeConfig(input Config) (Config, error) {
 		return Config{}, err
 	}
 	output.ModelAdapters = adapters
+	mcpServers, err := NormalizeMCPServerConfigs(input.MCPServers)
+	if err != nil {
+		return Config{}, err
+	}
+	output.MCPServers = mcpServers
 	return output, nil
+}
+
+// NormalizeMCPServerConfigs 归一化并校验 MCP 网关的后端列表：
+// 名称与地址去空白、地址须为合法 http/https URL、名称不区分大小写去重。
+func NormalizeMCPServerConfigs(input []MCPServerConfig) ([]MCPServerConfig, error) {
+	if len(input) == 0 {
+		return []MCPServerConfig{}, nil
+	}
+	normalized := make([]MCPServerConfig, 0, len(input))
+	seenNames := make(map[string]struct{}, len(input))
+	for _, item := range input {
+		name := strings.TrimSpace(item.Name)
+		rawURL := strings.TrimSpace(item.URL)
+		if name == "" {
+			return nil, errors.New("MCP 后端 name 不能为空")
+		}
+		if rawURL == "" {
+			return nil, fmt.Errorf("MCP 后端 %q 的 url 不能为空", name)
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return nil, fmt.Errorf("MCP 后端 %q 的 url 必须是 http/https 完整地址", name)
+		}
+		key := strings.ToLower(name)
+		if _, exists := seenNames[key]; exists {
+			return nil, fmt.Errorf("MCP 后端名称重复：%q，请使用唯一的名称", name)
+		}
+		seenNames[key] = struct{}{}
+		normalized = append(normalized, MCPServerConfig{
+			Name:    name,
+			URL:     rawURL,
+			Enabled: item.Enabled,
+		})
+	}
+	return normalized, nil
 }
 
 func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterConfig, error) {
@@ -131,6 +184,10 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 			ThinkingBudgetTokens: normalizeMaxCompletionTokens(item.ThinkingBudgetTokens),
 		}
 		if next.Type == "openai" {
+			next.OpenAIFast = item.OpenAIFast
+			// Fast 开启时必须走 WS（fast 只能经 WS 兑现）；Fast 关闭时 WS 由用户自选。
+			next.OpenAIForceWS = item.OpenAIFast || item.OpenAIForceWS
+			next.OpenAIWSFallback = normalizeOpenAIWSFallback(item.OpenAIWSFallback)
 			next.OpenAIExtraParamsEnabled = item.OpenAIExtraParamsEnabled
 			next.OpenAIExtraParamsJSON = strings.TrimSpace(item.OpenAIExtraParamsJSON)
 		} else if next.Type == "anthropic" {
@@ -220,6 +277,16 @@ func normalizeReasoningEffort(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
+	}
+}
+
+// normalizeOpenAIWSFallback 归一化「WS 失败回退」策略，非法/空值回落到默认（10 分钟）。
+func normalizeOpenAIWSFallback(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "retry_5m", "retry_10m", "never":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "retry_10m"
 	}
 }
 

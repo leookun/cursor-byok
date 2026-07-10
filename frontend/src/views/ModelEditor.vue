@@ -3,6 +3,7 @@ import Button from "@/components/ui/Button.vue";
 import Input from "@/components/ui/Input.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
 import Select from "@/components/ui/Select.vue";
+import Switch from "@/components/ui/Switch.vue";
 import Tooltip from "@/components/ui/Tooltip.vue";
 import { getModelEditorContext } from "@/services/clientApi";
 import {
@@ -53,6 +54,12 @@ const openAIEndpointOptions = [
   { label: "/v1/responses", value: OPENAI_ENDPOINT_RESPONSES, icon: "icon-[mdi--api]" },
   { label: "/v1/chat/completions", value: OPENAI_ENDPOINT_CHAT_COMPLETIONS, icon: "icon-[mdi--message-text-outline]" },
   { label: "自定义路径(请输入完整请求地址)", value: OPENAI_ENDPOINT_CUSTOM, icon: "icon-[mdi--pencil-outline]" },
+];
+
+const openAIWSFallbackOptions = [
+  { label: "失败后 10 分钟重试（默认）", value: "retry_10m", icon: "icon-[mdi--timer-refresh-outline]" },
+  { label: "失败后 5 分钟重试", value: "retry_5m", icon: "icon-[mdi--timer-refresh-outline]" },
+  { label: "失败后永不重试（本次运行）", value: "never", icon: "icon-[mdi--timer-off-outline]" },
 ];
 
 const editorIndex = ref(-1);
@@ -132,7 +139,7 @@ const fieldTips = {
   reasoningEffort: "推理强度仅对部分支持 reasoning_effort 的模型生效，并不是所有模型都支持。越高通常越稳，但也可能更慢。",
   maxCompletionTokens: "单次回复允许生成的最大 Token 数。留空时使用默认值。",
   openAIEndpoint: "选择接口协议端点。选“自定义路径”时，请在接口地址栏填写完整请求地址（含 /chat/completions 或 /responses 路径后缀），系统会根据末段自动判断协议形态。",
-  openAIExtraParams: "开启后会把 JSON 对象覆盖到 OpenAI 请求体。同名字段以这里为准。OpenAI service_tier 支持 auto、default、flex、scale、priority。",
+  openAIExtraParams: "开启后会把 JSON 对象覆盖到 OpenAI 请求体。同名字段以这里为准。注意：service_tier=priority 已由上方「Fast 加速」开关统一接管，这里再填 priority 会被忽略（其它 tier 如 flex 仍生效）。",
   customHeaders: "开启后会把 JSON 对象覆盖到最终请求头。同名请求头以这里为准，值必须是字符串。",
   anthropicExtraParams: "开启后会把 JSON 对象覆盖到 Anthropic 请求体。同名字段以这里为准。",
   anthropicMaxTokens: "Anthropic 模型单次回复允许生成的最大 Token 数。留空时使用默认值。",
@@ -245,6 +252,16 @@ watch(
 watch(currentRequestHash, () => {
   localTestFailure.value = "";
 });
+
+watch(
+  () => draft.openAIFast,
+  (enabled) => {
+    // Fast 开启时必须走 WS：自动打开并锁定 WS 开关；关闭时解锁、保留用户当前选择。
+    if (enabled) {
+      draft.openAIForceWS = true;
+    }
+  },
+);
 
 watch(
   () => draft.openAIExtraParamsEnabled,
@@ -446,6 +463,42 @@ onMounted(async () => {
               :options="openAIEndpointOptions"
             />
           </label>
+        </div>
+
+        <div v-if="draft.type === 'openai'" class="flex flex-col gap-3 rounded-[8px] border border-[#343434] bg-[#252525] p-3">
+          <Switch
+            compact
+            label="Fast 加速（1.5x）"
+            description="开启后对该模型强制使用 Codex fast（约 1.5x 生成速度，更快消耗订阅额度），并自动走 WS 通道。此开关取代「额外参数 JSON」里的 service_tier：开启即用 priority，关闭则忽略任何已配置的 priority。"
+            enabled-text="已开启：使用 fast（service_tier=priority）"
+            disabled-text="已关闭：普通速度"
+            :enabled="draft.openAIFast"
+            @change="draft.openAIFast = $event"
+          />
+          <div class="border-t border-[#343434]"></div>
+          <Switch
+            compact
+            label="走 WebSocket 通道"
+            description="Fast 开启时必须走 WS（此处自动锁定为开）。Fast 关闭时可自选：开 = 纯 WS 1.0x（手感稳但不加速、较省额度），关 = HTTP。"
+            enabled-text="已开启：走 WS"
+            disabled-text="已关闭：走 HTTP"
+            :enabled="draft.openAIForceWS"
+            :disabled="draft.openAIFast"
+            @change="draft.openAIForceWS = $event"
+          />
+          <template v-if="draft.openAIForceWS">
+            <div class="border-t border-[#343434]"></div>
+            <label class="flex flex-col gap-1.5">
+              <span class="center-row justify-start gap-1.5 text-[12px] text-[#d4d4d4]">
+                <Tooltip content="WS 连接失败时先自动回退 HTTP（不影响已透传的正常链路）；此处决定多久重新探测 WS。兼容不支持/不稳定 WS 的第三方中转。选“永不重试”则本次运行内不再尝试该中转的 WS，重启复位。" />
+                <span>WS 失败回退</span>
+              </span>
+              <Select
+                v-model="draft.openAIWSFallback"
+                :options="openAIWSFallbackOptions"
+              />
+            </label>
+          </template>
         </div>
 
         <div v-if="draft.type === 'openai'" class="rounded-[8px] border border-[#343434] bg-[#252525] p-3">

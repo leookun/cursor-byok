@@ -94,6 +94,12 @@ type StreamRequest struct {
 	ReasoningEffort string
 	// OpenAIEndpoint 表示 OpenAI 兼容 provider 使用的 API 端点。
 	OpenAIEndpoint string
+	// OpenAIFast 表示是否对该模型启用 Codex fast（注入 service_tier=priority）。
+	OpenAIFast bool
+	// OpenAIForceWS 表示是否强制所有 OpenAI /responses 请求走 WebSocket 通道（fast 提速）。
+	OpenAIForceWS bool
+	// OpenAIWSFallback 表示 WS 失败回退策略（retry_5m/retry_10m/never）。
+	OpenAIWSFallback string
 	// OpenAIExtraParamsEnabled 表示是否启用 OpenAI 额外请求参数。
 	OpenAIExtraParamsEnabled bool
 	// OpenAIExtraParamsJSON 表示 OpenAI 额外请求参数 JSON 对象。

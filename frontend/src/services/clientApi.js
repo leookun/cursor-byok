@@ -26,6 +26,7 @@ import { Call } from "@wailsio/runtime";
 
 const API_LOG_PREFIX = "[clientApi]";
 const PROXY_SERVICE_NAME = "cursor/internal/bridge.ProxyService";
+const WINDOW_SERVICE_NAME = "cursor/internal/bridge.WindowService";
 
 function logSuccess(name, payload, result) {
   console.log(`${API_LOG_PREFIX} ${name} response`, {
@@ -144,5 +145,23 @@ export function testModelAdapter(adapter) {
 export function getModelAdapterTestResults() {
   return withApiLogging("GetModelAdapterTestResults", undefined, () =>
     Call.ByName(`${PROXY_SERVICE_NAME}.GetModelAdapterTestResults`),
+  );
+}
+
+export function openMcpConfig() {
+  return withApiLogging("OpenMcpConfigWindow", undefined, () =>
+    Call.ByName(`${WINDOW_SERVICE_NAME}.OpenMcpConfigWindow`),
+  );
+}
+
+export function testMcpServer(url) {
+  return withApiLogging("TestMCPServer", { url }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.TestMCPServer`, url),
+  );
+}
+
+export function applyCursorMcpHubConfig() {
+  return withApiLogging("ApplyCursorMcpHubConfig", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ApplyCursorMcpHubConfig`),
   );
 }

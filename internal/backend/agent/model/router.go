@@ -57,6 +57,9 @@ func (router *Router) Stream(ctx context.Context, req StreamRequest, sink func(M
 	resolved.ResolvedContextWindowTokens = channel.ContextWindowTokens
 	resolved.ReasoningEffort = openAIReasoningEffortFromRuntime(channel.ReasoningEffort)
 	resolved.OpenAIEndpoint = strings.TrimSpace(channel.OpenAIEndpoint)
+	resolved.OpenAIFast = channel.OpenAIFast
+	resolved.OpenAIForceWS = channel.OpenAIForceWS
+	resolved.OpenAIWSFallback = strings.TrimSpace(channel.OpenAIWSFallback)
 	resolved.OpenAIExtraParamsEnabled = channel.OpenAIExtraParamsEnabled
 	resolved.OpenAIExtraParamsJSON = strings.TrimSpace(channel.OpenAIExtraParamsJSON)
 	resolved.CustomHeadersEnabled = channel.CustomHeadersEnabled

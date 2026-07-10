@@ -31,7 +31,9 @@ func LoadUsageSummary(path string) (Summary, error) {
 	}
 	var doc usageFileDocument
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return Summary{}, fmt.Errorf("decode usage file: %w", err)
+		// 文件损坏（如崩溃后的全 0/半截内容）视为空：首页显示 0 而非报错，
+		// 后续写入会以有效内容原子覆盖并恢复计数。
+		return Summary{}, nil
 	}
 	totals := Totals{
 		InputTokens:        doc.Totals.InputTokens,
