@@ -200,7 +200,14 @@ func readUsageFileDocument(path string) (usageFileDocument, error) {
 	}
 	var doc usageFileDocument
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return usageFileDocument{}, fmt.Errorf("decode usage file: %w", err)
+		// 文件损坏（如崩溃/断电后残留的全 0 或半截内容）：视为空、从零重建，
+		// 下次写入会以有效内容原子覆盖，实现自愈；不再让用量记录/请求因此中止报错。
+		return usageFileDocument{
+			SchemaVersion: usageFileSchemaVersion,
+			Daily:         make([]usageFileDaily, 0),
+			RecentEvents:  make([]usageFileEvent, 0),
+			EventIndex:    make(map[string]usageFileEvent),
+		}, nil
 	}
 	if doc.SchemaVersion == 0 {
 		doc.SchemaVersion = 1

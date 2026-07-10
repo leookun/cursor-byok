@@ -778,6 +778,13 @@ func writeJSONFileAtomic(path string, payload any) error {
 		file.Close()
 		return fmt.Errorf("write temp file: %w", err)
 	}
+	// 关键：rename 前先 fsync 临时文件数据落盘。否则崩溃/断电后可能出现
+	// “目录项(rename)已持久化、但文件数据块未落盘”，NTFS 对未写入块返回全 0，
+	// 导致目标文件变成 N 字节全 NULL（本次蓝屏即此现象）。
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return fmt.Errorf("sync temp file: %w", err)
+	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}

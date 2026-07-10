@@ -417,6 +417,10 @@ func (s *ProxyServer) newGoproxyHandler() *goproxy.ProxyHttpServer {
 		}
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+		// 本地回环（如 https 形式的本地服务）：始终原样隧道，绝不 MITM。
+		if isLoopbackHost(host) {
+			return goproxy.OkConnect, host
+		}
 		if mitmAction == nil || !isWhitelistedRelayHost(host) {
 			return goproxy.OkConnect, host
 		}
@@ -428,6 +432,15 @@ func (s *ProxyServer) newGoproxyHandler() *goproxy.ProxyHttpServer {
 		req.Header.Del(HeaderServerUpstreamURL)
 
 		host := hostFromHTTPRequest(req)
+		// 本地回环（如 MCP http://127.0.0.1:xxxx）：用专用直连 transport 原样转发，
+		// 绕开会掐断长连接 SSE 的代理超时；绝不经 backend / MITM。
+		if isLoopbackHost(host) {
+			resp, err := forwardLoopbackDirect(req)
+			if err != nil {
+				return req, goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusBadGateway, "loopback bypass failed")
+			}
+			return req, resp
+		}
 		if isWhitelistedRelayHost(host) {
 			if shouldHandleLocalCORSPreflight(req) {
 				return req, buildLocalCORSPreflightResponse(req)
@@ -630,6 +643,64 @@ func hostFromHTTPRequest(req *http.Request) string {
 		return req.URL.Host
 	}
 	return ""
+}
+
+// isLoopbackHost 判断 host（可含端口 / IPv6 方括号）是否指向本机回环。
+// 用于把本地 MCP（如 http://127.0.0.1:xxxx）等回环流量原样放行，绝不 MITM、
+// 不套上游代理、不施加会掐断长连接的超时。
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" {
+		return false
+	}
+	if strings.HasPrefix(host, "[") {
+		host = strings.TrimPrefix(host, "[")
+		host = strings.TrimSuffix(host, "]")
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = strings.ToLower(strings.TrimSpace(h))
+	} else if strings.Count(host, ":") > 1 {
+		host = strings.Trim(host, "[]") // 无端口的 IPv6
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+var (
+	loopbackTransportOnce sync.Once
+	loopbackTransport     *http.Transport
+)
+
+// getLoopbackDirectTransport 返回专用于回环直连的 transport：不套上游代理、
+// 不设 ResponseHeaderTimeout（避免掐断 MCP 等长连接 SSE 流）、走 HTTP/1.1。
+func getLoopbackDirectTransport() *http.Transport {
+	loopbackTransportOnce.Do(func() {
+		loopbackTransport = &http.Transport{
+			Proxy:                 nil,
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:     false,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       0,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+	})
+	return loopbackTransport
+}
+
+// forwardLoopbackDirect 用回环专用 transport 原样转发一个明文 HTTP 请求。
+func forwardLoopbackDirect(req *http.Request) (*http.Response, error) {
+	outReq := req.Clone(req.Context())
+	outReq.RequestURI = ""
+	if outReq.URL != nil && outReq.URL.Scheme == "" {
+		outReq.URL.Scheme = "http"
+	}
+	return getLoopbackDirectTransport().RoundTrip(outReq)
 }
 
 // isWhitelistedRelayHost 用于处理与 isWhitelistedRelayHost 相关的逻辑。
