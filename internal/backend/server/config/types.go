@@ -168,7 +168,7 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 				return nil, err
 			}
 		case next.Type == "anthropic" && next.AnthropicThinkingEffort == "":
-			return nil, errors.New("模型适配器 anthropicThinkingEffort 仅支持 low、medium、high、xhigh、max")
+			return nil, errors.New("模型适配器 anthropicThinkingEffort 仅支持 disabled、low、medium、high、xhigh、max")
 		}
 		next.ID = modelchannel.BuildChannelID(next.BaseURL, next.ModelID, next.APIKey, next.DisplayName, next.OpenAIEndpoint)
 		if _, exists := seenChannelIDs[next.ID]; exists {
@@ -225,9 +225,11 @@ func normalizeReasoningEffort(value string) string {
 
 func normalizeAnthropicThinkingEffort(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "xhigh":
-		return "xhigh"
-	case "low", "medium", "high", "max":
+	case "disabled", "off", "none", "false", "no":
+		return "disabled"
+	case "":
+		return "medium"
+	case "low", "medium", "high", "xhigh", "max":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""

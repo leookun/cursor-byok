@@ -263,7 +263,7 @@ func (adapter *AnthropicAdapter) Stream(ctx context.Context, req StreamRequest, 
 		body["system"] = anthropicProviderSystemBlocks(systemParts)
 		if thinkingConfig != nil {
 			body["thinking"] = thinkingConfig
-			if normalizeRuntimeThinkingEffort(req.ThinkingEffort) != "disabled" {
+			if !isAnthropicThinkingDisabled(req) {
 				body["output_config"] = buildAnthropicOutputConfig(req)
 			}
 		}
@@ -1353,7 +1353,7 @@ func completedAnthropicToolArgsJSON(accumulator *anthropicToolAccumulator) ([]by
 }
 
 func buildAnthropicThinkingConfig(req StreamRequest) map[string]any {
-	if normalizeRuntimeThinkingEffort(req.ThinkingEffort) == "disabled" {
+	if isAnthropicThinkingDisabled(req) {
 		return map[string]any{
 			"type": "disabled",
 		}
@@ -1367,6 +1367,18 @@ func buildAnthropicThinkingConfig(req StreamRequest) map[string]any {
 	}
 }
 
+func isAnthropicThinkingDisabled(req StreamRequest) bool {
+	if normalizeRuntimeThinkingEffort(req.ThinkingEffort) == "disabled" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(req.AnthropicThinkingEffort)) {
+	case "disabled", "off", "none", "false", "no":
+		return true
+	default:
+		return false
+	}
+}
+
 func buildAnthropicOutputConfig(req StreamRequest) map[string]any {
 	return map[string]any{
 		"effort": anthropicThinkingEffort(req),
@@ -1375,10 +1387,12 @@ func buildAnthropicOutputConfig(req StreamRequest) map[string]any {
 
 func anthropicThinkingEffort(req StreamRequest) string {
 	switch strings.ToLower(strings.TrimSpace(req.AnthropicThinkingEffort)) {
+	case "disabled", "off", "none", "false", "no":
+		return ""
 	case "low", "medium", "high", "xhigh", "max":
 		return strings.ToLower(strings.TrimSpace(req.AnthropicThinkingEffort))
 	default:
-		return "xhigh"
+		return "medium"
 	}
 }
 

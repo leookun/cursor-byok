@@ -28,7 +28,7 @@ const (
 	modelAdapterTestUpdatedEvent      = "model-adapter-test:updated"
 	modelAdapterTestPrompt            = "Output the numbers 1 through 120 separated by a single space. No commas, no newlines, no explanation."
 	modelAdapterTestTimeout           = 45 * time.Second
-	modelAdapterTestDefaultMaxTokens  = 65_536
+	modelAdapterTestDefaultMaxTokens  = 4_096
 	modelAdapterTestEmptyTextError    = "未收到文本输出，无法计算测速结果"
 	modelAdapterTestMaxErrorBodyBytes = 8192
 )
@@ -684,10 +684,12 @@ func normalizeModelAdapterTestProviderReasoning(adapter serverconfig.ModelAdapte
 
 func normalizeModelAdapterTestAnthropicThinkingEffort(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "disabled", "off", "none", "false", "no":
+		return "disabled"
 	case "low", "medium", "high", "xhigh", "max":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return "xhigh"
+		return "disabled"
 	}
 }
 

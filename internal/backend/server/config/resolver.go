@@ -11,9 +11,9 @@ import (
 const (
 	defaultChannelTimeoutMS           = int((2 * 60 * 60) * 1000)
 	defaultChannelContextWindowTokens = 200_000
-	defaultChannelMaxTokens           = 65_536
-	defaultChannelThinkingBudget      = 4_096
-	defaultChannelAnthropicEffort     = "xhigh"
+	defaultChannelMaxTokens           = 8_192
+	defaultChannelThinkingBudget      = 1_024
+	defaultChannelAnthropicEffort     = "medium"
 )
 
 func (manager *Manager) SelectChannelForModel(_ context.Context, modelID string) (*legacyruntime.ResolvedChannel, error) {
