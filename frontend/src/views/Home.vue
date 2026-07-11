@@ -2,6 +2,7 @@
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Switch from "@/components/ui/Switch.vue";
+import Select from "@/components/ui/Select.vue";
 import HomeMetricsCard from "@/components/HomeMetricsCard.vue";
 import { useMessage } from "@/composables/useMessage";
 import { showModal } from "@/composables/useModal";
@@ -11,6 +12,7 @@ import {
   appViewState,
   openConfigWindow,
   openModelConfigWindow,
+  saveCmdKModelHash,
   saveRoutingMode,
   syncHomeMetrics,
   syncServiceState,
@@ -27,6 +29,20 @@ const OPEN_AD_EVENT = "cursor:open-ad";
 
 const adRuntime = ref(null);
 let unsubscribeAdUpdated = null;
+
+// Empty = auto (last agent model → first adapter).
+const cmdKModelOptions = computed(() => {
+  const options = [{ label: "自动（最近 Agent 模型）", value: "" }];
+  for (const adapter of appState.modelAdapters || []) {
+    const value = String(adapter?.id || "").trim();
+    if (!value) {
+      continue;
+    }
+    const label = String(adapter?.displayName || adapter?.modelID || value).trim() || value;
+    options.push({ label, value });
+  }
+  return options;
+});
 
 function asString(value) {
   if (typeof value === "string") {
@@ -136,6 +152,15 @@ async function handleDirectModeChange(enabled) {
   message.success(enabled ? "已切换到直连 Cursor 模式" : "已切换到本地服务模式");
 }
 
+async function handleCmdKModelChange(value) {
+  const result = await saveCmdKModelHash(value);
+  if (!result.ok) {
+    await showActionError("保存失败", result.error);
+    return;
+  }
+  message.success(value ? "快速编辑模型已更新" : "快速编辑已切回自动模型");
+}
+
 onMounted(() => {
   unsubscribeAdUpdated = Events.On(AD_UPDATED_EVENT, handleAdUpdated);
   void syncAdRuntimeQuietly();
@@ -203,6 +228,26 @@ onBeforeUnmount(() => {
         <div class="center-row gap-2">
           <Button variant="default" @click="handleOpenConfig">设置文件夹</Button>
           <Button variant="primary" @click="handleOpenModelConfig">模型配置</Button>
+        </div>
+      </div>
+    </Card>
+
+    <Card>
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <h2 class="text-base font-medium text-white">快速编辑模型</h2>
+          <div class="text-sm text-[#a3a3a3]">
+            指定行内快速编辑使用的渠道（Windows/Linux: Ctrl+K，macOS: ⌘+K）；留空则跟最近 Agent 模型
+          </div>
+        </div>
+        <div class="w-[260px] max-w-full shrink-0">
+          <Select
+            :model-value="appState.cmdKModelHash"
+            :options="cmdKModelOptions"
+            :disabled="appState.configSaving"
+            placeholder="自动"
+            @change="handleCmdKModelChange"
+          />
         </div>
       </div>
     </Card>

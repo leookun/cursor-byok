@@ -92,6 +92,13 @@ func (manager *Manager) LastAgentModelHash() string {
 	return strings.TrimSpace(manager.Current().LastAgentModelHash)
 }
 
+func (manager *Manager) CmdKModelHash() string {
+	if manager == nil {
+		return ""
+	}
+	return strings.TrimSpace(manager.Current().CmdKModelHash)
+}
+
 func (manager *Manager) SaveLastAgentModelHash(ctx context.Context, value string) error {
 	if manager == nil {
 		return fmt.Errorf("config manager is not initialized")

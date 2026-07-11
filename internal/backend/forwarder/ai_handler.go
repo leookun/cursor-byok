@@ -47,6 +47,14 @@ func newAIHandler(service *Service) http.Handler {
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceWriteGitCommitMessageProcedure, service.WriteGitCommitMessage),
 	)
 	mux.Handle(
+		aiserverv1connect.AiServiceStreamEditProcedure,
+		connect.NewServerStreamHandler(aiserverv1connect.AiServiceStreamEditProcedure, service.StreamEdit),
+	)
+	mux.Handle(
+		aiserverv1connect.AiServicePreloadEditProcedure,
+		connect.NewUnaryHandler(aiserverv1connect.AiServicePreloadEditProcedure, service.PreloadEdit),
+	)
+	mux.Handle(
 		aiserverv1connect.AiServiceCreateExperimentalIndexProcedure,
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceCreateExperimentalIndexProcedure, service.CreateExperimentalIndex),
 	)
@@ -97,6 +105,20 @@ func newAIHandler(service *Service) http.Handler {
 	mux.Handle(
 		aiserverv1connect.AiServiceFetchRelevantKnowledgeForConversationProcedure,
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceFetchRelevantKnowledgeForConversationProcedure, service.FetchRelevantKnowledgeForConversation),
+	)
+	mux.Handle("/", http.NotFoundHandler())
+	return mux
+}
+
+func newCmdKHandler(service *Service) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(
+		cmdKServiceStreamCmdKProcedure,
+		connect.NewServerStreamHandler(cmdKServiceStreamCmdKProcedure, service.StreamCmdK),
+	)
+	mux.Handle(
+		cmdKServiceRerankCmdKContextProcedure,
+		connect.NewUnaryHandler(cmdKServiceRerankCmdKContextProcedure, service.RerankCmdKContext),
 	)
 	mux.Handle("/", http.NotFoundHandler())
 	return mux

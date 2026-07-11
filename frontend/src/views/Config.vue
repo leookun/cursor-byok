@@ -12,9 +12,23 @@ import {
   ROUTE_MODE_OPTIONS,
   toUserError,
 } from "@/state/appState";
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 
 const routeModeOptions = ROUTE_MODE_OPTIONS;
+
+// Empty value = auto (last agent model → first adapter).
+const cmdKModelOptions = computed(() => {
+  const options = [{ label: "自动（最近 Agent 模型）", value: "" }];
+  for (const adapter of appState.modelAdapters || []) {
+    const value = String(adapter?.id || "").trim();
+    if (!value) {
+      continue;
+    }
+    const label = String(adapter?.displayName || adapter?.modelID || value).trim() || value;
+    options.push({ label, value });
+  }
+  return options;
+});
 
 async function showActionError(title, error) {
   await showModal({
@@ -77,6 +91,24 @@ onMounted(async () => {
             v-model="appState.routingMode"
             :options="routeModeOptions"
             placeholder="选择模式"
+          />
+        </div>
+      </div>
+    </Card>
+
+    <Card>
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-medium text-white">快速编辑模型</h2>
+          <div class="text-sm text-[#a3a3a3]">
+            指定行内快速编辑使用的渠道（Windows/Linux: Ctrl+K，macOS: ⌘+K）。留空则跟最近 Agent 模型。
+          </div>
+        </div>
+        <div class="w-[260px] max-w-full">
+          <Select
+            v-model="appState.cmdKModelHash"
+            :options="cmdKModelOptions"
+            placeholder="自动"
           />
         </div>
       </div>

@@ -265,6 +265,7 @@ type Service struct {
 type agentModelMemory interface {
 	LastAgentModelHash() string
 	SaveLastAgentModelHash(context.Context, string) error
+	CmdKModelHash() string
 }
 
 // NewService 使用默认依赖创建 forwarder 服务。

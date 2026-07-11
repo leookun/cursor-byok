@@ -60,6 +60,9 @@ type Config struct {
 	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
+	// CmdKModelHash forces Ctrl+K / StreamEdit to a local adapter channel ID.
+	// Empty means auto: last agent model, then first adapter.
+	CmdKModelHash string `json:"cmdKModelHash" yaml:"cmdKModelHash"`
 }
 
 func DefaultConfig() Config {
@@ -91,6 +94,7 @@ func NormalizeConfig(input Config) (Config, error) {
 	output.ProxyListenAddr = proxyListenAddr
 	output.HomeMetrics.IncludeCacheWriteInHitRate = input.HomeMetrics.IncludeCacheWriteInHitRate
 	output.LastAgentModelHash = strings.TrimSpace(input.LastAgentModelHash)
+	output.CmdKModelHash = strings.TrimSpace(input.CmdKModelHash)
 	output.Routing.Mode = normalizeRoutingMode(input.Routing.Mode)
 	if output.Routing.Mode == "" {
 		output.Routing.Mode = DefaultRoutingMode

@@ -186,7 +186,7 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <main class="flex-1 min-h-0 overflow-hidden flex flex-col w-full">
+    <main class="flex-1 min-h-0 overflow-y-auto flex flex-col w-full">
       <router-view />
     </main>
 
