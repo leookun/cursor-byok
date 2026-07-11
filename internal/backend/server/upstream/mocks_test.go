@@ -28,7 +28,7 @@ func TestBuildBootstrapStatsigConfigJSONDisablesAlwaysLocalDecompositionGate(t *
 	}
 }
 
-func TestBuildBootstrapStatsigConfigJSONDisablesGlassGates(t *testing.T) {
+func TestBuildBootstrapStatsigConfigJSONKeepsAgentsWindowUIGatesEnabled(t *testing.T) {
 	payload, err := buildBootstrapStatsigConfigJSON(12345, "test-auth-id")
 	if err != nil {
 		t.Fatalf("build bootstrap statsig config: %v", err)
@@ -39,6 +39,8 @@ func TestBuildBootstrapStatsigConfigJSONDisablesGlassGates(t *testing.T) {
 		t.Fatalf("decode bootstrap statsig config: %v", err)
 	}
 
+	// Agents Window titlebar/open-window UI should stay available.
+	// Classic terminal CmdK relies on GetGlassEarlyPreviewEnrollment staying denied.
 	for _, name := range []string{
 		bootstrapStatsigGlassModeAvailableGate,
 		bootstrapStatsigGlassOpenAgentInWindowGate,
@@ -52,8 +54,8 @@ func TestBuildBootstrapStatsigConfigJSONDisablesGlassGates(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing feature gate %q", name)
 		}
-		if value, _ := gate["value"].(bool); value {
-			t.Fatalf("expected %q to be disabled", name)
+		if value, _ := gate["value"].(bool); !value {
+			t.Fatalf("expected %q to be enabled", name)
 		}
 	}
 }

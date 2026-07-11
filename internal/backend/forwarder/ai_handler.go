@@ -164,8 +164,9 @@ func (service *Service) GetTokenUsage(_ context.Context, req *connect.Request[ai
 }
 
 func (service *Service) GetGlassEarlyPreviewEnrollment(context.Context, *connect.Request[aiserverv1.GetGlassEarlyPreviewEnrollmentRequest]) (*connect.Response[aiserverv1.GetGlassEarlyPreviewEnrollmentResponse], error) {
-	// Classic IDE terminal Generate-in-Terminal is gated on !isGlass.
-	// Keep Glass enrollment off in local mode so Ctrl/Cmd+K can open the prompt bar.
+	// Keep Glass enrollment off so classic IDE stays on !isGlass.
+	// Terminal Generate-in-Terminal is gated on !isGlass; Agents Window UI is controlled
+	// separately via Statsig titlebar/open-window gates.
 	denied := false
 	return connect.NewResponse(&aiserverv1.GetGlassEarlyPreviewEnrollmentResponse{
 		Enabled:                           false,
