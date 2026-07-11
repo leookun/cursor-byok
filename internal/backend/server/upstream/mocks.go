@@ -119,11 +119,13 @@ type statsigBootstrapTemplate struct {
 
 var bootstrapStatsigTemplate = statsigBootstrapTemplate{
 	FeatureGates: map[string]map[string]any{
-		bootstrapStatsigGlassModeAvailableGate:           buildEnabledStatsigGate(bootstrapStatsigGlassModeAvailableGate),
-		bootstrapStatsigGlassOpenAgentInWindowGate:       buildEnabledStatsigGate(bootstrapStatsigGlassOpenAgentInWindowGate),
-		bootstrapStatsigOpenAgentsTitlebarGate:           buildEnabledStatsigGate(bootstrapStatsigOpenAgentsTitlebarGate),
-		bootstrapStatsigOpenAgentWindowTopGate:           buildEnabledStatsigGate(bootstrapStatsigOpenAgentWindowTopGate),
-		bootstrapStatsigOpenAgentWindowBottomGate:        buildEnabledStatsigGate(bootstrapStatsigOpenAgentWindowBottomGate),
+		// Glass / Agents Window disables classic terminal Generate-in-Terminal
+		// (client precondition: !isGlass). Keep these off for local mode.
+		bootstrapStatsigGlassModeAvailableGate:           buildDisabledStatsigGate(bootstrapStatsigGlassModeAvailableGate),
+		bootstrapStatsigGlassOpenAgentInWindowGate:       buildDisabledStatsigGate(bootstrapStatsigGlassOpenAgentInWindowGate),
+		bootstrapStatsigOpenAgentsTitlebarGate:           buildDisabledStatsigGate(bootstrapStatsigOpenAgentsTitlebarGate),
+		bootstrapStatsigOpenAgentWindowTopGate:           buildDisabledStatsigGate(bootstrapStatsigOpenAgentWindowTopGate),
+		bootstrapStatsigOpenAgentWindowBottomGate:        buildDisabledStatsigGate(bootstrapStatsigOpenAgentWindowBottomGate),
 		bootstrapStatsigNALAgentRetriesGate:              buildEnabledStatsigGate(bootstrapStatsigNALAgentRetriesGate),
 		bootstrapStatsigNALFreshRetryIDsGate:             buildEnabledStatsigGate(bootstrapStatsigNALFreshRetryIDsGate),
 		bootstrapStatsigUseModelParametersGate:           buildEnabledStatsigGate(bootstrapStatsigUseModelParametersGate),
@@ -135,8 +137,8 @@ var bootstrapStatsigTemplate = statsigBootstrapTemplate{
 		bootstrapStatsigSubagentSupportInterrupt:         buildEnabledStatsigGate(bootstrapStatsigSubagentSupportInterrupt),
 		bootstrapStatsigExplicitSubagentModels:           buildEnabledStatsigGate(bootstrapStatsigExplicitSubagentModels),
 		bootstrapStatsigMcpDirectClientToolFetch:         buildEnabledStatsigGate(bootstrapStatsigMcpDirectClientToolFetch),
-		bootstrapStatsigGlassCustomThemeSupport:          buildEnabledStatsigGate(bootstrapStatsigGlassCustomThemeSupport),
-		bootstrapStatsigGlassAutomationsUI:               buildEnabledStatsigGate(bootstrapStatsigGlassAutomationsUI),
+		bootstrapStatsigGlassCustomThemeSupport:          buildDisabledStatsigGate(bootstrapStatsigGlassCustomThemeSupport),
+		bootstrapStatsigGlassAutomationsUI:               buildDisabledStatsigGate(bootstrapStatsigGlassAutomationsUI),
 		bootstrapStatsigTerminalUI2:                      buildEnabledStatsigGate(bootstrapStatsigTerminalUI2),
 		bootstrapStatsigDisableTerminalOutputUIStreaming: buildEnabledStatsigGate(bootstrapStatsigDisableTerminalOutputUIStreaming),
 		bootstrapStatsigBrowserCanvas:                    buildEnabledStatsigGate(bootstrapStatsigBrowserCanvas),

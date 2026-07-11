@@ -120,6 +120,14 @@ func newCmdKHandler(service *Service) http.Handler {
 		cmdKServiceRerankCmdKContextProcedure,
 		connect.NewUnaryHandler(cmdKServiceRerankCmdKContextProcedure, service.RerankCmdKContext),
 	)
+	mux.Handle(
+		cmdKServiceStreamTerminalCmdKProcedure,
+		connect.NewServerStreamHandler(cmdKServiceStreamTerminalCmdKProcedure, service.StreamTerminalCmdK),
+	)
+	mux.Handle(
+		cmdKServiceRerankTerminalCmdKContextProcedure,
+		connect.NewUnaryHandler(cmdKServiceRerankTerminalCmdKContextProcedure, service.RerankTerminalCmdKContext),
+	)
 	mux.Handle("/", http.NotFoundHandler())
 	return mux
 }
@@ -156,11 +164,13 @@ func (service *Service) GetTokenUsage(_ context.Context, req *connect.Request[ai
 }
 
 func (service *Service) GetGlassEarlyPreviewEnrollment(context.Context, *connect.Request[aiserverv1.GetGlassEarlyPreviewEnrollmentRequest]) (*connect.Response[aiserverv1.GetGlassEarlyPreviewEnrollmentResponse], error) {
-	granted := true
+	// Classic IDE terminal Generate-in-Terminal is gated on !isGlass.
+	// Keep Glass enrollment off in local mode so Ctrl/Cmd+K can open the prompt bar.
+	denied := false
 	return connect.NewResponse(&aiserverv1.GetGlassEarlyPreviewEnrollmentResponse{
-		Enabled:                           true,
-		EnterpriseGlassSelfEnrollEligible: &granted,
-		GlassAccessGranted:                &granted,
+		Enabled:                           false,
+		EnterpriseGlassSelfEnrollEligible: &denied,
+		GlassAccessGranted:                &denied,
 	}), nil
 }
 

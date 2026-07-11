@@ -26,7 +26,7 @@ const (
 
 // assetFS 保存按模式组织的静态 prompt 与 tools 资产。
 //
-//go:embed common_prefix.md ask/prompt.md ask/tools.json plan/prompt.md plan/system_reminder.txt plan/tools.json agent/prompt.md agent/tools.json debug/prompt.md debug/tools.json debug/system_reminder_initial.txt debug/system_reminder_continuing.txt multitask/prompt.md multitask/tools.json subagent/prompt.md subagent/tools.json compaction/prompt.md commit/prompt.md cmdk/prompt.md
+//go:embed common_prefix.md ask/prompt.md ask/tools.json plan/prompt.md plan/system_reminder.txt plan/tools.json agent/prompt.md agent/tools.json debug/prompt.md debug/tools.json debug/system_reminder_initial.txt debug/system_reminder_continuing.txt multitask/prompt.md multitask/tools.json subagent/prompt.md subagent/tools.json compaction/prompt.md commit/prompt.md cmdk/prompt.md cmdk/terminal_prompt.md
 var assetFS embed.FS
 
 // normalizeMode 校验并归一化传入的模式值。
@@ -205,6 +205,25 @@ func ReadCmdKPrompt() (string, error) {
 // MustReadCmdKPrompt 读取 Ctrl+K 行内编辑专用提示词资产，失败时直接 panic。
 func MustReadCmdKPrompt() string {
 	text, err := ReadCmdKPrompt()
+	if err != nil {
+		panic(err)
+	}
+	return text
+}
+
+// ReadTerminalCmdKPrompt 读取终端 Generate-in-Terminal 专用提示词资产。
+func ReadTerminalCmdKPrompt() (string, error) {
+	const path = "cmdk/terminal_prompt.md"
+	data, err := assetFS.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read terminal cmdk prompt asset %q: %w", path, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// MustReadTerminalCmdKPrompt 读取终端 Generate-in-Terminal 专用提示词资产，失败时直接 panic。
+func MustReadTerminalCmdKPrompt() string {
+	text, err := ReadTerminalCmdKPrompt()
 	if err != nil {
 		panic(err)
 	}
