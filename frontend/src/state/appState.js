@@ -1237,6 +1237,61 @@ export async function updateModelGroup(groupID, group) {
   );
 }
 
+export async function reorderModelGroups(groupIDs, type = "") {
+  const orderedIDs = asArray(groupIDs).map((item) => asString(item)).filter(Boolean);
+  const targetType = asString(type).toLowerCase();
+  if (orderedIDs.length === 0) {
+    return { ok: false, error: "模型分组排序不能为空" };
+  }
+  if (targetType && !SUPPORTED_MODEL_ADAPTER_TYPES.has(targetType)) {
+    return { ok: false, error: "模型分组类型不合法" };
+  }
+
+  const currentConfig = await loadPersistedUserConfig();
+  const currentGroups = normalizeModelGroups(currentConfig.modelGroups);
+  const targetGroups = targetType
+    ? currentGroups.filter((group) => group.type === targetType)
+    : currentGroups;
+  const groupsByID = new Map(targetGroups.map((group) => [group.id, group]));
+  const seen = new Set();
+  const orderedGroups = [];
+
+  for (const groupID of orderedIDs) {
+    const group = groupsByID.get(groupID);
+    if (!group || seen.has(groupID)) {
+      continue;
+    }
+    orderedGroups.push(group);
+    seen.add(groupID);
+  }
+  for (const group of targetGroups) {
+    if (!seen.has(group.id)) {
+      orderedGroups.push(group);
+    }
+  }
+  if (orderedGroups.length !== targetGroups.length) {
+    return { ok: false, error: "模型分组排序数据不完整" };
+  }
+
+  let nextTargetIndex = 0;
+  const nextGroups = currentGroups.map((group) => {
+    if (targetType && group.type !== targetType) {
+      return group;
+    }
+    const nextGroup = orderedGroups[nextTargetIndex];
+    nextTargetIndex += 1;
+    return nextGroup;
+  });
+
+  return persistConfigPayload(
+    {
+      ...currentConfig,
+      modelGroups: nextGroups,
+    },
+    { modelAdaptersOnly: true },
+  );
+}
+
 export function createEmptyModelGroup(type = "openai") {
   const normalizedType = asString(type).toLowerCase();
   return {

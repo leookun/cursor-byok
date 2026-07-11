@@ -16,6 +16,7 @@ import {
   getModelAdapterTestResultByID,
   openModelEditorWindow,
   reloadUserConfig,
+  reorderModelGroups,
   runModelAdapterTest,
   saveModelGroup,
   startModelAdapterTest,
@@ -37,6 +38,9 @@ const editingGroup = ref(null);
 const expandedGroupKeys = ref(new Set());
 const discoveringGroupKey = ref("");
 const activatingGroupID = ref("");
+const draggingGroupKey = ref("");
+const dragOverGroupKey = ref("");
+const dragOverGroupPosition = ref("");
 const batchTesting = ref(false);
 const batchStopping = ref(false);
 const batchTotal = ref(0);
@@ -222,6 +226,73 @@ async function openGroupModelEditor(group) {
 
 function isActiveGroup(group) {
   return Boolean(group.groupID) && appState.activeModelGroupID === group.groupID;
+}
+
+function canDragGroup(group) {
+  return Boolean(group?.groupID) && !appState.configSaving && !batchTesting.value && !discoveringGroupKey.value;
+}
+
+function resetGroupDragState() {
+  draggingGroupKey.value = "";
+  dragOverGroupKey.value = "";
+  dragOverGroupPosition.value = "";
+}
+
+function handleGroupDragStart(event, group) {
+  if (!canDragGroup(group)) {
+    event.preventDefault();
+    return;
+  }
+  draggingGroupKey.value = group.key;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", group.groupID);
+}
+
+function handleGroupDragOver(event, group) {
+  if (!canDragGroup(group) || !draggingGroupKey.value || draggingGroupKey.value === group.key) {
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  dragOverGroupKey.value = group.key;
+  const rect = event.currentTarget.getBoundingClientRect();
+  dragOverGroupPosition.value = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+}
+
+function handleGroupDragLeave(event, group) {
+  if (event.currentTarget?.contains?.(event.relatedTarget)) {
+    return;
+  }
+  if (dragOverGroupKey.value === group.key) {
+    dragOverGroupKey.value = "";
+    dragOverGroupPosition.value = "";
+  }
+}
+
+async function handleGroupDrop(event, targetGroup) {
+  event.preventDefault();
+  const sourceGroupID = event.dataTransfer.getData("text/plain");
+  const insertAfterTarget = dragOverGroupPosition.value === "after";
+  const sourceIndex = filteredGroups.value.findIndex((group) => group.groupID === sourceGroupID);
+  const targetIndex = filteredGroups.value.findIndex((group) => group.groupID === targetGroup.groupID);
+  resetGroupDragState();
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return;
+  }
+
+  const orderedGroupIDs = filteredGroups.value.map((group) => group.groupID).filter(Boolean);
+  const [sourceID] = orderedGroupIDs.splice(sourceIndex, 1);
+  const nextTargetIndex = orderedGroupIDs.indexOf(targetGroup.groupID);
+  if (nextTargetIndex < 0) {
+    return;
+  }
+  orderedGroupIDs.splice(nextTargetIndex + (insertAfterTarget ? 1 : 0), 0, sourceID);
+
+  const result = await reorderModelGroups(orderedGroupIDs, activeType.value);
+  if (!result.ok) {
+    await reloadUserConfig({ modelAdaptersOnly: true }).catch(() => { });
+    await showActionError("分组排序失败", result.error);
+  }
 }
 
 async function handleActivateGroup(group) {
@@ -453,10 +524,30 @@ onBeforeUnmount(() => {
           <Card
             v-for="group in filteredGroups"
             :key="group.key"
+            :class="[
+              draggingGroupKey === group.key ? 'opacity-60' : '',
+              dragOverGroupKey === group.key ? 'ring-2 ring-[#10AD5D]/70' : '',
+              dragOverGroupKey === group.key && dragOverGroupPosition === 'before' ? 'ring-offset-2 ring-offset-[#10AD5D]/30' : '',
+              dragOverGroupKey === group.key && dragOverGroupPosition === 'after' ? 'shadow-[0_8px_0_0_rgba(16,173,93,0.35)]' : '',
+            ]"
+            @dragover="handleGroupDragOver($event, group)"
+            @dragleave="handleGroupDragLeave($event, group)"
+            @drop="handleGroupDrop($event, group)"
           >
             <div class="flex flex-col gap-3">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
+                  <button
+                    type="button"
+                    class="center-row h-9 w-9 shrink-0 cursor-grab rounded-[8px] border border-[#3f3f3f] bg-[#232323] text-[#8f8f8f] transition-colors duration-150 hover:border-[#4a4a4a] hover:text-white active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+                    :disabled="!canDragGroup(group)"
+                    :draggable="canDragGroup(group)"
+                    title="拖拽排序"
+                    @dragstart.stop="handleGroupDragStart($event, group)"
+                    @dragend="resetGroupDragState"
+                  >
+                    <span class="icon-[mdi--drag-vertical] text-[18px]"></span>
+                  </button>
                   <div class="center-row h-9 w-9 shrink-0 rounded-[8px] border border-[#3f3f3f] bg-[#232323]">
                     <span class="icon-[bxl--openai] text-[18px] !text-white" v-if="group.type === 'openai'"></span>
                     <span class="icon-[logos--claude-icon] text-[18px]" v-else></span>
