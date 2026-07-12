@@ -20,13 +20,16 @@ import {
   OPENAI_ENDPOINT_CUSTOM,
   OPENAI_ENDPOINT_RESPONSES,
   OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
-  runModelAdapterTest,
+  startModelAdapterTest as runModelAdapterTest,
   saveModelAdapterAt,
   toUserError,
   validateModelAdapters,
 } from "@/state/appState";
-import { Window } from "@wailsio/runtime";
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
+
+const router = useRouter();
+const route = useRoute();
 
 const modelTypeTabs = [
   { label: "OpenAI", value: "openai", icon: "icon-[bxl--openai]" },
@@ -38,7 +41,6 @@ const reasoningEffortOptions = [
   { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
   { label: "高", value: "high", icon: "icon-[mdi--brain]" },
   { label: "极高", value: "xhigh", icon: "icon-[mdi--head-cog-outline]" },
-  { label: "最高", value: "max", icon: "icon-[mdi--brain]" },
 ];
 
 const anthropicThinkingEffortOptions = [
@@ -141,6 +143,25 @@ const fieldTips = {
 };
 
 async function loadContext() {
+  // 优先从 router state 读取（新方案：router.push({ state: { adapterJSON } })）
+  const routeState = history.state || {};
+  const routerStateAdapter = routeState.adapterJSON;
+  const queryIndex = Number(route.query?.index ?? -1);
+
+  if (routerStateAdapter) {
+    editorIndex.value = queryIndex;
+    try {
+      const parsed = JSON.parse(routerStateAdapter);
+      Object.assign(draft, normalizeModelAdapter(parsed));
+    } catch (_) {
+      Object.assign(draft, createEmptyModelAdapter());
+    }
+    if (!draft.type) draft.type = "openai";
+    loading.value = false;
+    return;
+  }
+
+  // fallback：调 Go 后端 GetModelEditorContext
   try {
     const ctx = await getModelEditorContext();
     editorIndex.value = typeof ctx.index === "number" ? ctx.index : -1;
@@ -191,11 +212,11 @@ async function handleSave() {
   if (!result.ok) {
     return;
   }
-  await Window.Close();
+  router.push("/model-config");
 }
 
 async function handleCancel() {
-  await Window.Close();
+  router.push("/model-config");
 }
 
 function handleModelTypeChange(type) {

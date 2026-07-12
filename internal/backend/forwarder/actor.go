@@ -1,10 +1,11 @@
 package forwarder
 
 import (
+	"context"
+	"cursor/internal/logger"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -275,6 +276,26 @@ func (service *Service) postStreamCommandAsync(stream *ActiveStream, command str
 	}
 }
 
+// postStreamCommandAsyncCtx 带 context 超时保护的消息投递，防止 goroutine 泄漏。
+func (service *Service) postStreamCommandAsyncCtx(ctx context.Context, stream *ActiveStream, command streamCommand) error {
+	if stream == nil {
+		return nil
+	}
+	mailbox, done, err := service.ensureStreamActor(stream)
+	if err != nil {
+		return err
+	}
+	envelope := streamCommandEnvelope{command: command}
+	select {
+	case <-done:
+		return errProviderLoopInterrupted
+	case <-ctx.Done():
+		return ctx.Err()
+	case mailbox <- envelope:
+		return nil
+	}
+}
+
 func (service *Service) runStreamActor(stream *ActiveStream, mailbox <-chan streamCommandEnvelope, done chan struct{}) {
 	defer close(done)
 	for {
@@ -286,7 +307,7 @@ func (service *Service) runStreamActor(stream *ActiveStream, mailbox <-chan stre
 		if envelope.result != nil {
 			envelope.result <- err
 		} else if err != nil {
-			_ = service.failStream(stream, "unknown", err)
+			_ = service.failStream(stream, TerminalErrorUnknown, err)
 		}
 		if shouldStopStreamActor(stream) {
 			return
@@ -418,7 +439,7 @@ func (service *Service) reconcileStream(stream *ActiveStream) error {
 		} else {
 			clearPendingProviderCompletion(stream)
 			if err := service.completeSuccessfulTurn(stream, *completion); err != nil {
-				return service.failStreamIfNonTerminal(stream, "unknown", err)
+				return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 			}
 			return nil
 		}
@@ -729,16 +750,16 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 		return service.failStream(stream, "unknown", payload.Err)
 	}
 	if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, !hadToolInvocation); err != nil {
-		return service.failStreamIfNonTerminal(stream, "unknown", err)
+		return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 	}
 	if err := service.recordTurnUsageSnapshot(stream, conversationID, turnSeq, requestID, modelCallID, "completed", usage, "", false); err != nil {
 		return service.failStreamIfNonTerminal(stream, "usage_persistence_error", err)
 	}
 	if err := service.updateConversationTokenState(stream, conversationID, usage, modelCallID, true); err != nil {
-		return service.failStreamIfNonTerminal(stream, "unknown", err)
+		return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 	}
 	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil {
-		return service.failStreamIfNonTerminal(stream, "unknown", err)
+		return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 	}
 
 	pendingCount := pendingBridgeCount(stream)
@@ -760,7 +781,7 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 			service.setTurnPhase(stream, TurnPhaseWaitingExternal)
 		}
 		if err := service.publishCheckpoint(requestID, conversationID); err != nil {
-			return service.failStreamIfNonTerminal(stream, "unknown", err)
+			return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 		}
 		return nil
 	}
@@ -768,7 +789,7 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 	if existingCompletion == nil {
 		handled, err := service.handleSubagentEmptyStopAfterToolResult(stream, conversationID, turnSeq, requestID, modelCallID, finishReason, accumulatedText)
 		if err != nil {
-			return service.failStreamIfNonTerminal(stream, "unknown", err)
+			return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 		}
 		if handled {
 			return nil
@@ -787,25 +808,25 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 		clearPendingProviderCompletion(stream)
 		if completion.Disposition == completionDispositionResumeAfterExternal {
 			if err := service.publishCheckpoint(requestID, conversationID); err != nil {
-				return service.failStreamIfNonTerminal(stream, "unknown", err)
+				return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 			}
 			if err := service.requestProviderAction(stream, providerActionResume); err != nil {
-				return service.failStreamIfNonTerminal(stream, "unknown", err)
+				return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 			}
 			return nil
 		}
 		if err := service.completeSuccessfulTurn(stream, completion); err != nil {
-			return service.failStreamIfNonTerminal(stream, "unknown", err)
+			return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 		}
 		return nil
 	}
 
 	if (hadToolInvocation || shouldResumeAfterToolResults(finishReason)) && !terminalToolInvocation {
 		if err := service.publishCheckpoint(requestID, conversationID); err != nil {
-			return service.failStreamIfNonTerminal(stream, "unknown", err)
+			return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 		}
 		if err := service.requestProviderAction(stream, providerActionResume); err != nil {
-			return service.failStreamIfNonTerminal(stream, "unknown", err)
+			return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 		}
 		return nil
 	}
@@ -819,7 +840,7 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 		ProviderPass:   currentProviderPass(stream),
 		Usage:          usage,
 	}); err != nil {
-		return service.failStreamIfNonTerminal(stream, "unknown", err)
+		return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 	}
 	return nil
 }
@@ -868,7 +889,7 @@ func currentTurnHasToolResult(conversation *ConversationFile, turnSeq int64) boo
 		return false
 	}
 	for _, entry := range conversation.Entries {
-		if entry.TurnSeq == turnSeq && strings.TrimSpace(entry.Kind) == "tool_result" {
+		if entry.TurnSeq == turnSeq && strings.TrimSpace(entry.Kind) == EntryKindToolResult {
 			return true
 		}
 	}
@@ -934,7 +955,10 @@ func (service *Service) scheduleStreamTimer(stream *ActiveStream, key string, de
 			defer timer.Stop()
 			<-timer.C
 		}
-		if err := service.postStreamCommandAsync(stream, streamCommand{
+		// 带超时保护：防止 actor goroutine 已退出但 done 未正确 close 导致死锁。
+		sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer sendCancel()
+		if err := service.postStreamCommandAsyncCtx(sendCtx, stream, streamCommand{
 			Kind: streamCommandTimerFired,
 			Timer: &streamTimerEvent{
 				Key:       key,
@@ -945,7 +969,7 @@ func (service *Service) scheduleStreamTimer(stream *ActiveStream, key string, de
 				Reason:    strings.TrimSpace(reason),
 			},
 		}); err != nil && !errors.Is(err, errProviderLoopInterrupted) {
-			log.Printf("forwarder timer post failed request_id=%s key=%s err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(key), err)
+			logger.Infof("forwarder timer post failed request_id=%s key=%s err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(key), err)
 		}
 	}()
 }
@@ -1066,7 +1090,7 @@ func (service *Service) cancelOtherConversationActors(conversationID string, kee
 				CancelReason: reason,
 			},
 		}); err != nil && !errors.Is(err, errProviderLoopInterrupted) {
-			log.Printf("forwarder cancel superseded stream failed request_id=%s err=%v", strings.TrimSpace(requestID), err)
+			logger.Infof("forwarder cancel superseded stream failed request_id=%s err=%v", strings.TrimSpace(requestID), err)
 		}
 	}
 }

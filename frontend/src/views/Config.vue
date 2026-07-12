@@ -6,14 +6,15 @@ import Select from "@/components/ui/Select.vue";
 import { showModal } from "@/composables/useModal";
 import {
   appState,
-  openModelConfigWindow,
   persistUserConfig,
   reloadUserConfig,
   ROUTE_MODE_OPTIONS,
   toUserError,
 } from "@/state/appState";
 import { onMounted } from "vue";
+import { useRouter } from "vue-router";
 
+const router = useRouter();
 const routeModeOptions = ROUTE_MODE_OPTIONS;
 
 async function showActionError(title, error) {
@@ -37,7 +38,7 @@ async function handleSaveConfig() {
 
 async function handleOpenModelConfig() {
   try {
-    await openModelConfigWindow();
+    router.push("/model-config");
   } catch (error) {
     await showActionError("打开失败", toUserError(error));
   }

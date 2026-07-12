@@ -221,7 +221,10 @@ func normalizeSkillDescriptor(descriptor *agentv1.SkillDescriptor) *agentv1.Skil
 		return nil
 	}
 
-	cloned := proto.Clone(descriptor).(*agentv1.SkillDescriptor)
+	cloned, ok := proto.Clone(descriptor).(*agentv1.SkillDescriptor)
+	if !ok || cloned == nil {
+		return nil
+	}
 	cloned.Name = strings.TrimSpace(cloned.GetName())
 	cloned.Description = strings.TrimSpace(cloned.GetDescription())
 	cloned.FolderPath = strings.TrimSpace(cloned.GetFolderPath())

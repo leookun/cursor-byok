@@ -18,7 +18,3 @@ func CurrentVersion() string {
 	}
 	return version
 }
-
-func ReleaseTag() string {
-	return "v" + CurrentVersion()
-}

@@ -57,7 +57,7 @@ func projectConversationStructuredState(conversation *ConversationFile) (structu
 				state.HasTodos = true
 			}
 			continue
-		case "tool_result":
+		case EntryKindToolResult:
 		default:
 			continue
 		}

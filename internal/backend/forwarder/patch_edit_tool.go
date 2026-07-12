@@ -1,9 +1,9 @@
 package forwarder
 
 import (
+	"cursor/internal/logger"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -133,7 +133,7 @@ func (service *Service) startOrQueuePatchEditOperation(stream *ActiveStream, ope
 	key := patchEditQueueKey(operation.Payload.ResolvedPath)
 	if key != "" && patchEditPathHasInFlightOperation(stream, key) {
 		enqueuePatchEditOperation(stream, key, operation)
-		log.Printf(
+		logger.Infof(
 			"forwarder patch edit queued behind in-flight edit conversation_id=%s request_id=%s tool_call_id=%s path=%s",
 			strings.TrimSpace(stream.ConversationID),
 			strings.TrimSpace(stream.RequestID),
@@ -580,7 +580,7 @@ func (service *Service) reconcilePatchEditObservedContent(stream *ActiveStream, 
 	expectedNormalized := normalizeLineEndingsToLF(expected)
 	observedNormalized := normalizeLineEndingsToLF(observed)
 	lineEndingEquivalent := expectedNormalized == observedNormalized
-	log.Printf(
+	logger.Infof(
 		"forwarder patch edit observed content mismatch conversation_id=%s request_id=%s tool_call_id=%s path=%s expected_bytes=%d observed_bytes=%d expected_sha256=%s observed_sha256=%s line_ending_equivalent=%t",
 		strings.TrimSpace(stream.ConversationID),
 		strings.TrimSpace(stream.RequestID),

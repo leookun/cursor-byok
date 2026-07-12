@@ -1,1 +1,3 @@
-token: "eyJ..."
+# 注意：此文件包含敏感的个人 Cursor access token，请勿提交到版本库。
+# 已加入 .gitignore。复制 config.yaml.example 并在此填入你的真实 token。
+token: "YOUR_CURSOR_TOKEN_HERE"

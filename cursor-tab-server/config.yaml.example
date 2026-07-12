@@ -1,0 +1,4 @@
+# Cursor Tab Server 配置模板
+# 复制本文件为 config.yaml 并填入你的真实 Cursor access token。
+# 获取方式见 README.md。config.yaml 已被 .gitignore 忽略，不会提交。
+token: "YOUR_CURSOR_TOKEN_HERE"

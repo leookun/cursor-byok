@@ -3,10 +3,10 @@ package forwarder
 
 import (
 	"context"
+	"cursor/internal/logger"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -345,7 +345,7 @@ func (service *Service) BidiAppend(ctx context.Context, req *connect.Request[ais
 		return nil, connect.NewError(connect.CodeCanceled, err)
 	}
 	if staleAppend {
-		log.Printf("forwarder ignored stale bidi append request_id=%s append_seqno=%d", requestID, appendSeqno)
+		logger.Infof("forwarder ignored stale bidi append request_id=%s append_seqno=%d", requestID, appendSeqno)
 		service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", nil)
 		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
 	}
@@ -843,9 +843,11 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 	}
 	stream.mu.Unlock()
 	for _, pending := range pendingExecs {
-		_ = service.broker.Publish(intent.RequestID, StreamEvent{
+		if err := service.broker.Publish(intent.RequestID, StreamEvent{
 			Message: buildExecAbortMessage(pending),
-		})
+		}); err != nil {
+			logger.Warnf("service: broker publish failed for request %s: %v", intent.RequestID, err)
+		}
 	}
 	if hasCheckpoint {
 		if err := service.publishCheckpoint(stream.RequestID, stream.ConversationID); err != nil {
@@ -1100,7 +1102,7 @@ func (service *Service) recoverNonStreamingExecAfterStreamClose(stream *ActiveSt
 	markExecCompleted(stream, pending)
 	toolName := strings.TrimSpace(deriveToolNameFromPendingExec(pending))
 	resultPayload := fmt.Sprintf("%s transport closed before terminal result arrived", firstNonEmpty(toolName, pending.ExecKind, "tool"))
-	log.Printf("forwarder synthetic exec recovery request_id=%s tool_call_id=%s message_id=%d exec_id=%s exec_kind=%s", strings.TrimSpace(stream.RequestID), strings.TrimSpace(pending.ToolCallID), pending.MessageID, strings.TrimSpace(pending.ExecID), strings.TrimSpace(pending.ExecKind))
+	logger.Infof("forwarder synthetic exec recovery request_id=%s tool_call_id=%s message_id=%d exec_id=%s exec_kind=%s", strings.TrimSpace(stream.RequestID), strings.TrimSpace(pending.ToolCallID), pending.MessageID, strings.TrimSpace(pending.ExecID), strings.TrimSpace(pending.ExecKind))
 	if toolName != "" {
 		if err := service.appendToolResult(stream, pending.ToolCallID, toolName, pending.ArgsJSON, resultPayload, pending.ReasoningContent, nil); err != nil {
 			return err
@@ -1141,7 +1143,7 @@ func (service *Service) observeShellStreamClose(stream *ActiveStream, pending ru
 	if recentState == "transport_closed" || recentState == "exited" || recentState == "backgrounded" || recentState == "rejected" || recentState == "permission_denied" {
 		return
 	}
-	log.Printf(
+	logger.Infof(
 		"forwarder shell stream closed without terminal event request_id=%s tool_call_id=%s message_id=%d exec_id=%s stream_state=%s chunk_count=%d",
 		strings.TrimSpace(stream.RequestID),
 		strings.TrimSpace(current.ToolCallID),
@@ -1165,7 +1167,7 @@ func (service *Service) observeShellStreamClose(stream *ActiveStream, pending ru
 			"stderr_buffer_bytes": len(current.StderrBuffer),
 		}),
 	}); err != nil {
-		log.Printf("forwarder shell stream close metadata failed request_id=%s tool_call_id=%s err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(current.ToolCallID), err)
+		logger.Infof("forwarder shell stream close metadata failed request_id=%s tool_call_id=%s err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(current.ToolCallID), err)
 	}
 	service.scheduleShellTransportCloseRecovery(stream.RequestID, current)
 }
@@ -1303,32 +1305,32 @@ func (service *Service) driveProvider(stream *ActiveStream) error {
 	latestUserText := stream.LatestUserText
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
-	log.Printf("forwarder provider pass started request_id=%s model_call_id=%s provider_pass=%d", strings.TrimSpace(requestID), strings.TrimSpace(modelCallID), currentPass)
+	logger.Infof("forwarder provider pass started request_id=%s model_call_id=%s provider_pass=%d", strings.TrimSpace(requestID), strings.TrimSpace(modelCallID), currentPass)
 
 	conversation, _, _, err := service.snapshotCheckpointConversation(stream)
 	if err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	conversation, err = service.syncConversationContextWindowTokens(stream, conversationID, conversation)
 	if err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	conversation, err = service.persistDerivedPromptContexts(stream, conversationID, requestID, conversation, mode, latestUserText)
 	if err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	compiled, err := service.compiler.Compile(conversation, mode, latestUserText, modelName)
 	if err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	compiled = guardCompiledConversationForProvider(compiled)
 	if compacted, compactErr := service.maybeCompactBeforeProvider(stream, conversation, compiled); compactErr != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", compactErr)
+		return service.failStream(stream, TerminalErrorUnknown, compactErr)
 	} else if compacted {
 		stream.mu.Lock()
 		stream.ProviderActive = false
@@ -1356,10 +1358,13 @@ func (service *Service) driveProvider(stream *ActiveStream) error {
 	}
 	if err := service.syncSummarySnapshot(stream, conversation, requestID, modelCallID); err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	maxTokens, requestKnobs := service.resolveProviderOutputBudget(modelID, conversation, compiled)
 	service.maybeSaveLastAgentModelHash(conversation, modelID, mode, currentPass)
+	// 使用独立的可取消 context；provider 生命周期通过 stream.ProviderCancel 管理。
+	// 注：此处有意不使用上游请求 ctx，因为 provider 流可能跨越多轮工具调用，
+	// 需独立于单次 HTTP 请求的生命周期。
 	ctx, cancel := context.WithCancel(context.Background())
 	stream.mu.Lock()
 	stream.ProviderActive = true
@@ -1386,7 +1391,7 @@ func (service *Service) driveProvider(stream *ActiveStream) error {
 		ArtifactPaths:      &modeladapter.LLMArtifactPaths{},
 	}
 	providerRequest.ThinkingEffort = thinkingEffort
-	service.debug.LogProvider(context.Background(), requestID, conversationID, "provider_request_prepared", map[string]any{
+	service.debug.LogProvider(ctx, requestID, conversationID, "provider_request_prepared", map[string]any{
 		"model_call_id":          strings.TrimSpace(modelCallID),
 		"provider_pass":          currentPass,
 		"model_id":               strings.TrimSpace(modelID),
@@ -1525,12 +1530,12 @@ func (service *Service) maybeSaveLastAgentModelHash(conversation *ConversationFi
 	channel, err := service.resolver.SelectChannelForModel(context.Background(), strings.TrimSpace(modelID))
 	if err != nil || channel == nil || strings.TrimSpace(channel.ID) == "" {
 		if err != nil {
-			log.Printf("forwarder skipped last agent model hash update model_id=%s error=%v", strings.TrimSpace(modelID), err)
+			logger.Infof("forwarder skipped last agent model hash update model_id=%s error=%v", strings.TrimSpace(modelID), err)
 		}
 		return
 	}
 	if err := service.modelMemory.SaveLastAgentModelHash(context.Background(), strings.TrimSpace(channel.ID)); err != nil {
-		log.Printf("forwarder failed to save last agent model hash channel_id=%s error=%v", strings.TrimSpace(channel.ID), err)
+		logger.Infof("forwarder failed to save last agent model hash channel_id=%s error=%v", strings.TrimSpace(channel.ID), err)
 	}
 }
 
@@ -1590,29 +1595,29 @@ func (service *Service) runProviderStream(stream *ActiveStream, token uint64, ct
 			Err:   err,
 		},
 	}); postErr != nil && !errors.Is(postErr, errProviderLoopInterrupted) {
-		service.debug.LogProvider(context.Background(), request.RequestID, request.ConversationID, "provider_completion_post_error", map[string]any{
+		service.debug.LogProvider(ctx, request.RequestID, request.ConversationID, "provider_completion_post_error", map[string]any{
 			"model_call_id":  strings.TrimSpace(request.ModelCallID),
 			"provider_token": token,
 			"error":          postErr.Error(),
 		})
-		log.Printf(
+		logger.Infof(
 			"forwarder provider completion post failed request_id=%s model_call_id=%s provider_token=%d err=%v",
 			strings.TrimSpace(request.RequestID),
 			strings.TrimSpace(request.ModelCallID),
 			token,
 			postErr,
 		)
-		_ = service.failStreamIfNonTerminal(stream, "unknown", postErr)
+		_ = service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, postErr)
 	}
 	if err != nil {
-		service.debug.LogProvider(context.Background(), request.RequestID, request.ConversationID, "provider_stream_finished", map[string]any{
+		service.debug.LogProvider(ctx, request.RequestID, request.ConversationID, "provider_stream_finished", map[string]any{
 			"model_call_id":  strings.TrimSpace(request.ModelCallID),
 			"provider_token": token,
 			"error":          err.Error(),
 		})
 		return
 	}
-	service.debug.LogProvider(context.Background(), request.RequestID, request.ConversationID, "provider_stream_finished", map[string]any{
+	service.debug.LogProvider(ctx, request.RequestID, request.ConversationID, "provider_stream_finished", map[string]any{
 		"model_call_id":  strings.TrimSpace(request.ModelCallID),
 		"provider_token": token,
 	})
@@ -1850,7 +1855,7 @@ func (service *Service) recordExecDispatchMetadata(stream *ActiveStream, pending
 			"opened_at":       pending.OpenedAt,
 		}),
 	}); err != nil {
-		log.Printf("forwarder exec dispatch metadata failed request_id=%s tool_call_id=%s message_id=%d err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(pending.ToolCallID), pending.MessageID, err)
+		logger.Infof("forwarder exec dispatch metadata failed request_id=%s tool_call_id=%s message_id=%d err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(pending.ToolCallID), pending.MessageID, err)
 	}
 }
 
@@ -2062,7 +2067,7 @@ func (service *Service) finishDeferredTurnAfterInteraction(stream *ActiveStream,
 			ProviderPass:   pending.ProviderPass,
 		}
 		stream.mu.Unlock()
-		log.Printf(
+		logger.Infof(
 			"forwarder missing deferred turn completion snapshot request_id=%s tool_call_id=%s interaction_kind=%s provider_pass=%d",
 			strings.TrimSpace(completion.RequestID),
 			strings.TrimSpace(pending.ToolCallID),
@@ -2105,7 +2110,7 @@ func (service *Service) completeSuccessfulTurn(stream *ActiveStream, completion 
 		return fmt.Errorf("record completed turn finalized: %w", err)
 	}
 	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil {
-		log.Printf(
+		logger.Infof(
 			"forwarder summary sync after turn completion failed request_id=%s model_call_id=%s err=%v",
 			strings.TrimSpace(requestID),
 			strings.TrimSpace(modelCallID),
@@ -2181,7 +2186,7 @@ func (service *Service) checkpointCompiledConversation(stream *ActiveStream, con
 	_, modelName, latestUserText, mode := checkpointPromptContext(stream)
 	compiled, err := service.compiler.Compile(conversation, mode, latestUserText, modelName)
 	if err != nil {
-		log.Printf("forwarder checkpoint token estimate failed request_id=%s conversation_id=%s err=%v", strings.TrimSpace(activeStreamRequestID(stream)), strings.TrimSpace(conversation.ConversationID), err)
+		logger.Infof("forwarder checkpoint token estimate failed request_id=%s conversation_id=%s err=%v", strings.TrimSpace(activeStreamRequestID(stream)), strings.TrimSpace(conversation.ConversationID), err)
 		return CompiledConversation{}, false
 	}
 	return guardCompiledConversationForProvider(compiled), true
@@ -2272,8 +2277,8 @@ func (service *Service) failStream(stream *ActiveStream, terminalCode string, ca
 }
 
 func resolveTerminalCode(fallback string, cause error) string {
-	terminalCode := firstNonEmpty(strings.TrimSpace(fallback), "unknown")
-	if cause == nil || terminalCode != "unknown" {
+	terminalCode := firstNonEmpty(strings.TrimSpace(fallback), TerminalErrorUnknown)
+	if cause == nil || terminalCode != TerminalErrorUnknown {
 		return terminalCode
 	}
 	var coded interface{ TerminalCode() string }
@@ -2340,7 +2345,7 @@ func buildRunEntries(intent InboundIntent, effectiveMode agentv1.AgentMode, turn
 			TurnSeq:   turnSeq,
 			RequestID: intent.RequestID,
 			Role:      "user",
-			Kind:      "user_message",
+			Kind:      EntryKindUserMessage,
 			Payload:   payload,
 		})
 	}
@@ -2417,7 +2422,7 @@ func newAssistantTextEntryWithProviderMetadata(turnSeq int64, requestID string, 
 		TurnSeq:   turnSeq,
 		RequestID: strings.TrimSpace(requestID),
 		Role:      "assistant",
-		Kind:      "assistant_text",
+		Kind:      EntryKindAssistantText,
 		Payload:   payload,
 	}
 }
@@ -2446,7 +2451,7 @@ func newToolCallEntryWithProviderMetadata(turnSeq int64, requestID string, toolC
 		TurnSeq:    turnSeq,
 		RequestID:  strings.TrimSpace(requestID),
 		Role:       "assistant",
-		Kind:       "tool_call",
+		Kind:       EntryKindToolCall,
 		ToolCallID: strings.TrimSpace(toolCallID),
 		Payload:    payload,
 	}
@@ -2466,7 +2471,7 @@ func newToolResultEntry(turnSeq int64, requestID string, toolCallID string, tool
 		TurnSeq:    turnSeq,
 		RequestID:  strings.TrimSpace(requestID),
 		Role:       "tool",
-		Kind:       "tool_result",
+		Kind:       EntryKindToolResult,
 		ToolCallID: strings.TrimSpace(toolCallID),
 		Payload:    payload,
 	}

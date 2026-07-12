@@ -15,10 +15,11 @@ import {
 } from "@/state/appState";
 import { isWindows } from "@/utils/isWindows";
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Logo from "@/assets/logo.png";
 
 const route = useRoute();
+const router = useRouter();
 const message = useMessage();
 const showIcon = computed(() => route.meta.showIcon !== false);
 const title = computed(() => route.meta.title ?? "Cursor助手｜永久免费｜自定义API");
@@ -91,8 +92,8 @@ async function handleCheckForUpdates() {
 async function loadFooterAuthorInfo() {
   try {
     footerAuthorInfo.value = await getFooterAuthorInfo();
-  } catch (error) {
-    console.error("[MainLayout] 加载作者信息失败", error);
+  } catch (_error) {
+    // author info is non-critical, degrade silently
   }
 }
 
@@ -152,7 +153,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-screen w-screen overflow-hidden flex-col">
+  <div class="flex h-screen w-screen overflow-hidden flex-col" style="background: #191919">
     <div
       class="fixed top-0 w-screen h-[40px] z-9999 w-full"
       style="--wails-draggable: drag"
@@ -164,6 +165,13 @@ onUnmounted(() => {
       :class="{ '!justify-center': !isWindows }"
     >
       <div class="center-row gap-2" style="font-family: var(--font-num);">
+        <button
+          v-if="route.path !== '/'"
+          class="text-[#999] hover:text-[#fff] cursor-pointer text-[16px] mr-1"
+          style="--wails-draggable: no-drag; position: relative; z-index: 10000;"
+          title="返回"
+          @click="router.back()"
+        >←</button>
         <img v-if="showIcon" :src="Logo" class="w-[18px] h-[18px]" />
         <div>{{ title }}</div>
       </div>

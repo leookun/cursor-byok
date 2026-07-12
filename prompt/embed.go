@@ -39,24 +39,6 @@ func normalizeMode(mode Mode) (Mode, error) {
 	}
 }
 
-// PromptPath 返回指定模式的静态提示词资产路径。
-func PromptPath(mode Mode) (string, error) {
-	normalized, err := normalizeMode(mode)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s/prompt.md", normalized), nil
-}
-
-// ToolsPath 返回指定模式的静态工具资产路径。
-func ToolsPath(mode Mode) (string, error) {
-	normalized, err := normalizeMode(mode)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s/tools.json", normalized), nil
-}
-
 // ReadPrompt 读取指定模式的静态提示词文本。
 func ReadPrompt(mode Mode) (string, error) {
 	normalized, err := normalizeMode(mode)
@@ -82,35 +64,18 @@ func ReadPrompt(mode Mode) (string, error) {
 	return string(prefix) + "\n\n" + string(data), nil
 }
 
-// MustReadPrompt 读取指定模式的静态提示词文本，失败时直接 panic。
-func MustReadPrompt(mode Mode) string {
-	text, err := ReadPrompt(mode)
-	if err != nil {
-		panic(err)
-	}
-	return text
-}
-
 // ReadTools 读取指定模式的原始工具 JSON。
 func ReadTools(mode Mode) ([]byte, error) {
-	path, err := ToolsPath(mode)
+	normalized, err := normalizeMode(mode)
 	if err != nil {
 		return nil, err
 	}
+	path := fmt.Sprintf("%s/tools.json", normalized)
 	data, err := assetFS.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read tools asset %q: %w", path, err)
 	}
 	return data, nil
-}
-
-// MustReadTools 读取指定模式的原始工具 JSON，失败时直接 panic。
-func MustReadTools(mode Mode) []byte {
-	data, err := ReadTools(mode)
-	if err != nil {
-		panic(err)
-	}
-	return data
 }
 
 // ReadDebugSystemReminder 读取 Debug 模式每轮追加的提醒资产。
@@ -164,15 +129,6 @@ func ReadCompactionPrompt() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// MustReadCompactionPrompt 读取共享的压缩提示词资产，失败时直接 panic。
-func MustReadCompactionPrompt() string {
-	text, err := ReadCompactionPrompt()
-	if err != nil {
-		panic(err)
-	}
-	return text
-}
-
 // ReadCommitPrompt 读取提交信息生成专用提示词资产。
 func ReadCommitPrompt() (string, error) {
 	const path = "commit/prompt.md"
@@ -181,13 +137,4 @@ func ReadCommitPrompt() (string, error) {
 		return "", fmt.Errorf("read commit prompt asset %q: %w", path, err)
 	}
 	return strings.TrimSpace(string(data)), nil
-}
-
-// MustReadCommitPrompt 读取提交信息生成专用提示词资产，失败时直接 panic。
-func MustReadCommitPrompt() string {
-	text, err := ReadCommitPrompt()
-	if err != nil {
-		panic(err)
-	}
-	return text
 }

@@ -54,6 +54,17 @@ type ProxyServer struct {
 	httpServer *http.Server
 	// serveErrCh 表示当前声明中的 serveErrCh。
 	serveErrCh chan error
+
+	// onCursorActivity 表示 Cursor 请求活动回调（由 runner 接到 PetService）。
+	onCursorActivityMu sync.RWMutex
+	onCursorActivity   func(method, path string)
+}
+
+// SetCursorActivityCallback 注册 Cursor 请求活动回调（relay 分支触发，runner 将其接到 PetService.FireCursorActivity）。
+func (s *ProxyServer) SetCursorActivityCallback(fn func(method, path string)) {
+	s.onCursorActivityMu.Lock()
+	defer s.onCursorActivityMu.Unlock()
+	s.onCursorActivity = fn
 }
 
 // Snapshot 定义了当前模块中的 Snapshot 类型。
@@ -271,9 +282,12 @@ func (s *ProxyServer) Start() error {
 	}
 
 	httpServer := &http.Server{
-		Addr:     s.addr,
-		Handler:  s.proxy,
-		ErrorLog: stdlog.New(&httpErrorFilterWriter{}, "", stdlog.LstdFlags),
+		Addr:              s.addr,
+		Handler:           s.proxy,
+		ErrorLog:          stdlog.New(&httpErrorFilterWriter{}, "", stdlog.LstdFlags),
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	ln, err := net.Listen("tcp", s.addr)
@@ -435,6 +449,12 @@ func (s *ProxyServer) newGoproxyHandler() *goproxy.ProxyHttpServer {
 			raw := requestURL(req)
 			if parsedRaw, rawErr := rawURLForRelay(req); rawErr == nil {
 				raw = parsedRaw
+			}
+			s.onCursorActivityMu.RLock()
+			fn := s.onCursorActivity
+			s.onCursorActivityMu.RUnlock()
+			if fn != nil {
+				fn(req.Method, raw)
 			}
 			resp, err := s.forwardToServer(req)
 			if err != nil {
@@ -769,11 +789,9 @@ func (l *goproxyLogAdapter) Printf(format string, args ...interface{}) {
 	}
 	lower := strings.ToLower(msg)
 	if strings.Contains(lower, "tls: first record does not look like a tls handshake") {
-		// logger.Infof("goproxy ignore handshake mismatch: %s", msg)
 		return
 	}
 	if strings.Contains(lower, "broken pipe") || strings.Contains(lower, "connection reset by peer") {
-		// logger.Infof("goproxy transient network error: %s", msg)
 		return
 	}
 	if suppressed, ok := proxyLogLimiter.ShouldLog("goproxy|" + goproxyMessageRateLimitKey(msg)); ok {
