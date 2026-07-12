@@ -3,9 +3,11 @@ import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
 import ModelGroupModal from "@/components/ModelGroupModal.vue";
+import Select from "@/components/ui/Select.vue";
 import { showModal } from "@/composables/useModal";
 import { buildModelAdapterGroups } from "@/utils/modelAdapterGroups";
 import {
+  ANTHROPIC_THINKING_EFFORT_DEFAULT,
   appState,
   activateModelAdapterGroup,
   createEmptyModelAdapter,
@@ -17,11 +19,13 @@ import {
   openModelEditorWindow,
   reloadUserConfig,
   reorderModelGroups,
+  measureModelGroupConnection,
   runModelAdapterTest,
   saveModelGroup,
   startModelAdapterTest,
   toUserError,
   updateModelGroup,
+  updateModelGroupReasoning,
 } from "@/state/appState";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -32,15 +36,38 @@ const typeTabs = [
   { label: "Anthropic", value: "anthropic", icon: "icon-[logos--claude-icon]" },
 ];
 
+const reasoningEffortOptions = [
+  { label: "低", value: "low", icon: "icon-[mdi--head-outline]" },
+  { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
+  { label: "高", value: "high", icon: "icon-[mdi--brain]" },
+  { label: "极高", value: "xhigh", icon: "icon-[mdi--head-cog-outline]" },
+  { label: "最高", value: "max", icon: "icon-[mdi--brain]" },
+];
+
+const anthropicThinkingEffortOptions = [
+  { label: "低", value: "low", icon: "icon-[mdi--head-outline]" },
+  { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
+  { label: "高", value: "high", icon: "icon-[mdi--brain]" },
+  { label: "极高", value: "xhigh", icon: "icon-[mdi--head-cog-outline]" },
+  { label: "最大", value: "max", icon: "icon-[mdi--brain]" },
+];
+
 const activeType = ref("openai");
 const groupModalVisible = ref(false);
 const editingGroup = ref(null);
+const reasoningModalVisible = ref(false);
+const reasoningTargetGroup = ref(null);
+const reasoningDraftEffort = ref("medium");
 const expandedGroupKeys = ref(new Set());
 const discoveringGroupKey = ref("");
 const activatingGroupID = ref("");
 const draggingGroupKey = ref("");
 const dragOverGroupKey = ref("");
 const dragOverGroupPosition = ref("");
+const applyingReasoningGroupID = ref("");
+const measuringGroupKey = ref("");
+const measuringAllGroups = ref(false);
+const groupConnectionResults = ref({});
 const batchTesting = ref(false);
 const batchStopping = ref(false);
 const batchTotal = ref(0);
@@ -56,6 +83,7 @@ const filteredModelGroups = computed(() =>
   appState.modelGroups.filter((group) => group.type === activeType.value),
 );
 const filteredGroups = computed(() => buildModelAdapterGroups(filteredModelGroups.value, filteredAdapters.value));
+const groupConnectionButtonText = computed(() => (measuringAllGroups.value ? "测速中..." : "测速全部渠道"));
 const batchButtonText = computed(() => {
   if (batchStopping.value) {
     return "停止中...";
@@ -157,6 +185,123 @@ function createModelForGroup(group) {
     customHeadersEnabled: group.customHeadersEnabled ?? template.customHeadersEnabled,
     customHeadersJSON: group.customHeadersJSON || template.customHeadersJSON,
   };
+}
+
+function reasoningOptionsForGroup(group) {
+  return group?.type === "anthropic" ? anthropicThinkingEffortOptions : reasoningEffortOptions;
+}
+
+function currentGroupReasoningEffort(group) {
+  const adapter = group?.adapters?.[0] || {};
+  if (group?.type === "anthropic") {
+    return adapter.anthropicThinkingEffort || ANTHROPIC_THINKING_EFFORT_DEFAULT;
+  }
+  return adapter.reasoningEffort || "medium";
+}
+
+function reasoningLabel(group, value) {
+  return reasoningOptionsForGroup(group).find((option) => option.value === value)?.label || value || "-";
+}
+
+function openGroupReasoningModal(group) {
+  reasoningTargetGroup.value = group;
+  reasoningDraftEffort.value = currentGroupReasoningEffort(group);
+  reasoningModalVisible.value = true;
+}
+
+function closeGroupReasoningModal() {
+  reasoningModalVisible.value = false;
+  reasoningTargetGroup.value = null;
+  reasoningDraftEffort.value = "medium";
+}
+
+async function handleApplyGroupReasoning() {
+  const group = reasoningTargetGroup.value;
+  if (!group?.groupID || applyingReasoningGroupID.value) {
+    return;
+  }
+  applyingReasoningGroupID.value = group.groupID;
+  const selectedEffort = reasoningDraftEffort.value;
+  try {
+    const result = await updateModelGroupReasoning(group.groupID, selectedEffort);
+    if (!result.ok) {
+      await showActionError("批量设置推理强度失败", result.error);
+      return;
+    }
+    closeGroupReasoningModal();
+    await showModal({
+      title: "批量设置完成",
+      content: `已将分组“${group.name || formatHost(group.baseURL)}”中的 ${result.updated || 0} 个模型设置为“${reasoningLabel(group, selectedEffort)}”。`,
+      showCancel: false,
+    });
+  } finally {
+    applyingReasoningGroupID.value = "";
+  }
+}
+
+function formatLatency(latencyMS) {
+  const value = Math.max(0, Math.round(Number(latencyMS) || 0));
+  if (value < 1000) {
+    return `${value} ms`;
+  }
+  return `${(value / 1000).toFixed(2)} s`;
+}
+
+function getGroupConnectionResult(group) {
+  return groupConnectionResults.value[group?.groupID] || null;
+}
+
+function groupConnectionSummary(group) {
+  const result = getGroupConnectionResult(group);
+  if (!result) {
+    return "";
+  }
+  if (!result.ok) {
+    return `失败 ${formatLatency(result.latencyMS)}`;
+  }
+  return `${formatLatency(result.latencyMS)} / ${result.modelCount} 个模型`;
+}
+
+function storeGroupConnectionResult(groupID, result) {
+  groupConnectionResults.value = {
+    ...groupConnectionResults.value,
+    [groupID]: result,
+  };
+}
+
+async function handleMeasureGroupConnection(group, { silent = false } = {}) {
+  if (!group?.groupID || measuringGroupKey.value) {
+    return null;
+  }
+  measuringGroupKey.value = group.key;
+  try {
+    const result = await measureModelGroupConnection(group.groupID);
+    storeGroupConnectionResult(group.groupID, result);
+    if (!result.ok && !silent) {
+      await showActionError("渠道测速失败", result.error);
+    }
+    return result;
+  } finally {
+    measuringGroupKey.value = "";
+  }
+}
+
+async function handleMeasureAllGroupConnections() {
+  if (measuringAllGroups.value || measuringGroupKey.value) {
+    return;
+  }
+  const groups = filteredGroups.value.filter((group) => group.groupID);
+  if (groups.length === 0) {
+    return;
+  }
+  measuringAllGroups.value = true;
+  try {
+    for (const group of groups) {
+      await handleMeasureGroupConnection(group, { silent: true });
+    }
+  } finally {
+    measuringAllGroups.value = false;
+  }
 }
 
 async function handleSaveGroup(group) {
@@ -503,6 +648,13 @@ onBeforeUnmount(() => {
           </Button>
           <Button
             variant="default"
+            :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey) || filteredGroups.length === 0"
+            @click="handleMeasureAllGroupConnections"
+          >
+            {{ groupConnectionButtonText }}
+          </Button>
+          <Button
+            variant="default"
             :disabled="appState.configSaving || (!batchTesting && filteredAdapters.length === 0)"
             @click="handleTestAllModelAdapters"
           >
@@ -561,6 +713,13 @@ onBeforeUnmount(() => {
                       <span class="rounded-[999px] border border-[#3f3f3f] px-2 py-0.5 text-[11px] text-[#8f8f8f]">
                         {{ formatGroupCredential(group) }}
                       </span>
+                      <span
+                        v-if="groupConnectionSummary(group)"
+                        class="rounded-[999px] border px-2 py-0.5 text-[11px]"
+                        :class="getGroupConnectionResult(group)?.ok ? 'border-[#14532d] text-[#86efac]' : 'border-[#4b1d1d] text-[#fca5a5]'"
+                      >
+                        {{ groupConnectionSummary(group) }}
+                      </span>
                     </div>
                     <div class="mt-1 max-w-[520px] truncate text-xs text-[#737373]" :title="group.baseURL">
                       {{ group.baseURL }}
@@ -581,6 +740,20 @@ onBeforeUnmount(() => {
                     @click="handleTestModelGroup(group)"
                   >
                     {{ groupTestButtonText(group) }}
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey)"
+                    @click="handleMeasureGroupConnection(group)"
+                  >
+                    {{ measuringGroupKey === group.key ? "测速中..." : "测速渠道" }}
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || applyingReasoningGroupID === group.groupID"
+                    @click="openGroupReasoningModal(group)"
+                  >
+                    批量推理
                   </Button>
                   <Button
                     variant="default"
@@ -670,5 +843,45 @@ onBeforeUnmount(() => {
       @cancel="closeGroupModal"
       @save="handleSaveGroup"
     />
+
+    <Teleport to="body">
+      <Transition name="modal-mask">
+        <div
+          v-show="reasoningModalVisible"
+          class="modal-mask-layer fixed inset-0 z-999 flex items-center justify-center bg-black/50 p-4"
+          @click.self="closeGroupReasoningModal"
+        >
+          <Transition name="modal-content">
+            <div
+              v-show="reasoningModalVisible"
+              class="relative z-10 w-full max-w-[380px] overflow-hidden rounded-[8px] p-px shadow-[0_25px_50px_-12px_rgba(0,0,0,0.6)]"
+              style="background: linear-gradient(to bottom, #656565 0%, #3A3A3A 10px, #3A3A3A 100%);"
+              @click.stop
+            >
+              <div class="rounded-[7px] bg-[#292929] p-5">
+                <h3 class="mb-3 text-base font-medium text-white">批量设置推理强度</h3>
+                <p class="mb-4 text-sm leading-relaxed text-[#a3a3a3]">
+                  {{ reasoningTargetGroup?.name || formatHost(reasoningTargetGroup?.baseURL) }} · {{ reasoningTargetGroup?.adapters?.length || 0 }} 个模型
+                </p>
+                <Select
+                  v-model="reasoningDraftEffort"
+                  :options="reasoningOptionsForGroup(reasoningTargetGroup)"
+                  :disabled="Boolean(applyingReasoningGroupID)"
+                  aria-label="批量设置推理强度"
+                />
+                <div class="mt-5 flex justify-end gap-2">
+                  <Button variant="default" :disabled="Boolean(applyingReasoningGroupID)" @click="closeGroupReasoningModal">
+                    取消
+                  </Button>
+                  <Button variant="primary" :disabled="Boolean(applyingReasoningGroupID)" @click="handleApplyGroupReasoning">
+                    {{ applyingReasoningGroupID ? "保存中..." : "保存" }}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>

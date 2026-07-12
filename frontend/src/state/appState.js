@@ -1292,6 +1292,82 @@ export async function reorderModelGroups(groupIDs, type = "") {
   );
 }
 
+export async function updateModelGroupReasoning(groupID, effort) {
+  const targetGroupID = asString(groupID);
+  const normalizedEffort = asString(effort).toLowerCase();
+  if (!targetGroupID) {
+    return { ok: false, error: "模型分组不存在，无法批量设置推理强度" };
+  }
+
+  const currentConfig = await loadPersistedUserConfig();
+  const targetGroup = currentConfig.modelGroups.find((group) => group.id === targetGroupID);
+  if (!targetGroup) {
+    return { ok: false, error: "模型分组不存在或已变更" };
+  }
+  if (targetGroup.type === "openai" && !SUPPORTED_REASONING_EFFORTS.has(normalizedEffort)) {
+    return { ok: false, error: "OpenAI 推理强度不合法" };
+  }
+  if (targetGroup.type === "anthropic" && !SUPPORTED_ANTHROPIC_THINKING_EFFORTS.has(normalizedEffort)) {
+    return { ok: false, error: "Anthropic 思考强度不合法" };
+  }
+
+  let updated = 0;
+  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters).map((adapter) => {
+    if (adapter.groupID !== targetGroupID) {
+      return adapter;
+    }
+    updated += 1;
+    if (targetGroup.type === "anthropic") {
+      return normalizeModelAdapter({
+        ...adapter,
+        anthropicThinkingEffort: normalizedEffort,
+      });
+    }
+    return normalizeModelAdapter({
+      ...adapter,
+      reasoningEffort: normalizedEffort,
+    });
+  });
+
+  const result = await persistConfigPayload(
+    {
+      ...currentConfig,
+      modelAdapters: nextAdapters,
+    },
+    { modelAdaptersOnly: true },
+  );
+  return {
+    ...result,
+    updated: result.ok ? updated : 0,
+  };
+}
+
+export async function measureModelGroupConnection(groupID) {
+  const targetGroupID = asString(groupID);
+  if (!targetGroupID) {
+    return { ok: false, error: "模型分组不存在，无法测速" };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const discovery = await discoverModelGroupModels(targetGroupID);
+    const latencyMS = Math.max(0, Date.now() - startedAt);
+    return {
+      ok: true,
+      error: "",
+      latencyMS,
+      modelCount: asArray(discovery?.models).length,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: toUserError(error),
+      latencyMS: Math.max(0, Date.now() - startedAt),
+      modelCount: 0,
+    };
+  }
+}
+
 export function createEmptyModelGroup(type = "openai") {
   const normalizedType = asString(type).toLowerCase();
   return {
