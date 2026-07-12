@@ -49,9 +49,9 @@ func InjectCursorUserInfo(email, token string) error {
 	}
 
 	logger.Infof(
-		"injectCursorUserInfo synced path=%s email=%s membership=%s subscription=%s disabled_statsig_gates=%s",
+		"injectCursorUserInfo synced path=%s email_present=%t membership=%s subscription=%s disabled_statsig_gates=%s",
 		stateDBPath,
-		values["cursorAuth/cachedEmail"],
+		values["cursorAuth/cachedEmail"] != "",
 		values["cursorAuth/stripeMembershipType"],
 		values["cursorAuth/stripeSubscriptionStatus"],
 		strings.Join(cursorStateDisabledStatsigGates, ","),

@@ -11,6 +11,7 @@ import (
 	"cursor/gen/agentv1"
 	execbridge "cursor/internal/backend/agent/bridge/exec"
 	runtimecore "cursor/internal/backend/agent/core"
+	"cursor/internal/logger"
 )
 
 // buildHeartbeatMessage 构造一个服务端心跳消息。
@@ -313,7 +314,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 		var input struct {
 			Path string `json:"path"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_DeleteToolCall{
 				DeleteToolCall: &agentv1.DeleteToolCall{
@@ -333,7 +336,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 				NotificationLimit *int32   `json:"notification_limit,omitempty"`
 			} `json:"notify_on_output,omitempty"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_ShellToolCall{
 				ShellToolCall: &agentv1.ShellToolCall{
@@ -358,7 +363,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 			ShellID uint32 `json:"shell_id"`
 			Chars   string `json:"chars"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_WriteShellStdinToolCall{
 				WriteShellStdinToolCall: &agentv1.WriteShellStdinToolCall{
@@ -382,7 +389,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 			Path   string   `json:"path"`
 			Ignore []string `json:"ignore,omitempty"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_LsToolCall{
 				LsToolCall: &agentv1.LsToolCall{
@@ -399,7 +408,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 			Path     string `json:"path"`
 			Contents string `json:"contents"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_EditToolCall{
 				EditToolCall: &agentv1.EditToolCall{
@@ -415,7 +426,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 			FilePath string `json:"file_path"`
 			Path     string `json:"path,omitempty"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		path := strings.TrimSpace(input.FilePath)
 		if path == "" {
 			path = strings.TrimSpace(input.Path)
@@ -435,7 +448,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 			ToolName  string         `json:"toolName"`
 			Arguments map[string]any `json:"arguments,omitempty"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_McpToolCall{
 				McpToolCall: &agentv1.McpToolCall{
@@ -453,7 +468,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 		var input struct {
 			Server string `json:"server,omitempty"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_ListMcpResourcesToolCall{
 				ListMcpResourcesToolCall: &agentv1.ListMcpResourcesToolCall{
@@ -465,7 +482,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 		}
 	case "AskQuestion":
 		var args agentv1.AskQuestionArgs
-		_ = json.Unmarshal(invocation.ArgsJSON, &args)
+		if err := json.Unmarshal(invocation.ArgsJSON, &args); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_AskQuestionToolCall{
 				AskQuestionToolCall: &agentv1.AskQuestionToolCall{Args: &args},
@@ -473,7 +492,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 		}
 	case "WebSearch":
 		var args agentv1.WebSearchArgs
-		_ = json.Unmarshal(invocation.ArgsJSON, &args)
+		if err := json.Unmarshal(invocation.ArgsJSON, &args); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_WebSearchToolCall{
 				WebSearchToolCall: &agentv1.WebSearchToolCall{Args: &args},
@@ -481,7 +502,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 		}
 	case "WebFetch":
 		var args agentv1.WebFetchArgs
-		_ = json.Unmarshal(invocation.ArgsJSON, &args)
+		if err := json.Unmarshal(invocation.ArgsJSON, &args); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_WebFetchToolCall{
 				WebFetchToolCall: &agentv1.WebFetchToolCall{Args: &args},
@@ -507,7 +530,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 		}
 	case "SwitchMode":
 		var args agentv1.SwitchModeArgs
-		_ = json.Unmarshal(invocation.ArgsJSON, &args)
+		if err := json.Unmarshal(invocation.ArgsJSON, &args); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		args.ToolCallId = invocation.CallID
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_SwitchModeToolCall{
@@ -520,7 +545,9 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 			URI          string `json:"uri"`
 			DownloadPath string `json:"downloadPath,omitempty"`
 		}
-		_ = json.Unmarshal(invocation.ArgsJSON, &input)
+		if err := json.Unmarshal(invocation.ArgsJSON, &input); err != nil {
+			logger.Warnf("events: failed to unmarshal args JSON: %v", err)
+		}
 		return &agentv1.ToolCall{
 			Tool: &agentv1.ToolCall_ReadMcpResourceToolCall{
 				ReadMcpResourceToolCall: &agentv1.ReadMcpResourceToolCall{

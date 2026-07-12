@@ -1,8 +1,8 @@
 package forwarder
 
 import (
+	"cursor/internal/logger"
 	"errors"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +19,7 @@ func (service *Service) startHistoryMaintenance() {
 	}
 	go func() {
 		if err := service.runHistoryMaintenance(); err != nil {
-			log.Printf("forwarder history maintenance failed: %v", err)
+			logger.Infof("forwarder history maintenance failed: %v", err)
 		}
 	}()
 }
@@ -66,7 +66,7 @@ func cleanupRootLegacyHistoryArtifact(historyRoot string, name string) {
 		return
 	}
 	if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("forwarder root legacy cleanup failed path=%s err=%v", path, err)
+		logger.Infof("forwarder root legacy cleanup failed path=%s err=%v", path, err)
 	}
 }
 
@@ -101,7 +101,7 @@ func (service *Service) cleanupConversationLegacyArtifacts(conversationDir strin
 	} {
 		path := filepath.Join(conversationDir, name)
 		if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Printf("forwarder legacy cleanup failed path=%s err=%v", path, err)
+			logger.Infof("forwarder legacy cleanup failed path=%s err=%v", path, err)
 		}
 	}
 	entries, err := os.ReadDir(conversationDir)
@@ -120,7 +120,7 @@ func (service *Service) cleanupConversationLegacyArtifacts(conversationDir strin
 		}
 		path := filepath.Join(conversationDir, entry.Name())
 		if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Printf("forwarder numeric legacy cleanup failed path=%s err=%v", path, err)
+			logger.Infof("forwarder numeric legacy cleanup failed path=%s err=%v", path, err)
 		}
 	}
 }
@@ -134,7 +134,7 @@ func cleanupStaleHistoryTempArtifact(path string) {
 		return
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("forwarder temp cleanup failed path=%s err=%v", path, err)
+		logger.Infof("forwarder temp cleanup failed path=%s err=%v", path, err)
 	}
 }
 

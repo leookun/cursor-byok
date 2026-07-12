@@ -668,7 +668,7 @@ func normalizeModelAdapterTestType(value string) string {
 
 func normalizeModelAdapterTestReasoning(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "low", "medium", "high", "xhigh", "max":
+	case "low", "medium", "high", "xhigh":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "medium"

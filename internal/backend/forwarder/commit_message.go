@@ -2,9 +2,9 @@ package forwarder
 
 import (
 	"context"
+	"cursor/internal/logger"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -110,7 +110,7 @@ func (service *Service) WriteGitCommitMessage(ctx context.Context, req *connect.
 		"artifact_sse":     artifactPaths.ResponsePath,
 		"artifact_summary": artifactPaths.SummaryPath,
 	}); err != nil {
-		log.Printf("forwarder failed to write commit message final log request_id=%s error=%v", requestID, err)
+		logger.Infof("forwarder failed to write commit message final log request_id=%s error=%v", requestID, err)
 	}
 	return connect.NewResponse(&aiserverv1.WriteGitCommitMessageResponse{
 		CommitMessage: commitMessage,
@@ -164,7 +164,7 @@ func (service *Service) resolveCommitMessageModelID(ctx context.Context) (string
 	channel, err := service.resolver.SelectChannelForModel(ctx, hash)
 	if err != nil || channel == nil || strings.TrimSpace(channel.ID) != hash {
 		if err != nil {
-			log.Printf("forwarder commit message ignored invalid last agent model hash=%s error=%v", hash, err)
+			logger.Infof("forwarder commit message ignored invalid last agent model hash=%s error=%v", hash, err)
 		}
 		return "", "default_fallback", hash
 	}
@@ -186,7 +186,7 @@ func commitMessageConnectError(recorder *commitMessageLogRecorder, code connect.
 		"code":  code.String(),
 		"error": err.Error(),
 	}); logErr != nil {
-		log.Printf("forwarder failed to write commit message error log error=%v original_error=%v", logErr, err)
+		logger.Infof("forwarder failed to write commit message error log error=%v original_error=%v", logErr, err)
 	}
 	return connect.NewError(code, err)
 }

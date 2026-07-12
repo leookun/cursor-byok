@@ -17,6 +17,11 @@ export const modalState = reactive({
  * @returns {Promise<boolean>} - true=确定, false=取消
  */
 export function showModal(options = {}) {
+  // resolve any previous dangling promise before creating a new one
+  if (modalState._resolve) {
+    modalState._resolve(null);
+    modalState._resolve = null;
+  }
   return new Promise((resolve) => {
     modalState.visible = true;
     modalState.title = options.title ?? "提示";

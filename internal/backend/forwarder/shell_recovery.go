@@ -1,8 +1,8 @@
 package forwarder
 
 import (
+	"cursor/internal/logger"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -34,7 +34,7 @@ func initializePendingExecForTracking(pending runtimecore.PendingExec) runtimeco
 }
 
 func shellForegroundTimeoutDuration(argsJSON []byte) time.Duration {
-	timeoutMS := int64(30000)
+	timeoutMS := DefaultShellBlockUntilMS
 	args, err := runtimecore.DecodeArgsMap(argsJSON)
 	if err == nil {
 		if blockUntilMS, found, err := runtimecore.ReadFloat64Arg(args, "block_until_ms", "blockUntilMS"); err == nil && found {
@@ -150,7 +150,7 @@ func (service *Service) recoverShellWithoutTerminal(stream *ActiveStream, pendin
 	pending.ShellRecoveryScheduled = true
 	markExecCompleted(stream, pending)
 	resultPayload := buildSyntheticShellResultPayload(pending, reason)
-	log.Printf(
+	logger.Infof(
 		"forwarder synthetic shell recovery request_id=%s tool_call_id=%s message_id=%d exec_id=%s reason=%s stream_state=%s",
 		strings.TrimSpace(stream.RequestID),
 		strings.TrimSpace(pending.ToolCallID),

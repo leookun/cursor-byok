@@ -178,6 +178,11 @@ tasks:
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
+  historymetrics:
+    summary: 导出历史使用指标
+    cmds:
+      - go run ./scripts/historymetrics
+
   ads:install:
     summary: 安装广告页依赖
     dir: '{{.TASKFILE_DIR}}/ads-page'

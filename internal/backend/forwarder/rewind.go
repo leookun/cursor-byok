@@ -102,7 +102,7 @@ func findUserMessageEntriesByMessageID(entries []HistoryEntry, messageID string)
 	}
 	matches := make([]runRewindMatch, 0, 1)
 	for _, entry := range entries {
-		if strings.TrimSpace(entry.Kind) != "user_message" || len(entry.Payload) == 0 {
+		if strings.TrimSpace(entry.Kind) != EntryKindUserMessage || len(entry.Payload) == 0 {
 			continue
 		}
 		userMessage := &agentv1.UserMessage{}

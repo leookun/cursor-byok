@@ -100,7 +100,7 @@ func decodeAwaitShellArgs(raw []byte) (awaitShellArgs, error) {
 }
 
 func (service *Service) awaitShellSnapshot(stream *ActiveStream, args awaitShellArgs) awaitShellResult {
-	blockUntilMS := int64(30000)
+	blockUntilMS := DefaultShellBlockUntilMS
 	if args.BlockUntilMS != nil {
 		blockUntilMS = *args.BlockUntilMS
 	}

@@ -23,7 +23,6 @@ const reasoningEffortOptions = [
   { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
   { label: "高", value: "high", icon: "icon-[mdi--brain]" },
   { label: "极高", value: "xhigh", icon: "icon-[mdi--head-cog-outline]" },
-  { label: "最高", value: "max", icon: "icon-[mdi--brain]" },
 ];
 
 const anthropicThinkingEffortOptions = [

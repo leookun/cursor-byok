@@ -301,11 +301,7 @@ func protoJSONDebugPayload(message proto.Message) any {
 	if err != nil {
 		return map[string]any{"marshal_error": err.Error()}
 	}
-	var decoded any
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return string(payload)
-	}
-	return decoded
+	return json.RawMessage(payload)
 }
 
 func inboundIntentDebugPayload(intent InboundIntent) map[string]any {

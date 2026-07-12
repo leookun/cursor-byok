@@ -180,7 +180,7 @@ func (service *Service) projectSummaryInputHistoryMessages(conversation *Convers
 		return nil, nil
 	}
 	inputConversation := cloneConversationFile(conversation)
-	inputConversation.Entries = filterConversationEntriesByKind(conversation.Entries, "user_message", "request_context", "prompt_context")
+	inputConversation.Entries = filterConversationEntriesByKind(conversation.Entries, EntryKindUserMessage, "request_context", "prompt_context")
 	return service.projector.ProjectPromptReplay(inputConversation)
 }
 
@@ -189,7 +189,7 @@ func (service *Service) projectSummaryOutputMessages(conversation *ConversationF
 		return nil, nil
 	}
 	outputConversation := cloneConversationFile(conversation)
-	outputConversation.Entries = filterConversationEntriesByKind(conversation.Entries, "assistant_text", "tool_call", "tool_result")
+	outputConversation.Entries = filterConversationEntriesByKind(conversation.Entries, EntryKindAssistantText, EntryKindToolCall, EntryKindToolResult)
 	return service.projector.ProjectPromptReplay(outputConversation)
 }
 

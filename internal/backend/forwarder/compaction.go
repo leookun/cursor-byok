@@ -3,10 +3,10 @@ package forwarder
 import (
 	"bytes"
 	"context"
+	"cursor/internal/logger"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -385,7 +385,7 @@ func (service *Service) runPendingCompaction(stream *ActiveStream, token uint64,
 			Err:         err,
 		},
 	}); postErr != nil && !errors.Is(postErr, errProviderLoopInterrupted) {
-		log.Printf("forwarder compaction completion post failed request_id=%s token=%d err=%v", strings.TrimSpace(stream.RequestID), token, postErr)
+		logger.Infof("forwarder compaction completion post failed request_id=%s token=%d err=%v", strings.TrimSpace(stream.RequestID), token, postErr)
 		_ = service.failStreamIfNonTerminal(stream, "unknown", postErr)
 	}
 }
@@ -423,37 +423,37 @@ func (service *Service) handleCompactionEvent(stream *ActiveStream, payload *str
 	}
 	if err := service.applyCompactionPlan(stream, stream.ConversationID, payload.Plan, payload.SummaryText); err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	if err := service.syncSummaryCarryForward(stream.ConversationID, stream.RequestID, stream.CurrentModelCallID); err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	if err := service.broker.Publish(stream.RequestID, StreamEvent{
 		Message: buildSummaryMessage(payload.SummaryText),
 	}); err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	if err := service.publishCheckpoint(stream.RequestID, stream.ConversationID); err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	if err := service.publishSummaryCompleted(stream, firstNonEmpty(payload.Plan.HookMessage, "Conversation context compacted.")); err != nil {
 		service.setTurnPhase(stream, TurnPhaseFailed)
-		return service.failStream(stream, "unknown", err)
+		return service.failStream(stream, TerminalErrorUnknown, err)
 	}
 	if payload.Plan.Trigger == "manual" {
 		if err := service.completeManualCompactionTurn(stream); err != nil {
-			return service.failStream(stream, "unknown", err)
+			return service.failStream(stream, TerminalErrorUnknown, err)
 		}
 		if err := service.broker.Publish(stream.RequestID, StreamEvent{
 			Message: buildTurnEndedMessage(0, 0, 0, 0),
 		}); err != nil {
-			return service.failStream(stream, "unknown", err)
+			return service.failStream(stream, TerminalErrorUnknown, err)
 		}
 		if err := service.broker.Complete(stream.RequestID, "", ""); err != nil {
-			return service.failStream(stream, "unknown", err)
+			return service.failStream(stream, TerminalErrorUnknown, err)
 		}
 		service.setTurnPhase(stream, TurnPhaseCompleted)
 		return nil
@@ -474,7 +474,7 @@ func (service *Service) finishCompactionWithError(stream *ActiveStream, cancel c
 	stream.PendingCompaction = nil
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
-	terminalCode := "unknown"
+	terminalCode := TerminalErrorUnknown
 	var coded interface{ TerminalCode() string }
 	if errors.As(err, &coded) && strings.TrimSpace(coded.TerminalCode()) != "" {
 		terminalCode = strings.TrimSpace(coded.TerminalCode())
@@ -695,7 +695,7 @@ func buildAutoCompactionPreservedCurrentTurnEntries(entries []HistoryEntry, plan
 		switch strings.TrimSpace(entry.Kind) {
 		case "compaction_summary", "compacted_summary", "compaction_request":
 			continue
-		case "tool_result":
+		case EntryKindToolResult:
 			if rewritten, ok := rewriteAutoCompactionToolResultEntry(entry, autoCompactionPreservedToolResultLimitBytes, false); ok {
 				entry = rewritten
 			}
@@ -1091,27 +1091,27 @@ func buildCurrentTurnCompactionCandidate(entries []HistoryEntry, turnSeq int64, 
 		if entry.TurnSeq != turnSeq || strings.TrimSpace(entry.RequestID) != normalizedRequestID {
 			continue
 		}
-		if strings.TrimSpace(entry.Kind) == "user_message" && strings.TrimSpace(summary.UserText) == "" {
+		if strings.TrimSpace(entry.Kind) == EntryKindUserMessage && strings.TrimSpace(summary.UserText) == "" {
 			summary.UserText = currentTurnUserText(entry)
 		}
 		if _, ok := preservedEntryIndexes[index]; ok {
 			continue
 		}
 		switch strings.TrimSpace(entry.Kind) {
-		case "assistant_text":
+		case EntryKindAssistantText:
 			if step := summarizeCurrentTurnAssistantEntry(entry); step != "" {
 				summary.Steps = append(summary.Steps, step)
 			}
 			replayCount++
 			estimatedTokens += estimateTextTokens(string(entry.Payload))
-		case "tool_call":
+		case EntryKindToolCall:
 			removedToolHistory = true
 			if step := summarizeCurrentTurnToolCallEntry(entry); step != "" {
 				summary.Steps = append(summary.Steps, step)
 			}
 			replayCount++
 			estimatedTokens += estimateTextTokens(string(entry.Payload))
-		case "tool_result":
+		case EntryKindToolResult:
 			removedToolHistory = true
 			if step := summarizeCurrentTurnToolResultEntry(entry); step != "" {
 				summary.Steps = append(summary.Steps, step)
@@ -1169,25 +1169,25 @@ func buildContextTurnCompactionCandidate(entries []HistoryEntry) (compactionCand
 	estimatedTokens := int64(0)
 	for _, entry := range entries {
 		switch strings.TrimSpace(entry.Kind) {
-		case "user_message":
+		case EntryKindUserMessage:
 			if strings.TrimSpace(summary.UserText) == "" {
 				summary.UserText = currentTurnUserText(entry)
 			}
 			replayCount++
 			estimatedTokens += estimateTextTokens(string(entry.Payload))
-		case "assistant_text":
+		case EntryKindAssistantText:
 			if step := summarizeCurrentTurnAssistantEntry(entry); step != "" {
 				summary.Steps = append(summary.Steps, step)
 			}
 			replayCount++
 			estimatedTokens += estimateTextTokens(string(entry.Payload))
-		case "tool_call":
+		case EntryKindToolCall:
 			if step := summarizeCurrentTurnToolCallEntry(entry); step != "" {
 				summary.Steps = append(summary.Steps, step)
 			}
 			replayCount++
 			estimatedTokens += estimateTextTokens(string(entry.Payload))
-		case "tool_result":
+		case EntryKindToolResult:
 			if step := summarizeCurrentTurnToolResultEntry(entry); step != "" {
 				summary.Steps = append(summary.Steps, step)
 			}
@@ -1352,7 +1352,7 @@ func buildCompactedTurnSummary(agentTurn *agentv1.AgentConversationTurnStructure
 }
 
 func rewriteAutoCompactionToolResultEntry(entry HistoryEntry, limitBytes int, minimal bool) (HistoryEntry, bool) {
-	if strings.TrimSpace(entry.Kind) != "tool_result" {
+	if strings.TrimSpace(entry.Kind) != EntryKindToolResult {
 		return entry, false
 	}
 	var payload toolResultEntryPayload
@@ -1411,7 +1411,7 @@ func autoCompactionPreservedEntryIndexes(entries []HistoryEntry, turnSeq int64, 
 		if shouldPreserveAutoCompactionEntry(entry, normalizedToolCallID) {
 			preserved[index] = struct{}{}
 		}
-		if strings.TrimSpace(entry.Kind) == "tool_call" && historyEntryToolCallID(entry) == normalizedToolCallID {
+		if strings.TrimSpace(entry.Kind) == EntryKindToolCall && historyEntryToolCallID(entry) == normalizedToolCallID {
 			latestToolCallIndex = index
 		}
 	}
@@ -1425,7 +1425,7 @@ func autoCompactionPreservedEntryIndexes(entries []HistoryEntry, turnSeq int64, 
 }
 
 func toolCallEntryNeedsReasoningCarrier(entry HistoryEntry) bool {
-	if strings.TrimSpace(entry.Kind) != "tool_call" {
+	if strings.TrimSpace(entry.Kind) != EntryKindToolCall {
 		return false
 	}
 	var payload toolCallEntryPayload
@@ -1445,7 +1445,7 @@ func latestAssistantReasoningCarrierIndex(entries []HistoryEntry, beforeIndex in
 			continue
 		}
 		switch strings.TrimSpace(entry.Kind) {
-		case "assistant_text":
+		case EntryKindAssistantText:
 			var payload assistantTextPayload
 			if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 				continue
@@ -1465,12 +1465,12 @@ func historyEntryToolCallID(entry HistoryEntry) string {
 		return toolCallID
 	}
 	switch strings.TrimSpace(entry.Kind) {
-	case "tool_call":
+	case EntryKindToolCall:
 		var payload toolCallEntryPayload
 		if err := json.Unmarshal(entry.Payload, &payload); err == nil {
 			return strings.TrimSpace(payload.ToolCallID)
 		}
-	case "tool_result":
+	case EntryKindToolResult:
 		var payload toolResultEntryPayload
 		if err := json.Unmarshal(entry.Payload, &payload); err == nil {
 			return strings.TrimSpace(payload.ToolCallID)
@@ -1509,7 +1509,7 @@ func latestCompletedToolCallIDForTurn(entries []HistoryEntry, turnSeq int64, req
 		if entry.TurnSeq != turnSeq || strings.TrimSpace(entry.RequestID) != normalizedRequestID {
 			continue
 		}
-		if strings.TrimSpace(entry.Kind) != "tool_result" {
+		if strings.TrimSpace(entry.Kind) != EntryKindToolResult {
 			continue
 		}
 		toolCallID := strings.TrimSpace(entry.ToolCallID)
@@ -1600,7 +1600,7 @@ func (service *Service) generateCompactionSummary(ctx context.Context, stream *A
 	if len(messages) == 0 {
 		return "", nil
 	}
-	accumulated := ""
+	var accumulated strings.Builder
 	usage := turnUsageSnapshot{}
 	err = service.provider.StartStream(ctx, ProviderRequest{
 		RequestID:      stream.RequestID,
@@ -1620,12 +1620,12 @@ func (service *Service) generateCompactionSummary(ctx context.Context, stream *A
 		}
 		switch event.Kind {
 		case modeladapter.ModelEventKindTextDelta:
-			accumulated += event.Text
-			if strings.TrimSpace(accumulated) == "" {
+			accumulated.WriteString(event.Text)
+			if strings.TrimSpace(accumulated.String()) == "" {
 				return nil
 			}
 			return service.broker.Publish(stream.RequestID, StreamEvent{
-				Message: buildSummaryMessage(accumulated),
+				Message: buildSummaryMessage(accumulated.String()),
 			})
 		case modeladapter.ModelEventKindThinkingDelta, modeladapter.ModelEventKindThinkingCompleted:
 			return nil
@@ -1674,7 +1674,7 @@ func (service *Service) generateCompactionSummary(ctx context.Context, stream *A
 	if err := service.recordTurnUsageSnapshot(stream, conversationID, turnSeq, requestID, modelCallID, "completed", usage, "", false); err != nil {
 		return "", fmt.Errorf("record compaction provider usage: %w", err)
 	}
-	return strings.TrimSpace(accumulated), nil
+	return strings.TrimSpace(accumulated.String()), nil
 }
 
 func existingConversationSummaryText(conversation *ConversationFile) string {

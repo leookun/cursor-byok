@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getAdRuntime, openAdExternalURL } from "@/services/clientApi";
+import { asString, asBoolean, asNumber } from "@/utils/typeCast";
 
 const OPEN_AD_EVENT = "cursor:open-ad";
 const BRIDGE_SOURCE = "cursor-ad";
@@ -31,27 +32,13 @@ const frameStyle = computed(() => {
   };
 });
 
-function asString(value) {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return "";
-}
-
-function asBoolean(value) {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-function asNumber(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+function localAsNumber(value, fallback = 0) {
+  const parsed = asNumber(value, 0);
+  return parsed > 0 ? parsed : fallback;
 }
 
 function clampNumber(value, min, max, fallback) {
-  const parsed = asNumber(value, fallback);
+  const parsed = localAsNumber(value, fallback);
   return Math.min(max, Math.max(min, parsed || fallback));
 }
 

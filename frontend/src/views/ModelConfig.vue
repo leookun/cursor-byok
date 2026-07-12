@@ -9,14 +9,15 @@ import {
   deleteModelAdapterAt,
   duplicateModelAdapterAt,
   getModelAdapterTestResultByID,
-  openModelEditorWindow,
   reloadUserConfig,
-  runModelAdapterTest,
+  startModelAdapterTest as runModelAdapterTest,
   startModelAdapterTest,
   toUserError,
 } from "@/state/appState";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
+const router = useRouter();
 const BATCH_TEST_CONCURRENCY = 10;
 
 const typeTabs = [
@@ -25,24 +26,37 @@ const typeTabs = [
 ];
 
 const activeType = ref("openai");
-const batchTesting = ref(false);
-const batchStopping = ref(false);
-const batchTotal = ref(0);
-const batchCompleted = ref(0);
-const batchActiveCalls = new Set();
-let batchStopRequested = false;
+
+// 每种类型独立的批量测试状态
+function createBatchState() {
+  return {
+    testing: ref(false),
+    stopping: ref(false),
+    total: ref(0),
+    completed: ref(0),
+    activeCalls: new Set(),
+    stopRequested: false,
+    abortController: null,
+  };
+}
+const batchStates = {
+  openai: createBatchState(),
+  anthropic: createBatchState(),
+};
 
 const filteredAdapters = computed(() =>
   appState.modelAdapters.filter((adapter) => adapter.type === activeType.value),
 );
 const batchButtonText = computed(() => {
-  if (batchStopping.value) {
+  const state = batchStates[activeType.value];
+  if (state.stopping.value) {
     return "停止中...";
   }
-  if (!batchTesting.value) {
-    return "测试全部";
+  if (!state.testing.value) {
+    const typeName = activeType.value === "openai" ? "OpenAI" : "Anthropic";
+    return `测试全部 ${typeName}`;
   }
-  return `停止测试 ${batchCompleted.value}/${batchTotal.value}`;
+  return `停止测试 ${state.completed.value}/${state.total.value}`;
 });
 
 watch(
@@ -99,11 +113,12 @@ async function openEditor(index = -1) {
         ...createEmptyModelAdapter(),
         type: activeType.value,
       };
-  try {
-    await openModelEditorWindow(index, adapter);
-  } catch (error) {
-    await showActionError("打开失败", toUserError(error));
-  }
+  // 在主窗口内路由切换，传递索引和 adapter 数据
+  router.push({
+    path: "/model-editor",
+    query: { index: index },
+    state: { adapterJSON: JSON.stringify(adapter) },
+  });
 }
 
 async function handleDeleteModelAdapter(index) {
@@ -151,19 +166,21 @@ function isCancelError(error) {
 }
 
 async function stopBatchTesting() {
-  if (!batchTesting.value || batchStopping.value) {
+  const state = batchStates[activeType.value];
+  if (!state.testing.value || state.stopping.value) {
     return;
   }
-  batchStopRequested = true;
-  batchStopping.value = true;
-  const activeCalls = Array.from(batchActiveCalls);
-  await Promise.allSettled(
-    activeCalls.map((call) => (typeof call?.cancel === "function" ? call.cancel("batch-stop") : undefined)),
-  );
+  state.stopRequested = true;
+  state.stopping.value = true;
+  if (state.abortController) {
+    state.abortController.abort();
+    state.abortController = null;
+  }
 }
 
 async function handleTestAllModelAdapters() {
-  if (batchTesting.value) {
+  const state = batchStates[activeType.value];
+  if (state.testing.value) {
     await stopBatchTesting();
     return;
   }
@@ -171,15 +188,16 @@ async function handleTestAllModelAdapters() {
   if (adapters.length === 0) {
     return;
   }
-  batchStopRequested = false;
-  batchTesting.value = true;
-  batchStopping.value = false;
-  batchTotal.value = adapters.length;
-  batchCompleted.value = 0;
+  state.stopRequested = false;
+  state.abortController = new AbortController();
+  state.testing.value = true;
+  state.stopping.value = false;
+  state.total.value = adapters.length;
+  state.completed.value = 0;
   let nextIndex = 0;
   try {
     const workers = Array.from({ length: Math.min(BATCH_TEST_CONCURRENCY, adapters.length) }, async () => {
-      while (!batchStopRequested) {
+      while (!state.stopRequested && !state.abortController?.signal.aborted) {
         const currentIndex = nextIndex;
         nextIndex += 1;
         if (currentIndex >= adapters.length) {
@@ -187,26 +205,31 @@ async function handleTestAllModelAdapters() {
         }
         const adapter = adapters[currentIndex];
         const call = startModelAdapterTest(adapter);
-        batchActiveCalls.add(call);
+        state.activeCalls.add(call);
         try {
           await call;
         } catch (error) {
-          if (!isCancelError(error) && !batchStopRequested) {
+          if (!isCancelError(error) && !state.stopRequested) {
             // 单个失败结果由卡片自行展示，这里继续后续测试。
           }
         } finally {
-          batchActiveCalls.delete(call);
-          batchCompleted.value += 1;
+          state.activeCalls.delete(call);
+          state.completed.value += 1;
         }
       }
     });
     await Promise.allSettled(workers);
   } finally {
-    batchActiveCalls.clear();
-    batchStopRequested = false;
-    batchTesting.value = false;
-    batchStopping.value = false;
+    state.activeCalls.clear();
+    state.abortController = null;
+    state.stopRequested = false;
+    state.testing.value = false;
+    state.stopping.value = false;
   }
+}
+
+function isAnyBatchTesting() {
+  return batchStates.openai.testing.value || batchStates.anthropic.testing.value;
 }
 
 onMounted(async () => {
@@ -214,7 +237,18 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  void stopBatchTesting();
+  // 停止所有类型的批量测试
+  for (const key of Object.keys(batchStates)) {
+    const state = batchStates[key];
+    if (state.testing.value && !state.stopping.value) {
+      state.stopRequested = true;
+      state.stopping.value = true;
+      if (state.abortController) {
+        state.abortController.abort();
+        state.abortController = null;
+      }
+    }
+  }
 });
 </script>
 
@@ -240,12 +274,12 @@ onBeforeUnmount(() => {
         <div class="center-row gap-2">
           <Button
             variant="default"
-            :disabled="appState.configSaving || (!batchTesting && filteredAdapters.length === 0)"
+            :disabled="appState.configSaving || (!batchStates[activeType].testing && filteredAdapters.length === 0)"
             @click="handleTestAllModelAdapters"
           >
             {{ batchButtonText }}
           </Button>
-          <Button variant="primary" :disabled="appState.configSaving || batchTesting" @click="openEditor()">新增模型</Button>
+          <Button variant="primary" :disabled="appState.configSaving || isAnyBatchTesting()" @click="openEditor()">新增模型</Button>
         </div>
       </div>
     </div>
@@ -303,7 +337,7 @@ onBeforeUnmount(() => {
               <div class="center-row flex-wrap justify-end gap-2 border-t border-[#343434] pt-3">
                 <Button
                   variant="default"
-                  :disabled="appState.configSaving || batchTesting || isAdapterTesting(adapter)"
+                  :disabled="appState.configSaving || isAnyBatchTesting() || isAdapterTesting(adapter)"
                   @click="handleTestModelAdapter(adapter)"
                 >
                   {{ isAdapterTesting(adapter) ? "测试中..." : "测试" }}

@@ -1,0 +1,66 @@
+{
+  "id": "nezukocoder",
+  "displayName": "NezukoCoder",
+  "description": "A chibi Nezuko-inspired coding companion typing on a laptop with a simple OpenAI emblem.",
+  "spritesheetPath": "spritesheet.webp",
+  "spritesheetWidth": 1536,
+  "spritesheetHeight": 1872,
+  "frameWidth": 192,
+  "frameHeight": 208,
+  "columns": 8,
+  "rows": 9,
+  "totalFrames": 72,
+  "effectiveFrames": 61,
+  "fps": 8,
+  "animations": {
+    "idle": {
+      "fps": 6,
+      "loop": true,
+      "priority": 1,
+      "frames": [0, 1, 2, 3, 4, 5]
+    },
+    "walk": {
+      "fps": 10,
+      "loop": true,
+      "priority": 3,
+      "frames": [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    },
+    "wave": {
+      "fps": 8,
+      "loop": true,
+      "priority": 5,
+      "frames": [24, 25, 26, 27]
+    },
+    "sit": {
+      "fps": 6,
+      "loop": true,
+      "priority": 2,
+      "frames": [32, 33, 34, 35, 36]
+    },
+    "sleep": {
+      "fps": 3,
+      "loop": true,
+      "priority": 0,
+      "frames": [40, 41, 42, 43, 44, 45, 46, 47]
+    },
+    "think": {
+      "fps": 8,
+      "loop": true,
+      "priority": 2,
+      "frames": [48, 49, 50, 51, 52]
+    },
+    "happy": {
+      "fps": 10,
+      "loop": false,
+      "priority": 6,
+      "frames": [56, 57, 58, 59, 60, 61]
+    },
+    "focus": {
+      "fps": 8,
+      "loop": true,
+      "priority": 4,
+      "frames": [64, 65, 66, 67, 68, 69]
+    }
+  },
+  "defaultAnimation": "idle"
+}

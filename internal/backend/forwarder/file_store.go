@@ -553,16 +553,16 @@ func deriveRequestLoopStatus(entries []HistoryEntry, requestID string, turnSeq i
 			continue
 		}
 		switch strings.TrimSpace(entry.Kind) {
-		case "tool_call":
+		case EntryKindToolCall:
 			seenActivity = true
 			toolCallID := historyEntryToolCallID(entry)
 			if toolCallID == "" {
 				toolCallID = fmt.Sprintf("entry:%d", entry.Seq)
 			}
 			openToolCalls[toolCallID] = struct{}{}
-		case "tool_result", "assistant_text", "prompt_context", "request_context", "user_message":
+		case EntryKindToolResult, EntryKindAssistantText, "prompt_context", "request_context", EntryKindUserMessage:
 			seenActivity = true
-			if strings.TrimSpace(entry.Kind) == "tool_result" {
+			if strings.TrimSpace(entry.Kind) == EntryKindToolResult {
 				if toolCallID := historyEntryToolCallID(entry); toolCallID != "" {
 					delete(openToolCalls, toolCallID)
 				}

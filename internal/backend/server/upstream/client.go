@@ -274,7 +274,9 @@ func handleMockOAuth(reqCtx *RequestContext, route *Route) error {
 	payload := struct {
 		RefreshToken string `json:"refresh_token"`
 	}{}
-	_ = json.Unmarshal(reqCtx.RequestBody, &payload)
+	if err := json.Unmarshal(reqCtx.RequestBody, &payload); err != nil {
+		logger.Warnf("mock OAuth token request unmarshal failed: %v", err)
+	}
 	responseBody, err := marshalJSONBody(map[string]any{
 		"access_token": payload.RefreshToken,
 		"id_token":     payload.RefreshToken,

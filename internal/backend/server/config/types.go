@@ -152,7 +152,7 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		case next.ModelID == "":
 			return nil, errors.New("模型适配器 modelID 不能为空")
 		case next.Type == "openai" && next.ReasoningEffort == "":
-			return nil, errors.New("模型适配器 reasoningEffort 仅支持 low、medium、high、xhigh、max")
+			return nil, errors.New("模型适配器 reasoningEffort 仅支持 low、medium、high、xhigh")
 		case next.Type == "openai" && next.OpenAIEndpoint == "":
 			return nil, errors.New("模型适配器 openAIEndpoint 仅支持 /v1/responses、/v1/chat/completions 或 /custom（自定义路径）")
 		case next.Type == "openai" && next.OpenAIExtraParamsEnabled:
@@ -216,7 +216,7 @@ func normalizeReasoningEffort(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "medium":
 		return "medium"
-	case "low", "high", "xhigh", "max":
+	case "low", "high", "xhigh":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""

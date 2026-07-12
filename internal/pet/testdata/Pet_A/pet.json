@@ -1,0 +1,1 @@
+{"id":"pet_a","name":"Pet A","spritesheetPath":"spritesheet.webp","frameWidth":96,"frameHeight":96,"columns":4,"rows":1,"totalFrames":4,"fps":8,"animations":{"idle":{"fps":8,"loop":true,"priority":1,"frames":[0,1,2,3]}}}
