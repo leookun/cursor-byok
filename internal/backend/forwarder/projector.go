@@ -53,7 +53,7 @@ func (projector *HistoryProjector) ProjectPromptReplay(conversation *Conversatio
 					Content: "<conversation_summary>\n" + summary + "\n</conversation_summary>",
 				})
 			}
-		case "user_message":
+		case EntryKindUserMessage:
 			userMessage := &agentv1.UserMessage{}
 			if err := protojson.Unmarshal(entry.Payload, userMessage); err != nil {
 				return nil, fmt.Errorf("decode user_message entry: %w", err)
@@ -87,7 +87,7 @@ func (projector *HistoryProjector) ProjectPromptReplay(conversation *Conversatio
 			if isReplayablePromptContext(context) {
 				messages = append(messages, context.Message)
 			}
-		case "assistant_text":
+		case EntryKindAssistantText:
 			var payload assistantTextPayload
 			if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 				return nil, fmt.Errorf("decode assistant_text entry: %w", err)
@@ -108,7 +108,7 @@ func (projector *HistoryProjector) ProjectPromptReplay(conversation *Conversatio
 				OpenAIResponsesReasoningStatus:  payload.ReasoningStatus,
 				OpenAIResponsesReasoningSummary: append(json.RawMessage(nil), payload.ReasoningSummary...),
 			})
-		case "tool_call":
+		case EntryKindToolCall:
 			var payload toolCallEntryPayload
 			if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 				return nil, fmt.Errorf("decode tool_call entry: %w", err)
@@ -134,7 +134,7 @@ func (projector *HistoryProjector) ProjectPromptReplay(conversation *Conversatio
 				seenToolCalls[toolCallID] = struct{}{}
 				openToolCalls[toolCallID] = struct{}{}
 			}
-		case "tool_result":
+		case EntryKindToolResult:
 			var payload toolResultEntryPayload
 			if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 				return nil, fmt.Errorf("decode tool_result entry: %w", err)
@@ -438,7 +438,7 @@ func isCanceledTurnActivityEntry(entry HistoryEntry) bool {
 }
 
 func compactedProjectionPreservedEntry(entry HistoryEntry) (HistoryEntry, bool) {
-	if strings.TrimSpace(entry.Kind) != "tool_result" {
+	if strings.TrimSpace(entry.Kind) != EntryKindToolResult {
 		return entry, false
 	}
 	if rewritten, ok := rewriteAutoCompactionToolResultEntry(entry, autoCompactionPreservedToolResultLimitBytes, false); ok {
@@ -530,7 +530,7 @@ func (projector *HistoryProjector) ProjectLegacyCheckpoint(conversation *Convers
 				turnRequestID = strings.TrimSpace(entry.RequestID)
 			}
 			switch strings.TrimSpace(entry.Kind) {
-			case "user_message":
+			case EntryKindUserMessage:
 				userMessage := &agentv1.UserMessage{}
 				if err := protojson.Unmarshal(entry.Payload, userMessage); err != nil {
 					return nil, fmt.Errorf("decode checkpoint user_message: %w", err)
@@ -540,7 +540,7 @@ func (projector *HistoryProjector) ProjectLegacyCheckpoint(conversation *Convers
 					return nil, err
 				}
 				rawUserMessage = payload
-			case "assistant_text":
+			case EntryKindAssistantText:
 				var payload assistantTextPayload
 				if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 					return nil, err
@@ -567,7 +567,7 @@ func (projector *HistoryProjector) ProjectLegacyCheckpoint(conversation *Convers
 					return nil, err
 				}
 				steps = append(steps, stepPayload)
-			case "tool_call":
+			case EntryKindToolCall:
 				var payload toolCallEntryPayload
 				if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 					return nil, err
@@ -599,7 +599,7 @@ func (projector *HistoryProjector) ProjectLegacyCheckpoint(conversation *Convers
 					seenToolCalls[toolCallID] = struct{}{}
 					openToolCalls[toolCallID] = struct{}{}
 				}
-			case "tool_result":
+			case EntryKindToolResult:
 				var payload toolResultEntryPayload
 				if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 					return nil, err

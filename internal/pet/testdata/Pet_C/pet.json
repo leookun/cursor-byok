@@ -1,0 +1,1 @@
+{"id":"pet_c","name":"Pet C","frameWidth":64,"frameHeight":64,"columns":8,"rows":2,"animations":{"idle":{"fps":8,"loop":true,"priority":1,"frames":[0,1,2,3]}}}

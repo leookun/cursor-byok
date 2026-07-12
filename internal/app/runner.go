@@ -2,12 +2,10 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/hex"
-	"encoding/pem"
 	"io/fs"
-	"net"
+	"log"
+	"net/http"
+	"os"
 	goruntime "runtime"
 	"strings"
 	"time"
@@ -59,6 +57,9 @@ func init() {
 	application.RegisterEvent[updater.ProgressPayload](updater.EventProgress)
 	application.RegisterEvent[updater.ReadyPayload](updater.EventReady)
 	application.RegisterEvent[updater.ErrorPayload](updater.EventError)
+	application.RegisterEvent[string](bridge.EventCursorActivity)
+	application.RegisterEvent[[]bridge.PetInfo](bridge.EventPetListChanged)
+	application.RegisterEvent[map[string]string](bridge.EventPetStateChanged)
 }
 
 // Run 用于处理与 Run 相关的逻辑。
@@ -80,12 +81,15 @@ func Run(resources EmbeddedResources) error {
 		return err
 	}
 	proxyService := bridge.NewProxyService(proxyServer, certManager, embeddedCACertPEM)
+	// 将 mitm 的 Cursor 活跃信号接到 PetService（最终发射 cursor:activity 事件）
+	proxyServer.SetCursorActivityCallback(proxyService.FireCursorActivity)
 	adAssetBaseURL := defaultBackendBaseURL
 	if cfg, err := proxyService.LoadUserConfig(); err == nil {
 		adAssetBaseURL = browserReachableLoopbackBaseURL(cfg.BackendListenAddr)
 	}
 	metricsService := bridge.NewMetricsService()
 	windowService := bridge.NewWindowService()
+	petService := bridge.NewPetService()
 	adCore := ads.NewService(ads.Options{
 		StoreRoot:    appdata.AdsRootPath(),
 		HTTPClient:   netproxy.NewHTTPClient(30 * time.Second),
@@ -130,9 +134,18 @@ func Run(resources EmbeddedResources) error {
 			application.NewService(metricsService),
 			application.NewService(windowService),
 			application.NewService(adService),
+			application.NewService(petService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(resources.Assets),
+			Middleware: func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if serveUserPetAsset(w, r) {
+						return
+					}
+					next.ServeHTTP(w, r)
+				})
+			},
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyAccessory,
@@ -140,6 +153,8 @@ func Run(resources EmbeddedResources) error {
 		},
 		OnShutdown: func() {
 			stopAdRefresh()
+			petService.Stop()
+			windowService.StopAllPets()
 			if updateManager != nil {
 				updateManager.Shutdown()
 			}
@@ -180,8 +195,10 @@ func Run(resources EmbeddedResources) error {
 		app.Event.Emit(ads.EventUpdated, runtimeState)
 	}
 	refreshAdAsync := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		go func() {
-			refreshAd(context.Background())
+			defer cancel()
+			refreshAd(ctx)
 		}()
 	}
 	startAdRefreshLoop := func(ctx context.Context) {
@@ -204,7 +221,25 @@ func Run(resources EmbeddedResources) error {
 
 	windowService.SetApp(app)
 	windowService.SetUpdater(updateManager)
+	petService.SetApp(app)
 
+	// PET_DEBUG=1 时自动开启桌宠，方便无头/自动化环境采集 Window 层调试日志
+	// （正常运行由前端 UI 触发 OpenPetWindow；此钩子仅用于调试，不影响正常流程）。
+	if os.Getenv("PET_DEBUG") == "1" {
+		go func() {
+			time.Sleep(2 * time.Second) // 等 app 事件循环与窗口线程就绪
+			log.Println("[Pet][DEBUG] PET_DEBUG=1: auto-opening pet window for diagnostics")
+			windowService.OpenPetWindow()
+		}()
+	}
+
+	// 连接 proxy 活动事件到 pet 状态
+	proxyService.SetCursorActivityCallback(func(method, path string) {
+		app.Event.Emit(bridge.EventCursorActivity, map[string]string{
+			"method": method,
+			"path":   path,
+		})
+	})
 	mainWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               appName,
 		Width:               700,
@@ -278,6 +313,9 @@ func Run(resources EmbeddedResources) error {
 	menu.Add("隐藏窗口").OnClick(func(ctx *application.Context) {
 		window.Hide()
 	})
+	menu.Add("显示桌宠").OnClick(func(ctx *application.Context) {
+		windowService.TogglePetWindow()
+	})
 	menu.AddSeparator()
 	menu.Add("退出").OnClick(func(ctx *application.Context) {
 		proxyService.ShutdownForQuit()
@@ -350,45 +388,4 @@ func Run(resources EmbeddedResources) error {
 	refreshTray()
 
 	return app.Run()
-}
-
-func browserReachableLoopbackBaseURL(listenAddr string) string {
-	host, port, err := net.SplitHostPort(strings.TrimSpace(listenAddr))
-	if err != nil || strings.TrimSpace(port) == "" {
-		return "http://" + serverconfig.DefaultBackendListenAddr
-	}
-	host = strings.TrimSpace(host)
-	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
-		host = "127.0.0.1"
-	}
-	return "http://" + net.JoinHostPort(host, port)
-}
-
-// logEmbeddedCAInfo 用于处理与 logEmbeddedCAInfo 相关的逻辑。
-func logEmbeddedCAInfo(certPEM []byte) {
-	if len(certPEM) == 0 {
-		logger.Errorf("embedded CA is empty")
-		return
-	}
-	cert, err := parseEmbeddedCert(certPEM)
-	if err != nil {
-		logger.Errorf("parse embedded CA failed: %v", err)
-		return
-	}
-	sum := sha256.Sum256(cert.Raw)
-	logger.Infof(
-		"embedded CA loaded: sha256=%s subject=%s valid=%s~%s",
-		strings.ToUpper(hex.EncodeToString(sum[:])),
-		cert.Subject.String(),
-		cert.NotBefore.Format(time.RFC3339),
-		cert.NotAfter.Format(time.RFC3339),
-	)
-}
-
-// parseEmbeddedCert 用于处理与 parseEmbeddedCert 相关的逻辑。
-func parseEmbeddedCert(data []byte) (*x509.Certificate, error) {
-	if block, _ := pem.Decode(data); block != nil {
-		return x509.ParseCertificate(block.Bytes)
-	}
-	return x509.ParseCertificate(data)
 }

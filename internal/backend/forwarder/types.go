@@ -105,6 +105,22 @@ const (
 	StreamStatusFailed    StreamStatus = "failed"
 )
 
+// EntryKind 表示 HistoryEntry 中 Kind 字段的合法取值。
+const (
+	EntryKindAssistantText = "assistant_text"
+	EntryKindToolCall      = "tool_call"
+	EntryKindUserMessage   = "user_message"
+	EntryKindToolResult    = "tool_result"
+)
+
+// TerminalErrorCode 表示流终止时的标准错误码。
+const (
+	TerminalErrorUnknown = "unknown"
+)
+
+// DefaultShellBlockUntilMS 是 shell 工具等待终端输出的默认毫秒数。
+const DefaultShellBlockUntilMS = int64(30000)
+
 type StreamEvent struct {
 	Message              *agentv1.AgentServerMessage
 	End                  bool

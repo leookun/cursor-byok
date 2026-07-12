@@ -1,5 +1,37 @@
+/**
+ * appState.js — 应用全局状态管理 (1388 行)
+ *
+ * === 模块化 TODO ===
+ * 理想结构是拆分为 6 个子模块（normalizers / configStore / modelAdapterOps /
+ * serviceState / updateManager / appState），但因函数间交错依赖（如 persistConfigPayload
+ * 同时引用 config 和 model normalizers）且缺少自动化测试覆盖，物理拆分风险较高。
+ * 当前以注释头 + 分区标记组织，待有完整测试后再做物理拆分。
+ *
+ * === 文件结构 ===
+ *
+ *  [L23-54]   常量 & 事件名
+ *  [L56-196]  §1 基础类型归一化 (as* / format* / normalize*）
+ *  [L198-260] §2 模型测试结果归一化
+ *  [L262-288] §3 模型适配器模板
+ *  [L290-341] §4 模型端点 & JSON 校验
+ *  [L343-481] §5 模型适配器归一化 & 批量校验
+ *  [L483-611] §6 配置持久化辅助
+ *  [L612-683] §7 配置保存核心流程
+ *  [L684-699] §8 模型测试结果事件处理
+ *  [L701-813] §9 更新状态归一化 & 事件处理
+ *  [L815-822] §10 错误提取
+ *  [L823-872] §11 顶层状态 appState
+ *  [L873-972] §12 localStorage 持久化 & 事件监听
+ *  [L973-1036]§13 视图计算状态 (appViewState / updateViewState)
+ *  [L1041-1219]§14 模型适配器 CRUD + 测试
+ *  [L1248-1339]§15 服务状态同步 & 控制
+ *  [L1341-1372]§16 更新管理 & 启动入口
+ */
+
 import { computed, reactive, watchSyncEffect } from "vue";
 import { Events } from "@wailsio/runtime";
+import { obfuscate, deobfuscate } from "@/utils/storageObfuscate";
+import { asString, asBoolean, asNumber, asArray, asPositiveInteger, asPositiveIntegerString, asNullableRate } from "@/utils/typeCast";
 import dayjs from "dayjs";
 import {
   checkForUpdates,
@@ -22,7 +54,7 @@ import {
 const APP_STATE_STORAGE_KEY = "cursor-client:runtime-state:v2";
 const GENERIC_SERVICE_ERROR = "服务错误";
 const SUPPORTED_MODEL_ADAPTER_TYPES = new Set(["openai", "anthropic"]);
-const SUPPORTED_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+const SUPPORTED_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const SUPPORTED_ANTHROPIC_THINKING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 export const ANTHROPIC_THINKING_EFFORT_DEFAULT = "xhigh";
 export const OPENAI_ENDPOINT_RESPONSES = "/v1/responses";
@@ -51,68 +83,6 @@ export const ROUTE_MODE_OPTIONS = [
   { label: "本地服务模式", value: "local" },
   { label: "直连 Cursor 模式", value: "upstream" },
 ];
-
-function asString(value) {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (value instanceof String) {
-    return value.toString().trim();
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return "";
-}
-
-function asBoolean(value, fallback = false) {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "number") {
-    return value !== 0;
-  }
-  const normalized = asString(value).toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-  return normalized === "true" || normalized === "1" || normalized === "yes";
-}
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function asPositiveIntegerString(value) {
-  const text = asString(value);
-  if (!text) {
-    return "";
-  }
-  if (!/^\d+$/.test(text)) {
-    return "";
-  }
-  return Number(text) > 0 ? text : "";
-}
-
-function asPositiveInteger(value) {
-  const text = asPositiveIntegerString(value);
-  if (!text) {
-    return 0;
-  }
-  return Number(text);
-}
-
-function asNumber(value, fallback = 0) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  const text = asString(value);
-  if (!text) {
-    return fallback;
-  }
-  const parsed = Number(text);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 function formatReleaseDate(value) {
   const text = asString(value);
@@ -432,7 +402,7 @@ export function validateModelAdapters(source) {
       return `${prefix} 的模型标识不能为空`;
     }
     if (adapter.type === "openai" && !SUPPORTED_REASONING_EFFORTS.has(adapter.reasoningEffort)) {
-      return `${prefix} 的推理强度仅支持 low、medium、high、xhigh、max`;
+      return `${prefix} 的推理强度仅支持 low、medium、high、xhigh`;
     }
     if (adapter.type === "openai" && !isValidOpenAIEndpoint(adapter.openAIEndpoint)) {
       return `${prefix} 的 OpenAI 端点仅支持 /v1/responses、/v1/chat/completions 或以 / 开头的自定义路径`;
@@ -519,7 +489,7 @@ function loadCachedState() {
     if (!raw) {
       return {};
     }
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(deobfuscate(raw));
     if (!parsed || typeof parsed !== "object") {
       return {};
     }
@@ -547,13 +517,6 @@ function normalizeConfig(source) {
     },
     lastAgentModelHash: asString(raw.lastAgentModelHash),
   };
-}
-
-function asNullableRate(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  return null;
 }
 
 function normalizeHomeMetrics(source) {
@@ -877,7 +840,7 @@ watchSyncEffect(() => {
   try {
     window.localStorage.setItem(
       APP_STATE_STORAGE_KEY,
-      JSON.stringify({
+      obfuscate(JSON.stringify({
         ...buildConfigPayload(),
         serviceRunning: appState.serviceRunning,
         backendRunning: appState.backendRunning,
@@ -897,7 +860,7 @@ watchSyncEffect(() => {
         netProxyHttps: appState.netProxyHttps,
         netProxyPacIgnored: appState.netProxyPacIgnored,
         netProxyDescription: appState.netProxyDescription,
-      }),
+      })),
     );
   } catch (_error) {
     // ignore local persistence failures
@@ -1083,10 +1046,6 @@ export function startModelAdapterTest(adapter) {
     }
     return result;
   });
-}
-
-export async function runModelAdapterTest(adapter) {
-  return startModelAdapterTest(adapter);
 }
 
 export async function persistUserConfig() {

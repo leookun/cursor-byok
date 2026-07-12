@@ -274,6 +274,18 @@
         }
       ]
     },
+    "1b7d24b212e52c54": {
+      "source": "{0} 的推理强度仅支持 low、medium、high、xhigh",
+      "kind": "template",
+      "placeholders": 1,
+      "refs": [
+        {
+          "file": "src/state/appState.js",
+          "line": 315,
+          "column": 14
+        }
+      ]
+    },
     "1bc77f5ab979f4c1": {
       "source": "新增模型配置",
       "kind": "text",
@@ -1160,23 +1172,6 @@
           "file": "src/views/ModelEditor.vue",
           "line": 68,
           "column": 22
-        }
-      ]
-    },
-    "8672864e90417138": {
-      "source": "最高",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/components/ModelAdapterModal.vue",
-          "line": 26,
-          "column": 12
-        },
-        {
-          "file": "src/views/ModelEditor.vue",
-          "line": 41,
-          "column": 12
         }
       ]
     },
@@ -2112,18 +2107,6 @@
           "file": "src/views/ModelEditor.vue",
           "line": 168,
           "column": 20
-        }
-      ]
-    },
-    "dbb4b5be9b5723dc": {
-      "source": "{0} 的推理强度仅支持 low、medium、high、xhigh、max",
-      "kind": "template",
-      "placeholders": 1,
-      "refs": [
-        {
-          "file": "src/state/appState.js",
-          "line": 435,
-          "column": 14
         }
       ]
     },

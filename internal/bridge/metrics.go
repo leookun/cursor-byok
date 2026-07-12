@@ -3,6 +3,7 @@ package bridge
 import (
 	"cursor/internal/appdata"
 	"cursor/internal/historymetrics"
+	"os"
 )
 
 // HomeMetricsSummary 定义首页展示的历史统计摘要。
@@ -47,4 +48,14 @@ func (service *MetricsService) GetHomeMetricsSummary() (HomeMetricsSummary, erro
 		CacheWriteTokens:   summary.CacheWriteTokens,
 		CacheHitRate:       summary.CacheHitRate,
 	}, nil
+}
+
+// ResetHomeMetrics 重置首页统计数据（删除 usage.json 文件）。
+func (service *MetricsService) ResetHomeMetrics() error {
+	if err := appdata.EnsureAssistantHome(); err != nil {
+		return err
+	}
+	path := appdata.UsageFilePath()
+	_ = os.Remove(path)
+	return nil
 }

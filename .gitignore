@@ -24,3 +24,22 @@ cmd/ads-server/data/
 cmd/ads-server/ads-server
 cmd/ads-server/ads-server-linux-amd64.tar
 cursor-tab-server/cursor-tab-server-linux-amd64.tar
+
+# 环境变量与凭据
+.env
+.env.*
+*.local
+credentials*
+secrets*
+
+# Cursor Tab Server 个人 token（含敏感凭据，禁止提交）
+cursor-tab-server/config.yaml
+
+# AI 助手操作数据
+.agents/
+.codegraph/
+.omo/
+.workbuddy/
+
+# 统一使用 yarn，排除 npm lockfile
+frontend/package-lock.json

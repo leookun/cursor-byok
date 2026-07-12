@@ -6,6 +6,7 @@ import (
 	"cursor/internal/client"
 	"cursor/internal/mitm"
 	"runtime"
+	"sync"
 )
 
 // Public DTOs remain in package main for Wails service compatibility.
@@ -49,6 +50,9 @@ type UsageRecordsResult = client.UsageRecordsResult
 type ProxyService struct {
 	// core 表示当前声明中的 core。
 	core *client.ProxyService
+	// onCursorActivity 是可选的 Cursor 请求活动回调。
+	onCursorActivityMu sync.RWMutex
+	onCursorActivity   func(method, path string)
 }
 
 // NewProxyService 用于处理与 NewProxyService 相关的逻辑。
@@ -139,6 +143,23 @@ func (s *ProxyService) ClearCursorSettings() error {
 // ShutdownForQuit 用于处理与 ShutdownForQuit 相关的逻辑。
 func (s *ProxyService) ShutdownForQuit() {
 	s.core.ShutdownForQuit()
+}
+
+// SetCursorActivityCallback 注册 Cursor 请求活动回调（供 PetService 使用）。
+func (s *ProxyService) SetCursorActivityCallback(fn func(method, path string)) {
+	s.onCursorActivityMu.Lock()
+	defer s.onCursorActivityMu.Unlock()
+	s.onCursorActivity = fn
+}
+
+// FireCursorActivity 触发活动回调（供 mitm 层或 runner 调用）。
+func (s *ProxyService) FireCursorActivity(method, path string) {
+	s.onCursorActivityMu.RLock()
+	fn := s.onCursorActivity
+	s.onCursorActivityMu.RUnlock()
+	if fn != nil {
+		fn(method, path)
+	}
 }
 
 // IsWindows 用于处理与 IsWindows 相关的逻辑。

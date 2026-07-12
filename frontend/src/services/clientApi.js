@@ -9,7 +9,7 @@ import {
   GetAdRuntime,
   OpenExternalURL as OpenAdExternalURL,
 } from "@bindings/cursor/internal/bridge/adservice.js";
-import { GetHomeMetricsSummary } from "@bindings/cursor/internal/bridge/metricsservice.js";
+import { GetHomeMetricsSummary, ResetHomeMetrics } from "@bindings/cursor/internal/bridge/metricsservice.js";
 import {
   CheckForUpdates,
   GetAppVersion,
@@ -28,17 +28,21 @@ const API_LOG_PREFIX = "[clientApi]";
 const PROXY_SERVICE_NAME = "cursor/internal/bridge.ProxyService";
 
 function logSuccess(name, payload, result) {
-  console.log(`${API_LOG_PREFIX} ${name} response`, {
-    payload,
-    result,
-  });
+  if (import.meta.env.DEV) {
+    console.log(`${API_LOG_PREFIX} ${name} response`, {
+      payload,
+      result,
+    });
+  }
 }
 
 function logError(name, payload, error) {
-  console.error(`${API_LOG_PREFIX} ${name} error`, {
-    payload,
-    error,
-  });
+  if (import.meta.env.DEV) {
+    console.error(`${API_LOG_PREFIX} ${name} error`, {
+      payload,
+      error,
+    });
+  }
 }
 
 function withApiLogging(name, payload, runner) {
@@ -70,12 +74,16 @@ export function getHomeMetricsSummary() {
   return withApiLogging("GetHomeMetricsSummary", undefined, () => GetHomeMetricsSummary());
 }
 
+export function resetHomeMetrics() {
+  return withApiLogging("ResetHomeMetrics", undefined, () => ResetHomeMetrics());
+}
+
 export function getAdRuntime() {
-  return GetAdRuntime();
+  return withApiLogging("GetAdRuntime", undefined, () => GetAdRuntime());
 }
 
 export function openAdExternalURL(url) {
-  return OpenAdExternalURL(url);
+  return withApiLogging("OpenAdExternalURL", { url }, () => OpenAdExternalURL(url));
 }
 
 export function startProxyService() {
@@ -129,15 +137,8 @@ export function getModelEditorContext() {
 }
 
 export function testModelAdapter(adapter) {
-  return Call.ByName(`${PROXY_SERVICE_NAME}.TestModelAdapter`, adapter).then(
-    (result) => {
-      logSuccess("TestModelAdapter", adapter, result);
-      return result;
-    },
-    (error) => {
-      logError("TestModelAdapter", adapter, error);
-      throw error;
-    },
+  return withApiLogging("TestModelAdapter", adapter, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.TestModelAdapter`, adapter),
   );
 }
 
@@ -146,3 +147,48 @@ export function getModelAdapterTestResults() {
     Call.ByName(`${PROXY_SERVICE_NAME}.GetModelAdapterTestResults`),
   );
 }
+
+
+
+// === Pet Window API ===
+const WINDOW_SERVICE_TARGET = "cursor/internal/bridge.WindowService";
+
+export function togglePetWindow() {
+  return withApiLogging("TogglePetWindow", undefined, () =>
+    Call.ByName(`${WINDOW_SERVICE_TARGET}.TogglePetWindow`),
+  );
+}
+
+export function isPetWindowVisible() {
+  return withApiLogging("IsPetWindowVisible", undefined, () =>
+    Call.ByName(`${WINDOW_SERVICE_TARGET}.IsPetWindowVisible`),
+  );
+}
+
+export function switchPet(petId) {
+  return withApiLogging("SwitchPet", { petId }, () =>
+    Call.ByName(`${WINDOW_SERVICE_TARGET}.SwitchPet`, petId),
+  );
+}
+
+export function setActivePet(petId) {
+  return withApiLogging("SetActivePet", { petId }, () =>
+    Call.ByName(`${WINDOW_SERVICE_TARGET}.SetActivePet`, petId),
+  );
+}
+
+// === Pet Service API ===
+const PET_SERVICE_TARGET = "cursor/internal/bridge.PetService";
+
+export function scanPets() {
+  return withApiLogging("ScanPets", undefined, () =>
+    Call.ByName(`${PET_SERVICE_TARGET}.ScanPets`),
+  );
+}
+
+export function openPetsDirectory() {
+  return withApiLogging("OpenPetsDirectory", undefined, () =>
+    Call.ByName(`${PET_SERVICE_TARGET}.OpenPetsDirectory`),
+  );
+}
+

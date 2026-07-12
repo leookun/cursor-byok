@@ -2,8 +2,8 @@ package config
 
 import (
 	"context"
+	"cursor/internal/logger"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -213,7 +213,7 @@ func (manager *Manager) reloadIfChanged(ctx context.Context) {
 	if err != nil {
 		errText := err.Error()
 		if errText != manager.reloadError {
-			log.Printf("config hot reload skipped path=%s error=%v", manager.store.Path(), err)
+			logger.Infof("config hot reload skipped path=%s error=%v", manager.store.Path(), err)
 			manager.reloadError = errText
 		}
 		manager.reloadMu.Unlock()

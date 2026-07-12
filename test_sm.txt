@@ -1,0 +1,65 @@
+=== RUN   TestStateMachine_TransitionTable
+2026/07/12 21:52:54 [Pet] FSM: idle -> walking (interrupt=false)
+2026/07/12 21:52:54 [Pet] FSM: walking -> idle (interrupt=false)
+--- PASS: TestStateMachine_TransitionTable (0.01s)
+=== RUN   TestStateMachine_InterruptReturnTo
+2026/07/12 21:52:54 [Pet] FSM: idle -> sitting (force)
+2026/07/12 21:52:54 [Pet] FSM: sitting -> dragging (interrupt=true)
+2026/07/12 21:52:54 [Pet] FSM: dragging -> sitting (force)
+--- PASS: TestStateMachine_InterruptReturnTo (0.00s)
+=== RUN   TestStateMachine_TimeoutScheduled
+2026/07/12 21:52:54 [Pet] FSM: idle -> tmp (force)
+--- PASS: TestStateMachine_TimeoutScheduled (0.00s)
+=== RUN   TestStateMachine_TimeoutStaleIgnored
+2026/07/12 21:52:54 [Pet] FSM: idle -> tmp (force)
+panic: test timed out after 30s
+	running tests:
+		TestStateMachine_TimeoutStaleIgnored (30s)
+
+goroutine 11 [running]:
+testing.(*M).startAlarm.func1()
+	C:/Go/src/testing/testing.go:2682 +0x345
+created by time.goFunc
+	C:/Go/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc000003500, {0x7ff7713df2d6?, 0x7ff8840c4030?}, 0x7ff771633030)
+	C:/Go/src/testing/testing.go:2005 +0x469
+testing.runTests.func1(0xc000003500)
+	C:/Go/src/testing/testing.go:2477 +0x37
+testing.tRunner(0xc000003500, 0xc000061c70)
+	C:/Go/src/testing/testing.go:1934 +0xc3
+testing.runTests(0xc000008120, {0x7ff7717c5b60, 0x2d, 0x2d}, {0x7?, 0xc0000748c0?, 0x7ff7717c9e20?})
+	C:/Go/src/testing/testing.go:2475 +0x4b4
+testing.(*M).Run(0xc000076140)
+	C:/Go/src/testing/testing.go:2337 +0x63a
+main.main()
+	_testmain.go:133 +0x9b
+
+goroutine 10 [sync.Mutex.Lock]:
+internal/sync.runtime_SemacquireMutex(0x7ff771780c48?, 0x2d?, 0xc00006fe00?)
+	C:/Go/src/runtime/sema.go:95 +0x25
+internal/sync.(*Mutex).lockSlow(0xc000036308)
+	C:/Go/src/internal/sync/mutex.go:149 +0x15d
+internal/sync.(*Mutex).Lock(...)
+	C:/Go/src/internal/sync/mutex.go:70
+sync.(*Mutex).Lock(...)
+	C:/Go/src/sync/mutex.go:46
+sync.(*RWMutex).Lock(0x18?)
+	C:/Go/src/sync/rwmutex.go:150 +0x32
+cursor/internal/pet.(*StateMachine).scheduleTimeoutLocked.func1()
+	e:/cursor-byok-main/internal/pet/statemachine.go:189 +0x34
+cursor/internal/pet.TestStateMachine_TimeoutStaleIgnored.func1(0x10?, 0xc00006fe08?)
+	e:/cursor-byok-main/internal/pet/statemachine_test.go:89 +0x12
+cursor/internal/pet.(*StateMachine).scheduleTimeoutLocked(0xc000036300, 0xc000068780)
+	e:/cursor-byok-main/internal/pet/statemachine.go:187 +0x95
+cursor/internal/pet.(*StateMachine).ForceTransition(0xc000036300, 0xc000068780)
+	e:/cursor-byok-main/internal/pet/statemachine.go:232 +0x1dd
+cursor/internal/pet.TestStateMachine_TimeoutStaleIgnored(0xc000154000?)
+	e:/cursor-byok-main/internal/pet/statemachine_test.go:92 +0xa5
+testing.tRunner(0xc000154000, 0x7ff771633030)
+	C:/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Go/src/testing/testing.go:1997 +0x44b
+FAIL	cursor/internal/pet	30.418s
+FAIL

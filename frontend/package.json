@@ -7,12 +7,15 @@
     "dev": "vite",
     "build:dev": "node ./scripts/run-vite-build.mjs --minify false --mode development",
     "build": "node ./scripts/run-vite-build.mjs --mode production",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.4",
     "@iconify/json": "^2.2.447",
-    "@wailsio/runtime": "latest",
+    "@wailsio/runtime": "^3.0.0-alpha.79",
     "chart.js": "^4.5.1",
     "copy-text-to-clipboard": "^3.2.2",
     "dayjs": "^1.11.20",
@@ -25,12 +28,15 @@
     "@iconify/tailwind": "^1.2.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vitejs/plugin-vue-jsx": "^5.1.1",
+    "@vue/test-utils": "^2.4.11",
     "autoprefixer": "^10.5.0",
     "code-inspector-plugin": "^1.4.3",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.17",
     "vite": "^7.1.11",
-    "vite-plugin-top-level-await": "^1.6.0"
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vitest": "^4.1.10"
   },
   "browserslist": [
     "Safari >= 13"

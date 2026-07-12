@@ -1375,7 +1375,10 @@ func truncateMcpToolResultForReplay(result *agentv1.McpToolResult) *agentv1.McpT
 		if item == nil {
 			continue
 		}
-		next := proto.Clone(item).(*agentv1.McpToolResultContentItem)
+		next, ok := proto.Clone(item).(*agentv1.McpToolResultContentItem)
+		if !ok {
+			continue
+		}
 		if text := next.GetText(); text != nil {
 			original := text.GetText()
 			nextText := truncateReplayText("MCP content item", original, mcpReplayTextItemLimit)
@@ -1467,7 +1470,10 @@ func truncateListMcpResourcesResultForReplay(result *agentv1.ListMcpResourcesExe
 		if resource == nil {
 			continue
 		}
-		next := proto.Clone(resource).(*agentv1.ListMcpResourcesExecResult_McpResource)
+		next, ok := proto.Clone(resource).(*agentv1.ListMcpResourcesExecResult_McpResource)
+		if !ok {
+			continue
+		}
 		if next.Description != nil {
 			description := truncateReplayText("MCP resource description", next.GetDescription(), mcpResourceDescriptionSize)
 			next.Description = stringPtr(description)
@@ -2533,7 +2539,10 @@ func truncateGrepContentResultForReplay(content *agentv1.GrepContentResult, budg
 				truncated = true
 				break
 			}
-			nextMatch := proto.Clone(match).(*agentv1.GrepContentMatch)
+			nextMatch, ok := proto.Clone(match).(*agentv1.GrepContentMatch)
+			if !ok {
+				continue
+			}
 			originalContent := nextMatch.GetContent()
 			nextMatch.Content = truncateReplayText("Grep match", originalContent, grepReplayMatchLimit)
 			if nextMatch.Content != originalContent {

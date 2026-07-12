@@ -21,7 +21,7 @@ import (
 
 const (
 	defaultConfigPath = "./config.yaml"
-	defaultListenAddr = ":8041"
+	defaultListenAddr = "127.0.0.1:8041"
 )
 
 var hopByHopHeaders = map[string]struct{}{
@@ -277,7 +277,9 @@ func buildCursorChecksum(authorization string) string {
 }
 
 func newHTTPClient() *http.Client {
-	return &http.Client{}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+	}
 }
 
 func cloneUpstreamTargets(input map[string]string) map[string]string {

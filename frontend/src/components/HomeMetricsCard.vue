@@ -6,7 +6,7 @@ import { appState, saveIncludeCacheWriteInHitRate } from "@/state/appState";
 import { formatCompactInteger, formatInteger } from "@/utils/numberFormat";
 import { computed, ref } from "vue";
 
-const emit = defineEmits(["refresh", "open-ad"]);
+const emit = defineEmits(["reset", "open-ad"]);
 
 const TOKEN_PRICE_PER_MILLION = {
   input: 5,
@@ -235,11 +235,11 @@ const hasHomeAd = computed(() => normalizedHomeAds.value.length > 0);
 <template>
   <div>
     <div class="flex flex-col gap-4">
-      <div class="flex items-center justify-between gap-4 h-[42px]">
+      <div class="flex items-center gap-4 h-[42px]">
         <div v-if="!hasHomeAd" class="flex flex-col gap-1 w-[200px] shrink-0">
           <h2 class="text-[14px] font-medium text-white/80">会话统计</h2>
         </div>
-        <div v-else class="grid min-w-0  grid-cols-3 gap-2 shrink-0">
+        <div v-else class="grid min-w-0 flex-1 grid-cols-3 gap-2">
           <div
             v-for="ad in normalizedHomeAds"
             :key="ad.id"
@@ -270,28 +270,20 @@ const hasHomeAd = computed(() => normalizedHomeAds.value.length > 0);
             </div>
           </div>
         </div>
-        <div
-          class="flex-1 center-row justify-end shrink-0 gap-2 text-xs text-[#6f6f6f] pr-4 w-[200px]"
-        >
-          <span>刷新统计</span>
-          <button
-            type="button"
-            class="center-row justify-center h-[24px] w-[24px] rounded-[6px] border border-[#3b3b3b] bg-[#242424] text-[#9d9d9d] transition-colors duration-150 hover:border-[#4c4c4c] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="loading"
-            :title="loading ? '刷新中' : '刷新统计'"
-            @click="emit('refresh')"
-          >
-            <span
-              class="icon-[mdi--refresh] text-[14px]"
-              :class="{ '!animate-spin': loading }"
-            ></span>
-          </button>
-        </div>
       </div>
 
       <div
-        class="mt-[-4px] grid grid-cols-4 gap-0 overflow-hidden rounded-[8px] border border-[#343434] bg-[#242424] h-[130px]"
+        class="relative mt-[-4px] grid grid-cols-4 gap-0 overflow-hidden rounded-[8px] border border-[#343434] bg-[#242424] h-[130px]"
       >
+        <button
+          type="button"
+          class="absolute right-1 top-1 center-row justify-center h-[24px] w-[24px] shrink-0 rounded-[6px] border border-[#3b3b3b] bg-[#1a1a1a] text-[#9d9d9d] transition-colors duration-150 hover:border-[#4c4c4c] hover:text-white z-10"
+          style="--wails-draggable: no-drag;"
+          title="重置统计"
+          @click="emit('reset')"
+        >
+          <span class="icon-[mdi--refresh] text-[14px]"></span>
+        </button>
         <div class="min-w-0 px-4 py-4 flex flex-col justify-between">
           <div class="center-row justify-start gap-1 text-xs text-[#7f7f7f]">
             <span>缓存命中率</span>

@@ -64,22 +64,34 @@ func Info(msg string, args ...any) {
 	slog.Info(msg, args...)
 }
 
-// Error 输出 error 级日志。
+// Error ?? error ????
 func Error(msg string, args ...any) {
 	Init()
 	slog.Error(msg, args...)
 }
 
-// Infof 输出格式化的 info 级日志。
+// Warn ?? warn ????
+func Warn(msg string, args ...any) {
+	Init()
+	slog.Warn(msg, args...)
+}
+
+// Infof ?????? info ????
 func Infof(format string, args ...any) {
 	Init()
 	slog.Info(formatMessage(format, args...))
 }
 
-// Errorf 输出格式化的 error 级日志。
+// Errorf ?????? error ????
 func Errorf(format string, args ...any) {
 	Init()
 	slog.Error(formatMessage(format, args...))
+}
+
+// Warnf ?????? warn ????
+func Warnf(format string, args ...any) {
+	Init()
+	slog.Warn(formatMessage(format, args...))
 }
 
 func formatMessage(format string, args ...any) string {
@@ -320,4 +332,27 @@ func (h *multiHandler) WithGroup(name string) slog.Handler {
 		next = append(next, handler.WithGroup(name))
 	}
 	return &multiHandler{handlers: next}
+}
+
+// LogFilePath 返回当前日志文件落盘路径（空字符串表示未落盘）。
+// 供需要把标准库 log 重定向到同一文件的模块使用。
+func LogFilePath() string {
+	Init()
+	return logFilePath
+}
+
+// RedirectStdLog 把标准库 log（log.Printf 等）的输出重定向到与 slog 相同的
+// 文件（app.log）。GUI 程序没有控制台，stderr 会被丢弃，必须把诊断日志落盘
+// 才能被检查。调用 LogFilePath 确保文件已创建。
+func RedirectStdLog() {
+	path := LogFilePath()
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	stdlog.SetOutput(f)
+	stdlog.SetFlags(stdlog.LstdFlags)
 }
