@@ -1,0 +1,8 @@
+{
+  "name": "list",
+  "description": "List the user's active scheduled tasks with their schedules and recent results. Use this when the user asks to see their tasks, reminders, or scheduled jobs.Each entry includes `task.task_id`, `task.is_active` (whether the task is active or archived), `schedules[*].schedule_id`, and `schedules[*].is_enabled` (false means the schedule is paused) for use with the other task tools.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}

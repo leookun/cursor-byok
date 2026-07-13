@@ -268,6 +268,7 @@ type ProviderRequest struct {
 	Observer            modeladapter.LLMArtifactObserver
 	ArtifactPaths       *modeladapter.LLMArtifactPaths
 	RequestBodyOverride map[string]any
+	LatestUserText      string
 }
 
 type ProviderGateway interface {

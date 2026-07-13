@@ -24,6 +24,10 @@ import (
 	runtimecore "cursor/internal/backend/agent/core"
 	modeladapter "cursor/internal/backend/agent/model"
 	protocol "cursor/internal/backend/agent/protocol"
+	cacheruntime "cursor/internal/backend/runtime/cache"
+	optimize "cursor/internal/backend/runtime/optimize"
+	toolruntime "cursor/internal/backend/runtime/tool"
+	vm "cursor/internal/backend/virtualmodel"
 )
 
 const (
@@ -260,6 +264,8 @@ type Service struct {
 	execBridge         execbridge.ExecBridge
 	interactionBridge  interactionbridge.InteractionBridge
 	appendSeq          *appendSequenceTracker
+	optimize           *optimize.Runtime
+	toolRuntime        *toolruntime.Runtime
 }
 
 type agentModelMemory interface {
@@ -269,6 +275,16 @@ type agentModelMemory interface {
 
 // NewService 使用默认依赖创建 forwarder 服务。
 func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Service {
+	return NewServiceWithRuntimes(historyRoot, resolver, nil, nil, nil, nil)
+}
+
+// NewServiceWithVM 使用默认依赖创建 forwarder 服务，支持可选的虚拟模型管理器和 Optimization Runtime。
+func NewServiceWithVM(historyRoot string, resolver modeladapter.ChannelResolver, vmManager *vm.Manager, optRuntime *optimize.Runtime) *Service {
+	return NewServiceWithRuntimes(historyRoot, resolver, vmManager, optRuntime, nil, nil)
+}
+
+// NewServiceWithRuntimes 使用默认依赖创建 forwarder 服务，支持完整的 Runtime 注入。
+func NewServiceWithRuntimes(historyRoot string, resolver modeladapter.ChannelResolver, vmManager *vm.Manager, optRuntime *optimize.Runtime, cacheRuntime *cacheruntime.Runtime, toolRT *toolruntime.Runtime) *Service {
 	projector := NewHistoryProjector()
 	store := NewConversationFileStore(historyRoot)
 	broker := NewStreamBroker()
@@ -282,6 +298,7 @@ func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Serv
 		debugConfig = candidate
 	}
 	debug := newDebugRecorder(historyRoot, broker, debugConfig)
+	provider := NewProviderGatewayWithCache(resolver, vmManager, cacheRuntime)
 	service := &Service{
 		store:              store,
 		usageStore:         NewUsageFileStore(historyRoot),
@@ -290,7 +307,7 @@ func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Serv
 		rules:              rules,
 		projector:          projector,
 		compiler:           NewPromptCompiler(projector, NewToolCatalog(), NewReminderInjector(), rules),
-		provider:           NewProviderGateway(resolver),
+		provider:           provider,
 		resolver:           resolver,
 		modelMemory:        modelMemory,
 		broker:             broker,
@@ -299,6 +316,8 @@ func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Serv
 		execBridge:         execbridge.NewBridge(),
 		interactionBridge:  interactionbridge.NewBridge(),
 		appendSeq:          newAppendSequenceTracker(),
+		optimize:           optRuntime,
+		toolRuntime:        toolRT,
 	}
 	service.startHistoryMaintenance()
 	return service
@@ -1389,6 +1408,7 @@ func (service *Service) driveProvider(stream *ActiveStream) error {
 		CompileSummary:     compiled.CompileSummary,
 		Observer:           service.recorder,
 		ArtifactPaths:      &modeladapter.LLMArtifactPaths{},
+		LatestUserText:     latestUserText,
 	}
 	providerRequest.ThinkingEffort = thinkingEffort
 	service.debug.LogProvider(ctx, requestID, conversationID, "provider_request_prepared", map[string]any{
@@ -1415,6 +1435,25 @@ func (service *Service) resolveProviderOutputBudget(modelID string, conversation
 	if conversation != nil && int64(conversation.TokenDetailsUsedTokens) > estimatedPromptTokens {
 		estimatedPromptTokens = int64(conversation.TokenDetailsUsedTokens)
 	}
+
+	// Optimization Runtime: 动态分配 Token Budget（带已编译 prompt 估算）
+	var optBudget *optimize.TokenBudget
+	if service.optimize != nil {
+		modeStr := compiled.Mode.String()
+		optBudget = service.optimize.AllocateBudgetWithEstimate(
+			context.Background(),
+			int(contextWindowTokens),
+			modeStr,
+			int(estimatedPromptTokens),
+		)
+		// 使用 Optimization Runtime 计算的 Output Budget（仅当策略启用且给出正值）
+		if optBudget != nil && optBudget.OutputTokens > 0 {
+			if configuredMaxTokens <= 0 || optBudget.OutputTokens < configuredMaxTokens {
+				configuredMaxTokens = optBudget.OutputTokens
+			}
+		}
+	}
+
 	remainingTokens := int64(0)
 	requestMaxTokens := int64(configuredMaxTokens)
 	if requestMaxTokens <= 0 {
@@ -1441,6 +1480,18 @@ func (service *Service) resolveProviderOutputBudget(modelID string, conversation
 		"context_window_tokens":             contextWindowTokens,
 		"remaining_context_tokens_estimate": remainingTokens,
 		"provider_output_safety_tokens":     providerOutputSafetyTokens,
+	}
+	// 注入 Optimization Runtime 的 Token Budget 详情
+	if optBudget != nil {
+		requestKnobs["optimize_token_budget"] = map[string]any{
+			"system_prompt_tokens": optBudget.SystemPromptTokens,
+			"rules_tokens":         optBudget.RulesTokens,
+			"memory_tokens":        optBudget.MemoryTokens,
+			"history_tokens":       optBudget.HistoryTokens,
+			"tools_tokens":         optBudget.ToolsTokens,
+			"output_tokens":        optBudget.OutputTokens,
+			"total_tokens":         optBudget.TotalTokens,
+		}
 	}
 	return maxTokens, withPreviousCacheFrontierHint(requestKnobs, conversation)
 }
@@ -1578,7 +1629,27 @@ func (service *Service) persistDerivedPromptContexts(stream *ActiveStream, conve
 }
 
 func (service *Service) runProviderStream(stream *ActiveStream, token uint64, ctx context.Context, request ProviderRequest) {
+	// 累积流式文本用于缓存写入；同步收集 provider 上报的 usage 供 Optimization Runtime 记账。
+	var accumulatedText strings.Builder
+	var usageInputTokens, usageOutputTokens int
+	var usagePresent bool
+	var usageProvider string
 	err := service.provider.StartStream(ctx, request, func(event modeladapter.ModelEvent) error {
+		if event.Text != "" {
+			accumulatedText.WriteString(event.Text)
+		}
+		if event.UsagePresent {
+			usagePresent = true
+			if event.InputTokens > 0 {
+				usageInputTokens = int(event.InputTokens)
+			}
+			if event.OutputTokens > 0 {
+				usageOutputTokens = int(event.OutputTokens)
+			}
+		}
+		if p := strings.TrimSpace(event.Provider); p != "" {
+			usageProvider = p
+		}
 		return service.postStreamCommandWait(stream, streamCommand{
 			Kind: streamCommandProviderEvent,
 			Provider: &streamProviderEvent{
@@ -1617,9 +1688,48 @@ func (service *Service) runProviderStream(stream *ActiveStream, token uint64, ct
 		})
 		return
 	}
+
+	// Cache Runtime: 将结果写入缓存
+	resultText := accumulatedText.String()
+	promptTokensEst := 0
+	for _, msg := range request.Messages {
+		promptTokensEst += len(msg.Content) / 4
+	}
+	outputTokensEst := len(resultText) / 4
+	if resultText != "" {
+		if gw, ok := service.provider.(*DefaultProviderGateway); ok {
+			storeIn := promptTokensEst
+			storeOut := outputTokensEst
+			if usagePresent {
+				if usageInputTokens > 0 {
+					storeIn = usageInputTokens
+				}
+				if usageOutputTokens > 0 {
+					storeOut = usageOutputTokens
+				}
+			}
+			gw.CacheStore(request, resultText, storeIn, storeOut)
+		}
+	}
+
+	// Optimization Runtime: 优先使用 provider 真实 usage，否则回退字符估算
+	costPrompt := promptTokensEst
+	costOutput := outputTokensEst
+	if usagePresent {
+		if usageInputTokens > 0 {
+			costPrompt = usageInputTokens
+		}
+		if usageOutputTokens > 0 {
+			costOutput = usageOutputTokens
+		}
+	}
+	service.recordProviderCost(request, usageProvider, costPrompt, costOutput)
 	service.debug.LogProvider(ctx, request.RequestID, request.ConversationID, "provider_stream_finished", map[string]any{
 		"model_call_id":  strings.TrimSpace(request.ModelCallID),
 		"provider_token": token,
+		"usage_present":  usagePresent,
+		"cost_prompt":    costPrompt,
+		"cost_output":    costOutput,
 	})
 }
 
@@ -1640,6 +1750,18 @@ func (service *Service) handleToolInvocation(stream *ActiveStream, invocation ru
 	stream.ToolInvocationCount++
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
+
+	// Tool Runtime: 查询工具元数据（category, cacheable）
+	if service.toolRuntime != nil {
+		if entry, ok := service.toolRuntime.GetByInternalName(trimmedToolName); ok {
+			// 同步启用状态
+			if !entry.Enabled {
+				return service.completePreDispatchToolError(stream, invocation, nil, false, false,
+					fmt.Errorf("tool %q is disabled by Tool Runtime", trimmedToolName))
+			}
+		}
+	}
+
 	if !isToolAllowedInMode(mode, subagentTypeName, trimmedToolName) {
 		return service.completePreDispatchToolError(stream, invocation, nil, false, false, fmt.Errorf("tool invocation is not enabled in mode %s: %s", mode.String(), invocation.ToolName))
 	}
@@ -3575,4 +3697,36 @@ func buildRunSSEStructuredErrorWithDetail(code connect.Code, title string, detai
 		result.AddDetail(detail)
 	}
 	return result
+}
+
+// recordProviderCost 记录一次 provider 调用的成本到 Optimization Runtime。
+// providerName 优先使用流事件中的 provider；否则回退到 ModelID / knobs。
+func (service *Service) recordProviderCost(request ProviderRequest, providerName string, promptTokens, outputTokens int) {
+	if service == nil || service.optimize == nil {
+		return
+	}
+	name := strings.TrimSpace(providerName)
+	if name == "" && request.RequestKnobs != nil {
+		if v, ok := request.RequestKnobs["provider"].(string); ok {
+			name = strings.TrimSpace(v)
+		}
+	}
+	if name == "" {
+		name = strings.TrimSpace(request.ModelID)
+	}
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
+	if outputTokens < 0 {
+		outputTokens = 0
+	}
+	service.optimize.RecordCost(name, promptTokens, outputTokens)
+}
+
+// GetCostSummary 获取 Optimization Runtime 的成本摘要（供 Wails 前端调用）。
+func (service *Service) GetCostSummary() *optimize.CostTracker {
+	if service == nil || service.optimize == nil {
+		return &optimize.CostTracker{}
+	}
+	return service.optimize.GetCostSummary()
 }

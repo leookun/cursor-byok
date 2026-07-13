@@ -38,6 +38,7 @@ import {
   getAppVersion,
   getHomeMetricsSummary,
   getModelAdapterTestResults,
+  getOptimizationCostSummary,
   installReadyUpdate,
   getProxyState,
   openConfigWindow as openConfig,
@@ -69,6 +70,18 @@ export const CUSTOM_HEADERS_DEFAULT_JSON = `{
 }`;
 const SUPPORTED_OPENAI_ENDPOINTS = new Set([OPENAI_ENDPOINT_RESPONSES, OPENAI_ENDPOINT_CHAT_COMPLETIONS, OPENAI_ENDPOINT_CUSTOM]);
 const SUPPORTED_ROUTE_MODES = new Set(["local", "upstream"]);
+const SUPPORTED_QUALITY_TIERS = new Set(["fast", "balanced", "quality", "ultra"]);
+export const QUALITY_TIER_OPTIONS = [
+  { value: "fast", label: "Fast（低成本/低延迟）" },
+  { value: "balanced", label: "Balanced（默认）" },
+  { value: "quality", label: "Quality（偏质量）" },
+  { value: "ultra", label: "Ultra（最高质量）" },
+];
+const DEFAULT_OPTIMIZATION = {
+  enabled: true,
+  qualityTier: "balanced",
+  monthlyBudgetUSD: 50,
+};
 const PROXY_STATE_EVENT = "proxy:state";
 const USER_CONFIG_CHANGED_EVENT = "user-config:changed";
 const UPDATE_STATE_EVENT = "update:state";
@@ -499,10 +512,31 @@ function loadCachedState() {
   }
 }
 
+function normalizeQualityTier(value) {
+  const tier = asString(value).toLowerCase();
+  if (SUPPORTED_QUALITY_TIERS.has(tier)) {
+    return tier;
+  }
+  return DEFAULT_OPTIMIZATION.qualityTier;
+}
+
+function normalizeOptimization(source) {
+  const raw = source && typeof source === "object" ? source : {};
+  const budget = asNumber(raw.monthlyBudgetUSD);
+  return {
+    enabled: raw.enabled === undefined ? DEFAULT_OPTIMIZATION.enabled : asBoolean(raw.enabled),
+    qualityTier: normalizeQualityTier(raw.qualityTier),
+    monthlyBudgetUSD:
+      Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
+  };
+}
+
 function normalizeConfig(source) {
   const raw = source && typeof source === "object" ? source : {};
   const routing = raw.routing && typeof raw.routing === "object" ? raw.routing : {};
   const homeMetrics = raw.homeMetrics && typeof raw.homeMetrics === "object" ? raw.homeMetrics : {};
+  const virtualModels =
+    raw.virtualModels && typeof raw.virtualModels === "object" ? raw.virtualModels : {};
   return {
     log: asBoolean(raw.log),
     providerStreamIdleTimeout: asPositiveInteger(raw.providerStreamIdleTimeout),
@@ -515,6 +549,8 @@ function normalizeConfig(source) {
     homeMetrics: {
       includeCacheWriteInHitRate: asBoolean(homeMetrics.includeCacheWriteInHitRate),
     },
+    optimization: normalizeOptimization(raw.optimization),
+    virtualModels,
     lastAgentModelHash: asString(raw.lastAgentModelHash),
   };
 }
@@ -540,7 +576,22 @@ function applyHomeMetrics(raw) {
 }
 
 function buildConfigPayload(source = appState) {
-  const normalized = normalizeConfig(source);
+  const normalized = normalizeConfig({
+    ...source,
+    routing: { mode: source.routingMode ?? source.routing?.mode },
+    homeMetrics: {
+      includeCacheWriteInHitRate:
+        source.includeCacheWriteInHitRate ?? source.homeMetrics?.includeCacheWriteInHitRate,
+    },
+    optimization: {
+      enabled: source.optimizationEnabled ?? source.optimization?.enabled,
+      qualityTier: source.optimizationQualityTier ?? source.optimization?.qualityTier,
+      monthlyBudgetUSD: source.optimizationMonthlyBudgetUSD ?? source.optimization?.monthlyBudgetUSD,
+    },
+    virtualModels: source.virtualModels,
+    backendListenAddr: source.configBackendListenAddr || source.backendListenAddr,
+    proxyListenAddr: source.configProxyListenAddr || source.proxyListenAddr,
+  });
   return {
     log: normalized.log,
     providerStreamIdleTimeout: normalized.providerStreamIdleTimeout,
@@ -549,6 +600,8 @@ function buildConfigPayload(source = appState) {
     modelAdapters: normalized.modelAdapters.map(({ id, ...adapter }) => adapter),
     routing: normalized.routing,
     homeMetrics: normalized.homeMetrics,
+    optimization: normalized.optimization,
+    virtualModels: normalized.virtualModels,
     lastAgentModelHash: normalized.lastAgentModelHash,
   };
 }
@@ -564,6 +617,12 @@ function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
   appState.configProxyListenAddr = normalized.proxyListenAddr;
   appState.routingMode = normalized.routing.mode;
   appState.includeCacheWriteInHitRate = normalized.homeMetrics.includeCacheWriteInHitRate;
+  appState.optimizationEnabled = normalized.optimization.enabled;
+  appState.optimizationQualityTier = normalized.optimization.qualityTier;
+  appState.optimizationMonthlyBudgetUSD = normalized.optimization.monthlyBudgetUSD;
+  if (normalized.virtualModels) {
+    appState.virtualModels = normalized.virtualModels;
+  }
   return normalized;
 }
 
@@ -795,6 +854,19 @@ export const appState = reactive({
   configProxyListenAddr: cachedConfig.proxyListenAddr,
   routingMode: cachedConfig.routing.mode,
   includeCacheWriteInHitRate: cachedConfig.homeMetrics.includeCacheWriteInHitRate,
+  optimizationEnabled: cachedConfig.optimization?.enabled ?? DEFAULT_OPTIMIZATION.enabled,
+  optimizationQualityTier: cachedConfig.optimization?.qualityTier ?? DEFAULT_OPTIMIZATION.qualityTier,
+  optimizationMonthlyBudgetUSD:
+    cachedConfig.optimization?.monthlyBudgetUSD ?? DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
+  virtualModels: cachedConfig.virtualModels || {},
+  optimizationCost: {
+    enabled: DEFAULT_OPTIMIZATION.enabled,
+    qualityTier: DEFAULT_OPTIMIZATION.qualityTier,
+    monthlyBudgetUSD: DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
+    spentThisMonthUSD: 0,
+    turnsThisMonth: 0,
+    estimatedRemainingTurns: 0,
+  },
 
   serviceRunning: asBoolean(cachedState.serviceRunning),
   backendRunning: asBoolean(cachedState.backendRunning),
@@ -1215,6 +1287,21 @@ export async function syncHomeMetrics() {
   try {
     const summary = await getHomeMetricsSummary();
     applyHomeMetrics(summary);
+    try {
+      const cost = await getOptimizationCostSummary();
+      if (cost && typeof cost === "object") {
+        appState.optimizationCost = {
+          enabled: asBoolean(cost.enabled),
+          qualityTier: normalizeQualityTier(cost.qualityTier),
+          monthlyBudgetUSD: asNumber(cost.monthlyBudgetUSD) || DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
+          spentThisMonthUSD: Math.max(0, asNumber(cost.spentThisMonthUSD) || 0),
+          turnsThisMonth: Math.max(0, asPositiveInteger(cost.turnsThisMonth) || 0),
+          estimatedRemainingTurns: Math.max(0, asPositiveInteger(cost.estimatedRemainingTurns) || 0),
+        };
+      }
+    } catch (_costError) {
+      // Optimization 摘要为增强项，失败不影响主 metrics
+    }
     return {
       ok: true,
       error: "",

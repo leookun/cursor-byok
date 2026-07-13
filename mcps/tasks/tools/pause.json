@@ -1,0 +1,21 @@
+{
+  "name": "pause",
+  "description": "Pause or resume a task schedule (by `schedule_id` from `task_list`). Use this when the user asks to pause, unpause, resume, stop, or cancel a task.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "schedule_id": {
+        "type": "string",
+        "description": "The ID of the schedule to pause/resume"
+      },
+      "is_enabled": {
+        "type": "boolean",
+        "description": "Set to true to RESUME/UNPAUSE (enable the schedule), set to false to PAUSE (disable the schedule). This controls whether the schedule is active, NOT whether to perform a pause action."
+      }
+    },
+    "required": [
+      "schedule_id",
+      "is_enabled"
+    ]
+  }
+}

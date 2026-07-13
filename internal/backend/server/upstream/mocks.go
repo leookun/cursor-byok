@@ -649,6 +649,11 @@ func buildAvailableModelEntries(adapters []legacyruntime.ModelAdapterConfig) []m
 			modelDisplayName = modelID
 		}
 		defaultThinkingEffort := defaultThinkingEffortForAdapter(adapter)
+		isVirtual := strings.EqualFold(strings.TrimSpace(adapter.Type), "virtual")
+		tagline := thinkingEffortDisplayName(defaultThinkingEffort)
+		if isVirtual {
+			tagline = "Multi-model Orchestration"
+		}
 		output = append(output, map[string]any{
 			"clientDisplayName":                  displayName,
 			"defaultOn":                          true,
@@ -666,7 +671,7 @@ func buildAvailableModelEntries(adapters []legacyruntime.ModelAdapterConfig) []m
 			"supportsPlanMode":                   true,
 			"supportsSandboxing":                 true,
 			"supportsThinking":                   true,
-			"tagline":                            thinkingEffortDisplayName(defaultThinkingEffort),
+			"tagline":                            tagline,
 			"tooltipData": map[string]any{
 				"markdownContent": tooltipData,
 			},
@@ -745,8 +750,9 @@ func buildThinkingEffortVariantDisplayName(modelDisplayName string, effortValue 
 }
 
 func thinkingEffortValuesForAdapter(adapterType string) []string {
+	normalized := strings.ToLower(strings.TrimSpace(adapterType))
 	values := []string{"disabled", "low", "medium", "high", "xhigh"}
-	if strings.EqualFold(strings.TrimSpace(adapterType), "anthropic") {
+	if normalized == "anthropic" || normalized == "virtual" {
 		values = append(values, "max")
 	}
 	return values
@@ -770,6 +776,9 @@ func orderThinkingEffortValues(values []string, defaultValue string) []string {
 }
 
 func defaultThinkingEffortForAdapter(adapter legacyruntime.ModelAdapterConfig) string {
+	if strings.EqualFold(strings.TrimSpace(adapter.Type), "virtual") {
+		return "xhigh"
+	}
 	if strings.EqualFold(strings.TrimSpace(adapter.Type), "anthropic") {
 		return normalizeAvailableModelThinkingEffort(adapter.AnthropicThinkingEffort, true, "xhigh")
 	}

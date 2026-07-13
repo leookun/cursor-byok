@@ -6,6 +6,16 @@ import { appState, saveIncludeCacheWriteInHitRate } from "@/state/appState";
 import { formatCompactInteger, formatInteger } from "@/utils/numberFormat";
 import { computed, ref } from "vue";
 
+const optimizationCost = computed(() => appState.optimizationCost || {});
+const optimizationCostLabel = computed(() => {
+  const cost = optimizationCost.value;
+  const spent = formatUSD(cost.spentThisMonthUSD);
+  const budget = formatUSD(cost.monthlyBudgetUSD);
+  const tier = String(cost.qualityTier || "balanced");
+  const enabled = cost.enabled === false ? "关闭" : tier;
+  return `${enabled} · 本月 ${spent} / ${budget}`;
+});
+
 const emit = defineEmits(["reset", "open-ad"]);
 
 const TOKEN_PRICE_PER_MILLION = {
@@ -384,6 +394,12 @@ const hasHomeAd = computed(() => normalizedHomeAds.value.length > 0);
               <span :title="formatUSD(estimatedTokenCost.cacheRead + estimatedTokenCost.cacheWrite)">
                 {{ formatUSD(estimatedTokenCost.cacheRead + estimatedTokenCost.cacheWrite) }}
               </span>
+            </div>
+            <div
+              class="mt-1 truncate text-[11px] leading-4 text-[#6b7280]"
+              :title="optimizationCostLabel"
+            >
+              Opt {{ optimizationCostLabel }}
             </div>
           </div>
         </div>

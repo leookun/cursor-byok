@@ -3,6 +3,7 @@ import Home from "@/views/Home.vue";
 import Config from "@/views/Config.vue";
 import ModelConfig from "@/views/ModelConfig.vue";
 import ModelEditor from "@/views/ModelEditor.vue";
+import VirtualModels from "@/views/VirtualModels.vue";
 import NotFound from "@/views/NotFound.vue";
 
 const router = createRouter({
@@ -31,6 +32,12 @@ const router = createRouter({
       name: "modelEditor",
       component: ModelEditor,
       meta: { showIcon: false, title: "模型编辑" },
+    },
+    {
+      path: "/virtual-models",
+      name: "virtualModels",
+      component: VirtualModels,
+      meta: { showIcon: false, title: "虚拟模型" },
     },
     {
       path: "/:pathMatch(.*)*",

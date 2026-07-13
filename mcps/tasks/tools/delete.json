@@ -1,0 +1,16 @@
+{
+  "name": "delete",
+  "description": "Archive/deactivate a task (by `task_id` from `task_create` / `task_list`) so it stops running. Use this when the user explicitly asks to delete, remove, or archive a task. If the user says 'stop' or 'cancel', prefer `task_pause` instead.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_id": {
+        "type": "string",
+        "description": "The ID of the task to delete"
+      }
+    },
+    "required": [
+      "task_id"
+    ]
+  }
+}

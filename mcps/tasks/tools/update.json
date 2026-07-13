@@ -1,0 +1,57 @@
+{
+  "name": "update",
+  "description": "Update an existing scheduled task. Use this when the user asks to change, edit, or modify a task's name, prompt, schedule, or notification settings. Requires `task_id` and `schedule_id` from `task_list`.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_id": {
+        "type": "string",
+        "description": "The ID of the task to update (from task_list)"
+      },
+      "schedule_id": {
+        "type": "string",
+        "description": "The ID of the schedule to update (from task_list)"
+      },
+      "name": {
+        "type": "string",
+        "description": "Updated short name for the task"
+      },
+      "prompt": {
+        "type": "string",
+        "description": "Updated prompt Grok will execute on each run"
+      },
+      "cadence": {
+        "type": "string",
+        "description": "RFC 5545 RRULE describing how often the task runs (e.g. \"RRULE:FREQ=DAILY\", \"RRULE:FREQ=WEEKLY;BYDAY=MO\"). Omit / empty to run only once. Do not include DTSTART/DTEND — use time_of_day + timezone instead."
+      },
+      "scheduled_date": {
+        "type": "string",
+        "description": "ISO 8601 date for one-time tasks (e.g. '2026-05-25'). Required when cadence is omitted (run-once). Defaults to today if not provided."
+      },
+      "time_of_day": {
+        "type": "string",
+        "description": "Time in 24h format (e.g. '09:00'). Defaults to '09:00'."
+      },
+      "timezone": {
+        "type": "string",
+        "description": "IANA timezone (e.g. 'America/New_York'). Defaults to user's timezone."
+      },
+      "notification": {
+        "type": "string",
+        "enum": [
+          "default",
+          "email_only",
+          "app_only",
+          "off"
+        ],
+        "description": "Notification method. Defaults to 'default' (email + app)."
+      }
+    },
+    "required": [
+      "task_id",
+      "schedule_id",
+      "name",
+      "prompt"
+    ]
+  }
+}

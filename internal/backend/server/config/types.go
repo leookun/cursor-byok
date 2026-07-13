@@ -51,6 +51,40 @@ type HomeMetricsConfig struct {
 	IncludeCacheWriteInHitRate bool `json:"includeCacheWriteInHitRate" yaml:"includeCacheWriteInHitRate"`
 }
 
+// OptimizationConfig 控制 Optimization Runtime（Token Budget + Cost Optimizer）。
+// 落盘路径：~/.cursor-local-assistant-v2/config.yaml → optimization
+type OptimizationConfig struct {
+	// Enabled 为 false 时主链路仍注入 Runtime，但 AllocateBudget 不覆盖用户 max tokens（见 host 行为约定）。
+	// 当前实现：始终创建 Runtime；Enabled 供前端与后续策略使用。
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// QualityTier: fast | balanced | quality | ultra
+	QualityTier string `json:"qualityTier" yaml:"qualityTier"`
+	// MonthlyBudgetUSD 月度成本预算（美元），用于 SelectOptimalProvider 降级策略。
+	MonthlyBudgetUSD float64 `json:"monthlyBudgetUSD" yaml:"monthlyBudgetUSD"`
+}
+
+type VirtualModelNodeBindingConfig struct {
+	AdapterID string `json:"adapterID" yaml:"adapterID"`
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
+}
+
+type VirtualModelConfig struct {
+	Enabled    bool                                      `json:"enabled" yaml:"enabled"`
+	WorkflowID string                                    `json:"workflowID" yaml:"workflowID"`
+	Planner    *VirtualModelNodeBindingConfig            `json:"planner,omitempty" yaml:"planner,omitempty"`
+	Nodes      map[string]*VirtualModelNodeBindingConfig `json:"nodes,omitempty" yaml:"nodes,omitempty"`
+}
+
+type VirtualModelsConfig struct {
+	MOA *VirtualModelConfig `json:"moa,omitempty" yaml:"moa,omitempty"`
+}
+
+const (
+	DefaultOptimizationQualityTier    = "balanced"
+	DefaultOptimizationMonthlyBudget  = 50.0
+	DefaultOptimizationEnabled        = true
+)
+
 type Config struct {
 	Log                       bool                 `json:"log" yaml:"log"`
 	ProviderStreamIdleTimeout int                  `json:"providerStreamIdleTimeout" yaml:"providerStreamIdleTimeout"`
@@ -59,7 +93,9 @@ type Config struct {
 	ModelAdapters             []ModelAdapterConfig `json:"modelAdapters" yaml:"modelAdapters"`
 	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
+	Optimization              OptimizationConfig   `json:"optimization" yaml:"optimization"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
+	VirtualModels             VirtualModelsConfig  `json:"virtualModels" yaml:"virtualModels"`
 }
 
 func DefaultConfig() Config {
@@ -71,6 +107,11 @@ func DefaultConfig() Config {
 		ModelAdapters:             []ModelAdapterConfig{},
 		Routing: RoutingConfig{
 			Mode: DefaultRoutingMode,
+		},
+		Optimization: OptimizationConfig{
+			Enabled:          DefaultOptimizationEnabled,
+			QualityTier:      DefaultOptimizationQualityTier,
+			MonthlyBudgetUSD: DefaultOptimizationMonthlyBudget,
 		},
 	}
 }
@@ -90,7 +131,9 @@ func NormalizeConfig(input Config) (Config, error) {
 	output.BackendListenAddr = backendListenAddr
 	output.ProxyListenAddr = proxyListenAddr
 	output.HomeMetrics.IncludeCacheWriteInHitRate = input.HomeMetrics.IncludeCacheWriteInHitRate
+	output.Optimization = NormalizeOptimizationConfig(input.Optimization)
 	output.LastAgentModelHash = strings.TrimSpace(input.LastAgentModelHash)
+	output.VirtualModels = normalizeVirtualModelsConfig(input.VirtualModels)
 	output.Routing.Mode = normalizeRoutingMode(input.Routing.Mode)
 	if output.Routing.Mode == "" {
 		output.Routing.Mode = DefaultRoutingMode
@@ -101,6 +144,77 @@ func NormalizeConfig(input Config) (Config, error) {
 	}
 	output.ModelAdapters = adapters
 	return output, nil
+}
+
+// NormalizeOptimizationConfig 归一化 Optimization 配置。
+//
+// 约定：
+//   - 配置块完全缺省（零值）→ enabled=true, balanced, $50
+//   - 显式 enabled:false 保留（需同时写 qualityTier 或 monthlyBudgetUSD 之一，
+//     或写 enabled:false 且非完全零值——即至少有一个非零字段；
+//     仅 {enabled:false} 在 YAML 中 Enabled=false 且其余为零，会被当成“缺省”并默认开启。
+//     若需关闭，请写 optimization.enabled: false 并保留 qualityTier 或 budget。）
+//
+// 更稳妥的关闭方式：optimization: { enabled: false, qualityTier: balanced }
+func NormalizeOptimizationConfig(input OptimizationConfig) OptimizationConfig {
+	isZero := !input.Enabled && strings.TrimSpace(input.QualityTier) == "" && input.MonthlyBudgetUSD == 0
+	if isZero {
+		return OptimizationConfig{
+			Enabled:          DefaultOptimizationEnabled,
+			QualityTier:      DefaultOptimizationQualityTier,
+			MonthlyBudgetUSD: DefaultOptimizationMonthlyBudget,
+		}
+	}
+	tier := normalizeQualityTier(input.QualityTier)
+	if tier == "" {
+		tier = DefaultOptimizationQualityTier
+	}
+	budget := input.MonthlyBudgetUSD
+	if budget <= 0 {
+		budget = DefaultOptimizationMonthlyBudget
+	}
+	return OptimizationConfig{
+		Enabled:          input.Enabled,
+		QualityTier:      tier,
+		MonthlyBudgetUSD: budget,
+	}
+}
+
+func normalizeQualityTier(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "fast", "balanced", "quality", "ultra":
+		return strings.ToLower(strings.TrimSpace(value))
+	case "":
+		return ""
+	default:
+		return ""
+	}
+}
+
+func normalizeVirtualModelsConfig(input VirtualModelsConfig) VirtualModelsConfig {
+	if input.MOA == nil {
+		return VirtualModelsConfig{}
+	}
+	moa := *input.MOA
+	moa.WorkflowID = strings.TrimSpace(moa.WorkflowID)
+	if moa.Planner != nil {
+		p := *moa.Planner
+		p.AdapterID = strings.TrimSpace(p.AdapterID)
+		moa.Planner = &p
+	}
+	if moa.Nodes != nil {
+		nodes := make(map[string]*VirtualModelNodeBindingConfig, len(moa.Nodes))
+		for k, v := range moa.Nodes {
+			if v == nil {
+				continue
+			}
+			n := *v
+			n.AdapterID = strings.TrimSpace(n.AdapterID)
+			nodes[strings.TrimSpace(k)] = &n
+		}
+		moa.Nodes = nodes
+	}
+	return VirtualModelsConfig{MOA: &moa}
 }
 
 func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterConfig, error) {
@@ -140,12 +254,13 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		}
 		next.CustomHeadersEnabled = item.CustomHeadersEnabled
 		next.CustomHeadersJSON = strings.TrimSpace(item.CustomHeadersJSON)
+		isVirtual := next.Type == "virtual"
 		switch {
 		case next.DisplayName == "":
 			return nil, errors.New("模型适配器 displayName 不能为空")
 		case next.Type == "":
-			return nil, errors.New("模型适配器 type 仅支持 openai 或 anthropic")
-		case next.APIKey == "":
+			return nil, errors.New("模型适配器 type 仅支持 openai、anthropic 或 virtual")
+		case !isVirtual && next.APIKey == "":
 			return nil, errors.New("模型适配器 apiKey 不能为空")
 		case next.TooltipData == "":
 			return nil, errors.New("模型适配器 tooltipData 不能为空")
@@ -159,7 +274,7 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 			if err := validateJSONMap(next.OpenAIExtraParamsJSON, "openAIExtraParamsJSON"); err != nil {
 				return nil, err
 			}
-		case next.CustomHeadersEnabled:
+		case next.CustomHeadersEnabled && !isVirtual:
 			if err := validateHeadersJSON(next.CustomHeadersJSON); err != nil {
 				return nil, err
 			}
@@ -276,6 +391,8 @@ func normalizeModelAdapterType(value string) string {
 		return "openai"
 	case "anthropic":
 		return "anthropic"
+	case "virtual":
+		return "virtual"
 	default:
 		return ""
 	}

@@ -95,6 +95,14 @@ func (s *ProxyService) SaveUserConfig(cfg UserConfig) error {
 	return s.core.SaveUserConfig(cfg)
 }
 
+// OptimizationCostSummary 定义 Optimization Runtime 成本摘要 DTO。
+type OptimizationCostSummary = client.OptimizationCostSummary
+
+// GetOptimizationCostSummary 返回进程内 Optimization 成本与当前 Tier。
+func (s *ProxyService) GetOptimizationCostSummary() (OptimizationCostSummary, error) {
+	return s.core.GetOptimizationCostSummary()
+}
+
 // TestModelAdapter 用于处理与 TestModelAdapter 相关的逻辑。
 func (s *ProxyService) TestModelAdapter(adapter ModelAdapterConfig) (ModelAdapterTestResult, error) {
 	return s.core.TestModelAdapter(adapter)

@@ -74,6 +74,12 @@ export function getHomeMetricsSummary() {
   return withApiLogging("GetHomeMetricsSummary", undefined, () => GetHomeMetricsSummary());
 }
 
+export function getOptimizationCostSummary() {
+  return withApiLogging("GetOptimizationCostSummary", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.GetOptimizationCostSummary`),
+  );
+}
+
 export function resetHomeMetrics() {
   return withApiLogging("ResetHomeMetrics", undefined, () => ResetHomeMetrics());
 }

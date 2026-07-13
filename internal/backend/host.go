@@ -17,6 +17,12 @@ import (
 	"cursor/internal/backend/server"
 	serverconfig "cursor/internal/backend/server/config"
 	"cursor/internal/backend/server/upstream"
+	cacheruntime "cursor/internal/backend/runtime/cache"
+	optimize "cursor/internal/backend/runtime/optimize"
+	toolruntime "cursor/internal/backend/runtime/tool"
+	vm "cursor/internal/backend/virtualmodel"
+	vmconfig "cursor/internal/backend/virtualmodel/config"
+	vm_moa "cursor/internal/backend/virtualmodel/moa"
 	"cursor/internal/logger"
 	"cursor/internal/netproxy"
 	legacyruntime "cursor/internal/runtime"
@@ -38,6 +44,10 @@ type Host struct {
 	lastRunErr error
 
 	mux http.Handler
+
+	// optRuntime 在 rebuild 时创建；配置热更新时原地调整 Tier/Budget，避免重建整个 mux。
+	optMu      sync.RWMutex
+	optRuntime *optimize.Runtime
 }
 
 func NewHost(store *serverconfig.Store) (*Host, error) {
@@ -58,7 +68,51 @@ func NewHost(store *serverconfig.Store) (*Host, error) {
 	if err := host.rebuild(cfg); err != nil {
 		return nil, err
 	}
+	// 配置热更新：Optimization Tier/Budget 原地生效（无需停服）
+	configs.Subscribe(func(next serverconfig.Config) {
+		host.applyOptimizationConfig(next.Optimization)
+	})
 	return host, nil
+}
+
+// GetCostSummary 返回 Optimization Runtime 的进程内成本摘要。
+func (host *Host) GetCostSummary() *optimize.CostTracker {
+	if host == nil {
+		return &optimize.CostTracker{}
+	}
+	host.optMu.RLock()
+	rt := host.optRuntime
+	host.optMu.RUnlock()
+	if rt == nil {
+		return &optimize.CostTracker{}
+	}
+	return rt.GetCostSummary()
+}
+
+// OptimizationRuntime 返回当前 Optimization Runtime（只读用途）。
+func (host *Host) OptimizationRuntime() *optimize.Runtime {
+	if host == nil {
+		return nil
+	}
+	host.optMu.RLock()
+	defer host.optMu.RUnlock()
+	return host.optRuntime
+}
+
+func (host *Host) applyOptimizationConfig(cfg serverconfig.OptimizationConfig) {
+	if host == nil {
+		return
+	}
+	normalized := serverconfig.NormalizeOptimizationConfig(cfg)
+	host.optMu.RLock()
+	rt := host.optRuntime
+	host.optMu.RUnlock()
+	if rt == nil {
+		return
+	}
+	rt.SetEnabled(normalized.Enabled)
+	rt.SetQualityTier(optimize.QualityTier(normalized.QualityTier))
+	rt.SetMonthlyBudgetUSD(normalized.MonthlyBudgetUSD)
 }
 
 func (host *Host) ConfigManager() *serverconfig.Manager {
@@ -267,7 +321,35 @@ func (host *Host) rebuild(cfg serverconfig.Config) error {
 
 func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 	host.listenAddr = cfg.BackendListenAddr
-	agentModule := forwarder.NewModule(appdata.HistoryRootPath(), host.configs)
+
+	// 构建 Tool Runtime（统一工具注册与管理）
+	toolRT := toolruntime.NewRuntime()
+	toolRT.RegisterBuiltinTools()
+
+	// 构建 Cache Runtime（精确缓存 + 语义缓存）
+	cacheRuntime, err := cacheruntime.NewRuntime(appdata.DataRootPath())
+	if err != nil {
+		return fmt.Errorf("create cache runtime: %w", err)
+	}
+
+	// 构建 Optimization Runtime（Token Budget + Cost Optimizer）— 从用户配置读取
+	// 始终创建实例以支持热切换 Enabled；策略关闭时 AllocateBudget 不覆盖 max tokens。
+	optCfg := serverconfig.NormalizeOptimizationConfig(cfg.Optimization)
+	tier := optimize.QualityTier(optCfg.QualityTier)
+	if tier == "" {
+		tier = optimize.TierBalanced
+	}
+	optRuntime := optimize.NewRuntime(optCfg.MonthlyBudgetUSD, tier)
+	optRuntime.SetEnabled(optCfg.Enabled)
+	host.optMu.Lock()
+	host.optRuntime = optRuntime
+	host.optMu.Unlock()
+
+	// 构建 Virtual Model Runtime 并注册内置虚拟模型（MOA）
+	// host.configs 实现 SelectChannelForModel + ProviderStreamIdleTimeout，供 MOA 专家解析已有 ModelAdapter
+	vmManager := buildVirtualModelManager(&cfg, optRuntime, host.configs)
+
+	agentModule := forwarder.NewModuleWithRuntimes(appdata.HistoryRootPath(), host.configs, vmManager, optRuntime, cacheRuntime, toolRT)
 	legacyBidiAppendProcedure := "/aiserver.v1.BidiService/BidiAppend"
 	legacyRunSSEProcedure := "/agent.v1.AgentService/RunSSE"
 	routeDeps := upstream.Dependencies{
@@ -771,5 +853,58 @@ func (settings *serverSystemSettings) ResolveModelAdapters(ctx context.Context) 
 	if err != nil {
 		return nil, err
 	}
-	return snapshot.ModelAdapters, nil
+	// 合并虚拟模型 adapter 条目
+	vmResolver := vm.NewVMResolver(nil, settings)
+	merged := vmResolver.MergeVirtualModelAdapters(ctx, snapshot.ModelAdapters)
+	return merged, nil
+}
+
+// buildVirtualModelManager 根据配置构建 Virtual Model Runtime 管理器。
+// channelResolver 必须非 nil 才能让 MOA 专家通过已有 ModelAdapter 解析/调用渠道（禁止 nil ChannelService）。
+func buildVirtualModelManager(cfg *serverconfig.Config, optRuntime *optimize.Runtime, channelResolver vm_moa.ChannelResolver) *vm.Manager {
+	manager := vm.NewManager()
+
+	if cfg == nil {
+		return manager
+	}
+
+	// 注册 MOA 虚拟模型（如果启用）
+	if cfg.VirtualModels.MOA != nil && cfg.VirtualModels.MOA.Enabled {
+		moaConfig := &vmconfig.VirtualModelConfig{
+			Enabled:    cfg.VirtualModels.MOA.Enabled,
+			WorkflowID: cfg.VirtualModels.MOA.WorkflowID,
+			Planner:    convertNodeBinding(cfg.VirtualModels.MOA.Planner),
+			Nodes:      convertNodeBindings(cfg.VirtualModels.MOA.Nodes),
+		}
+		// 生产路径：专家节点经 AdapterChannelService → config.Manager.SelectChannelForModel → 用户 modelAdapters
+		var channelSvc vm_moa.ChannelService
+		if channelResolver != nil {
+			channelSvc = vm_moa.NewAdapterChannelService(channelResolver)
+		}
+		moaModel := vm_moa.NewMOAModelWithOptimize(moaConfig, vmconfig.DefaultMOAWorkflow(), channelSvc, optRuntime)
+		_ = manager.Register(moaModel)
+	}
+
+	return manager
+}
+
+func convertNodeBinding(cfg *serverconfig.VirtualModelNodeBindingConfig) *vmconfig.NodeBindingConfig {
+	if cfg == nil {
+		return nil
+	}
+	return &vmconfig.NodeBindingConfig{
+		AdapterID: cfg.AdapterID,
+		Enabled:   cfg.Enabled,
+	}
+}
+
+func convertNodeBindings(cfg map[string]*serverconfig.VirtualModelNodeBindingConfig) map[string]*vmconfig.NodeBindingConfig {
+	if cfg == nil {
+		return nil
+	}
+	result := make(map[string]*vmconfig.NodeBindingConfig, len(cfg))
+	for k, v := range cfg {
+		result[k] = convertNodeBinding(v)
+	}
+	return result
 }

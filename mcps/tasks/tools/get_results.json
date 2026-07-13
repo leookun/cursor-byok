@@ -1,0 +1,20 @@
+{
+  "name": "get_results",
+  "description": "Get recent execution results for a task (by `task_id` from `task_create` / `task_list`). Use this when the user asks about task results, what a task found, or wants to check task output.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_id": {
+        "type": "string",
+        "description": "The ID of the task to get results for"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of results to return. Defaults to 5."
+      }
+    },
+    "required": [
+      "task_id"
+    ]
+  }
+}

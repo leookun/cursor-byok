@@ -12,6 +12,55 @@ import (
 // UserConfig 定义了当前模块中的 UserConfig 类型。
 type UserConfig = serverconfig.Config
 
+// OptimizationCostSummary 进程内 Optimization Runtime 成本摘要（供前端 Dashboard）。
+type OptimizationCostSummary struct {
+	Enabled                 bool    `json:"enabled"`
+	QualityTier             string  `json:"qualityTier"`
+	MonthlyBudgetUSD        float64 `json:"monthlyBudgetUSD"`
+	SpentThisMonthUSD       float64 `json:"spentThisMonthUSD"`
+	TurnsThisMonth          int64   `json:"turnsThisMonth"`
+	EstimatedRemainingTurns int64   `json:"estimatedRemainingTurns"`
+}
+
+// GetOptimizationCostSummary 返回当前 Optimization Runtime 成本摘要。
+func (s *ProxyService) GetOptimizationCostSummary() (OptimizationCostSummary, error) {
+	empty := OptimizationCostSummary{
+		Enabled:          serverconfig.DefaultOptimizationEnabled,
+		QualityTier:      serverconfig.DefaultOptimizationQualityTier,
+		MonthlyBudgetUSD: serverconfig.DefaultOptimizationMonthlyBudget,
+	}
+	if s == nil || s.backendHost == nil {
+		return empty, nil
+	}
+	cfg := serverconfig.DefaultConfig()
+	if cm := s.backendHost.ConfigManager(); cm != nil {
+		cfg = cm.Current()
+	}
+	opt := serverconfig.NormalizeOptimizationConfig(cfg.Optimization)
+	summary := OptimizationCostSummary{
+		Enabled:          opt.Enabled,
+		QualityTier:      opt.QualityTier,
+		MonthlyBudgetUSD: opt.MonthlyBudgetUSD,
+	}
+	tracker := s.backendHost.GetCostSummary()
+	if tracker != nil {
+		summary.SpentThisMonthUSD = tracker.SpentThisMonthUSD
+		summary.TurnsThisMonth = tracker.TurnsThisMonth
+		summary.EstimatedRemainingTurns = tracker.EstimatedRemainingTurns
+		if tracker.MonthlyBudgetUSD > 0 {
+			summary.MonthlyBudgetUSD = tracker.MonthlyBudgetUSD
+		}
+	}
+	rt := s.backendHost.OptimizationRuntime()
+	if rt != nil {
+		summary.Enabled = rt.Enabled()
+		if t := string(rt.QualityTier()); t != "" {
+			summary.QualityTier = t
+		}
+	}
+	return summary, nil
+}
+
 // LoadUserConfig 用于处理与 LoadUserConfig 相关的逻辑。
 func (s *ProxyService) LoadUserConfig() (UserConfig, error) {
 	if s == nil {

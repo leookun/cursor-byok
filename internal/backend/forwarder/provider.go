@@ -1,16 +1,24 @@
 // provider.go 把 forwarder 的 canonical 请求转交给现有的 provider adapter 层。
+// 支持物理模型（通过 modeladapter.Router）、虚拟模型（通过 VirtualModelRuntime）和缓存（通过 Cache Runtime）。
 package forwarder
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	modeladapter "cursor/internal/backend/agent/model"
+	cacheruntime "cursor/internal/backend/runtime/cache"
+	vm "cursor/internal/backend/virtualmodel"
 )
+
+const defaultCacheTTL = 30 * time.Minute
 
 type DefaultProviderGateway struct {
 	router modeladapter.ModelAdapterRouter
+	vm     *vm.Manager
+	cache  *cacheruntime.Runtime
 }
 
 // NewProviderGateway 创建默认 provider 网关。
@@ -20,11 +28,44 @@ func NewProviderGateway(resolver modeladapter.ChannelResolver) *DefaultProviderG
 	}
 }
 
+// NewProviderGatewayWithVM 创建支持虚拟模型的 provider 网关。
+func NewProviderGatewayWithVM(resolver modeladapter.ChannelResolver, vmManager *vm.Manager) *DefaultProviderGateway {
+	return &DefaultProviderGateway{
+		router: modeladapter.NewRouter(resolver),
+		vm:     vmManager,
+	}
+}
+
+// NewProviderGatewayWithCache 创建支持缓存 + 虚拟模型的 provider 网关。
+func NewProviderGatewayWithCache(resolver modeladapter.ChannelResolver, vmManager *vm.Manager, cacheRuntime *cacheruntime.Runtime) *DefaultProviderGateway {
+	return &DefaultProviderGateway{
+		router: modeladapter.NewRouter(resolver),
+		vm:     vmManager,
+		cache:  cacheRuntime,
+	}
+}
+
 // StartStream 把 forwarder 的 provider 请求翻译成 modeladapter.StreamRequest 并发起流式调用。
+// 流程：Cache Lookup → Virtual Model? → Physical Router
 func (gateway *DefaultProviderGateway) StartStream(ctx context.Context, req ProviderRequest, sink func(modeladapter.ModelEvent) error) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	// Step 0: Cache Lookup（精确缓存 + 语义缓存）
+	if gateway.cache != nil && !gateway.isVirtualModel(req.ModelID) {
+		cacheMessages := gateway.toCacheMessages(req.Messages)
+		if cached, hitType, hit := gateway.cache.Lookup(cacheMessages, "", req.ModelID, req.Mode.String()); hit {
+			// 缓存命中：将缓存结果以流式事件返回
+			return gateway.returnCached(cached, hitType, sink)
+		}
+	}
+
+	// Step 1: 检查是否为虚拟模型
+	if gateway.isVirtualModel(req.ModelID) {
+		return gateway.startVirtualStream(ctx, req, sink)
+	}
+
 	requestKnobs := make(map[string]any, len(req.RequestKnobs)+2)
 	for key, value := range req.RequestKnobs {
 		requestKnobs[key] = value
@@ -58,5 +99,146 @@ func (gateway *DefaultProviderGateway) StartStream(ctx context.Context, req Prov
 	if err != nil {
 		return providerTerminalError{cause: err}
 	}
+
+	// Step N: 非虚拟模型调用完成后，将结果写入缓存
+	// 注：由于流式调用的特殊性，实际缓存写入在 runProviderStream 的 sink wrapper 中处理
 	return nil
+}
+
+// isVirtualModel 检查 modelID 是否为虚拟模型。
+func (gateway *DefaultProviderGateway) isVirtualModel(modelID string) bool {
+	return gateway.vm != nil && gateway.vm.IsVirtualModel(modelID)
+}
+
+// toCacheMessages 将 modeladapter.Message 转换为 cache.Message。
+func (gateway *DefaultProviderGateway) toCacheMessages(messages []modeladapter.Message) []cacheruntime.Message {
+	result := make([]cacheruntime.Message, 0, len(messages))
+	for _, msg := range messages {
+		result = append(result, cacheruntime.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+	return result
+}
+
+// returnCached 将缓存结果以流式事件返回。
+func (gateway *DefaultProviderGateway) returnCached(cached string, hitType string, sink func(modeladapter.ModelEvent) error) error {
+	// 发送文本内容
+	if err := sink(modeladapter.ModelEvent{
+		Kind: modeladapter.ModelEventKindTextDelta,
+		Text: cached,
+	}); err != nil {
+		return providerTerminalError{cause: err}
+	}
+
+	// 发送完成事件
+	if err := sink(modeladapter.ModelEvent{
+		Kind:         modeladapter.ModelEventKindTurnFinished,
+		FinishReason: "stop",
+	}); err != nil {
+		return providerTerminalError{cause: err}
+	}
+
+	return nil
+}
+
+// CacheStore 将 provider 响应写入缓存（由 runProviderStream 在流式调用完成后调用）。
+func (gateway *DefaultProviderGateway) CacheStore(req ProviderRequest, resultText string, promptTokens int, outputTokens int) {
+	if gateway.cache == nil || gateway.isVirtualModel(req.ModelID) {
+		return
+	}
+	cacheMessages := gateway.toCacheMessages(req.Messages)
+	_ = gateway.cache.Store(cacheMessages, "", req.ModelID, req.Mode.String(), resultText, promptTokens, outputTokens, defaultCacheTTL)
+}
+
+// CacheStats 返回缓存统计。
+func (gateway *DefaultProviderGateway) CacheStats() *cacheruntime.CacheStats {
+	if gateway.cache == nil {
+		return &cacheruntime.CacheStats{}
+	}
+	return gateway.cache.Stats()
+}
+
+// CacheCleanExpired 清理过期缓存。
+func (gateway *DefaultProviderGateway) CacheCleanExpired() (int, error) {
+	if gateway.cache == nil {
+		return 0, nil
+	}
+	return gateway.cache.CleanExpired()
+}
+
+// startVirtualStream 将请求路由到虚拟模型运行时，并将结果以流式事件发送给 forwarder。
+func (gateway *DefaultProviderGateway) startVirtualStream(ctx context.Context, req ProviderRequest, sink func(modeladapter.ModelEvent) error) error {
+	model, ok := gateway.vm.Get(req.ModelID)
+	if !ok || model == nil {
+		return providerTerminalError{cause: &virtualModelError{modelID: req.ModelID, reason: "virtual model not found or not enabled"}}
+	}
+
+	// 将 Messages 转换为虚拟模型消息格式
+	vmMessages := make([]vm.Message, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		vmMessages = append(vmMessages, vm.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+			Name:    msg.Name,
+		})
+	}
+
+	// 提取最新的用户消息
+	latestUserText := req.LatestUserText
+	if latestUserText == "" {
+		for i := len(vmMessages) - 1; i >= 0; i-- {
+			if vmMessages[i].Role == "user" && vmMessages[i].Content != "" {
+				latestUserText = vmMessages[i].Content
+				break
+			}
+		}
+	}
+
+	// 执行虚拟模型
+	result, err := model.Execute(ctx, &vm.ExecuteRequest{
+		RequestID:      req.RequestID,
+		ConversationID: req.ConversationID,
+		ModelCallID:    req.ModelCallID,
+		Messages:       vmMessages,
+		LatestUserText: latestUserText,
+	})
+	if err != nil {
+		return providerTerminalError{cause: &virtualModelError{modelID: req.ModelID, reason: err.Error()}}
+	}
+
+	// 将结果转为流式事件
+	// 使用 Text 字段一次性推送完整结果（非流式模式）
+	if result.Text != "" {
+		if err := sink(modeladapter.ModelEvent{
+			Kind: modeladapter.ModelEventKindTextDelta,
+			Text: result.Text,
+		}); err != nil {
+			return providerTerminalError{cause: err}
+		}
+	}
+
+	// 发送完成事件
+	finishReason := result.FinishReason
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	if err := sink(modeladapter.ModelEvent{
+		Kind:         modeladapter.ModelEventKindTurnFinished,
+		FinishReason: finishReason,
+	}); err != nil {
+		return providerTerminalError{cause: err}
+	}
+
+	return nil
+}
+
+type virtualModelError struct {
+	modelID string
+	reason  string
+}
+
+func (e *virtualModelError) Error() string {
+	return "virtual model " + e.modelID + ": " + e.reason
 }
