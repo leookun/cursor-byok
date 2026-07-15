@@ -14,13 +14,16 @@ import (
 	"cursor/internal/ads"
 	"cursor/internal/appdata"
 	"cursor/internal/backend/forwarder"
+	cacheruntime "cursor/internal/backend/runtime/cache"
+	contextruntime "cursor/internal/backend/runtime/context"
+	"cursor/internal/backend/runtime/embedding"
+	optimize "cursor/internal/backend/runtime/optimize"
+	toolruntime "cursor/internal/backend/runtime/tool"
 	"cursor/internal/backend/server"
 	serverconfig "cursor/internal/backend/server/config"
 	"cursor/internal/backend/server/upstream"
-	cacheruntime "cursor/internal/backend/runtime/cache"
-	optimize "cursor/internal/backend/runtime/optimize"
-	toolruntime "cursor/internal/backend/runtime/tool"
 	vm "cursor/internal/backend/virtualmodel"
+	vm_aos "cursor/internal/backend/virtualmodel/aos"
 	vmconfig "cursor/internal/backend/virtualmodel/config"
 	vm_moa "cursor/internal/backend/virtualmodel/moa"
 	"cursor/internal/logger"
@@ -45,9 +48,17 @@ type Host struct {
 
 	mux http.Handler
 
-	// optRuntime 在 rebuild 时创建；配置热更新时原地调整 Tier/Budget，避免重建整个 mux。
+	// Runtime instances are rebuilt with the request mux and swapped together.
 	optMu      sync.RWMutex
 	optRuntime *optimize.Runtime
+
+	runtimeMu    sync.RWMutex
+	cacheRuntime *cacheruntime.Runtime
+	toolRuntime  *toolruntime.Runtime
+
+	// vmManager is rebuilt with the request mux; used for optional Evolver benchmarks.
+	vmMu      sync.RWMutex
+	vmManager *vm.Manager
 }
 
 func NewHost(store *serverconfig.Store) (*Host, error) {
@@ -223,6 +234,8 @@ func (host *Host) Start() error {
 			logger.Errorf("%v", runErr)
 		}
 	}(httpServer, listener)
+	// Self-evolution: non-blocking read-only diagnosis (ADR-028). Never blocks serve.
+	go host.runBackgroundEvolutionCheck()
 	return nil
 }
 
@@ -332,6 +345,17 @@ func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 		return fmt.Errorf("create cache runtime: %w", err)
 	}
 
+	// 构建 Context Runtime（上下文构建/压缩/排序/窗口管理/记忆注入）
+	contextRT, err := contextruntime.NewRuntime(appdata.DataRootPath())
+	if err != nil {
+		return fmt.Errorf("create context runtime: %w", err)
+	}
+
+	// Wire APIEmbedder for real semantic search (ADR-025).
+	// Scans user-configured ModelAdapters for the first OpenAI-compatible one
+	// and creates a FallbackEmbedder (APIEmbedder + SimpleEmbedder fallback).
+	wireEmbedder(cfg, cacheRuntime, contextRT)
+
 	// 构建 Optimization Runtime（Token Budget + Cost Optimizer）— 从用户配置读取
 	// 始终创建实例以支持热切换 Enabled；策略关闭时 AllocateBudget 不覆盖 max tokens。
 	optCfg := serverconfig.NormalizeOptimizationConfig(cfg.Optimization)
@@ -339,21 +363,30 @@ func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 	if tier == "" {
 		tier = optimize.TierBalanced
 	}
-	optRuntime := optimize.NewRuntime(optCfg.MonthlyBudgetUSD, tier)
+	// 跨进程恢复 spent/turns（ADR-010）；路径在 appdata data 根下。
+	optRuntime := optimize.NewRuntimeWithStore(optCfg.MonthlyBudgetUSD, tier, optimize.DefaultCostStorePath())
 	optRuntime.SetEnabled(optCfg.Enabled)
 	host.optMu.Lock()
 	host.optRuntime = optRuntime
 	host.optMu.Unlock()
 
+	host.runtimeMu.Lock()
+	host.cacheRuntime = cacheRuntime
+	host.toolRuntime = toolRT
+	host.runtimeMu.Unlock()
+
 	// 构建 Virtual Model Runtime 并注册内置虚拟模型（MOA）
 	// host.configs 实现 SelectChannelForModel + ProviderStreamIdleTimeout，供 MOA 专家解析已有 ModelAdapter
 	vmManager := buildVirtualModelManager(&cfg, optRuntime, host.configs)
+	host.vmMu.Lock()
+	host.vmManager = vmManager
+	host.vmMu.Unlock()
 
-	agentModule := forwarder.NewModuleWithRuntimes(appdata.HistoryRootPath(), host.configs, vmManager, optRuntime, cacheRuntime, toolRT)
+	agentModule := forwarder.NewModuleWithRuntimes(appdata.HistoryRootPath(), host.configs, vmManager, optRuntime, cacheRuntime, toolRT, contextRT)
 	legacyBidiAppendProcedure := "/aiserver.v1.BidiService/BidiAppend"
 	legacyRunSSEProcedure := "/agent.v1.AgentService/RunSSE"
 	routeDeps := upstream.Dependencies{
-		SystemSettingService: &serverSystemSettings{configs: host.configs},
+		SystemSettingService: &serverSystemSettings{configs: host.configs, vmManager: vmManager},
 		HTTPClient:           netproxy.NewHTTPClient(30000 * time.Second),
 	}
 
@@ -845,7 +878,8 @@ func tabServerUpstreamProcedure(pattern string, name string, protocol server.Rou
 }
 
 type serverSystemSettings struct {
-	configs *serverconfig.Manager
+	configs   *serverconfig.Manager
+	vmManager *vm.Manager
 }
 
 func (settings *serverSystemSettings) ResolveModelAdapters(ctx context.Context) ([]legacyruntime.ModelAdapterConfig, error) {
@@ -854,7 +888,7 @@ func (settings *serverSystemSettings) ResolveModelAdapters(ctx context.Context) 
 		return nil, err
 	}
 	// 合并虚拟模型 adapter 条目
-	vmResolver := vm.NewVMResolver(nil, settings)
+	vmResolver := vm.NewVMResolver(settings.vmManager, settings)
 	merged := vmResolver.MergeVirtualModelAdapters(ctx, snapshot.ModelAdapters)
 	return merged, nil
 }
@@ -885,6 +919,20 @@ func buildVirtualModelManager(cfg *serverconfig.Config, optRuntime *optimize.Run
 		_ = manager.Register(moaModel)
 	}
 
+	// 注册 AOS 虚拟模型（如果启用）
+	if cfg.VirtualModels.AOS != nil && cfg.VirtualModels.AOS.Enabled {
+		team := convertAOSTeamConfig(cfg.VirtualModels.AOS)
+		// 复用与 MOA 相同的 ChannelService（AdapterChannelService → config.Manager.SelectChannelForModel）
+		var aosChannelSvc vm_moa.ChannelService
+		if channelResolver != nil {
+			aosChannelSvc = vm_moa.NewAdapterChannelService(channelResolver)
+		}
+		aosModel := vm_aos.NewAOSModel(team, aosChannelSvc, optRuntime)
+		// Optional Leader pre-planning health advisory (ADR-035); diagnose-only, never mutates.
+		aosModel.SetPlanningAdvisor(evolverPlanningAdvisor{})
+		_ = manager.Register(aosModel)
+	}
+
 	return manager
 }
 
@@ -907,4 +955,58 @@ func convertNodeBindings(cfg map[string]*serverconfig.VirtualModelNodeBindingCon
 		result[k] = convertNodeBinding(v)
 	}
 	return result
+}
+
+// convertAOSTeamConfig converts serverconfig AOSConfig to an AOS TeamProfile.
+// If no members are configured, uses DefaultTeam with the leader's adapter.
+func convertAOSTeamConfig(cfg *serverconfig.AOSConfig) *vm_aos.TeamProfile {
+	if cfg == nil {
+		return vm_aos.DefaultTeam("")
+	}
+	leaderAdapter := strings.TrimSpace(cfg.Leader.AdapterID)
+	if len(cfg.Members) == 0 {
+		return vm_aos.DefaultTeam(leaderAdapter)
+	}
+	team := &vm_aos.TeamProfile{
+		Leader:   vm_aos.LeaderConfig{AdapterID: leaderAdapter},
+		Workflow: vm_aos.WorkflowConfig{Mode: "auto", MaxParallel: 4, Timeout: "120s", Retry: 1},
+		Sprints:  vm_aos.SprintConfig{MaxIterations: 3},
+	}
+	for _, m := range cfg.Members {
+		team.Members = append(team.Members, vm_aos.MemberConfig{
+			ID:           m.ID,
+			Name:         m.Name,
+			AdapterID:    m.AdapterID,
+			SystemPrompt: m.SystemPrompt,
+			Tags:         m.Tags,
+		})
+	}
+	return team
+}
+
+// wireEmbedder scans user-configured ModelAdapters for the first OpenAI-compatible
+// adapter and creates a FallbackEmbedder (APIEmbedder + SimpleEmbedder fallback).
+// Injects it into both Cache Runtime and Memory Runtime (via Context Runtime).
+// If no suitable adapter is found, both runtimes keep their default SimpleEmbedder.
+func wireEmbedder(cfg serverconfig.Config, cacheRT *cacheruntime.Runtime, contextRT *contextruntime.Runtime) {
+	for _, adapter := range cfg.ModelAdapters {
+		if strings.ToLower(strings.TrimSpace(adapter.Type)) != "openai" {
+			continue
+		}
+		baseURL := strings.TrimSpace(adapter.BaseURL)
+		apiKey := strings.TrimSpace(adapter.APIKey)
+		if baseURL == "" || apiKey == "" {
+			continue
+		}
+		model := embedding.ResolveEmbeddingModel(adapter.ModelID)
+		apiEmb := embedding.NewAPIEmbedder(baseURL, apiKey, model)
+		fallback := embedding.NewFallbackEmbedder(apiEmb, embedding.NewSimpleEmbedder())
+		if cacheRT != nil {
+			cacheRT.SetEmbedder(fallback)
+		}
+		if contextRT != nil {
+			contextRT.SetEmbedder(fallback)
+		}
+		return
+	}
 }
