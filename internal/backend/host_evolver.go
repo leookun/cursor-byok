@@ -102,28 +102,25 @@ func (host *Host) evolutionRuntimeMetricSnapshot() *evolver.RuntimeMetricSnapsho
 		return snap
 	}
 
-	host.runtimeMu.RLock()
-	cacheRT := host.cacheRuntime
-	toolRT := host.toolRuntime
-	host.runtimeMu.RUnlock()
+	runtimes := host.runtimeStateSnapshot()
 
-	if cacheRT != nil {
-		stats := cacheRT.Stats()
+	if runtimes.cacheRuntime != nil {
+		stats := runtimes.cacheRuntime.Stats()
 		snap.HasCache = true
 		snap.CacheHitRate = stats.HitRate
 		snap.CacheTokensSaved = stats.TokensSaved
 		snap.CacheExactHits = stats.ExactHits
 		snap.CacheSemanticHits = stats.SemanticHits
 	}
-	if toolRT != nil {
-		stats := toolRT.CacheStats()
+	if runtimes.toolRuntime != nil {
+		stats := runtimes.toolRuntime.CacheStats()
 		snap.HasToolCache = true
 		snap.ToolCacheHitRate = stats.HitRate
 		snap.ToolCacheHits = stats.Hits
 		snap.ToolCacheMisses = stats.Misses
 	}
-	if optRT := host.OptimizationRuntime(); optRT != nil {
-		cost := optRT.GetCostSummary()
+	if runtimes.optRuntime != nil {
+		cost := runtimes.optRuntime.GetCostSummary()
 		snap.HasOptimize = true
 		snap.OptimizeSpentUSD = cost.SpentThisMonthUSD
 		snap.OptimizeTurns = cost.TurnsThisMonth

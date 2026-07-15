@@ -49,16 +49,18 @@ type Host struct {
 	mux http.Handler
 
 	// Runtime instances are rebuilt with the request mux and swapped together.
-	optMu      sync.RWMutex
-	optRuntime *optimize.Runtime
-
-	runtimeMu    sync.RWMutex
-	cacheRuntime *cacheruntime.Runtime
-	toolRuntime  *toolruntime.Runtime
+	runtimeMu sync.RWMutex
+	runtimes  hostRuntimeState
 
 	// vmManager is rebuilt with the request mux; used for optional Evolver benchmarks.
 	vmMu      sync.RWMutex
 	vmManager *vm.Manager
+}
+
+type hostRuntimeState struct {
+	cacheRuntime *cacheruntime.Runtime
+	toolRuntime  *toolruntime.Runtime
+	optRuntime   *optimize.Runtime
 }
 
 func NewHost(store *serverconfig.Store) (*Host, error) {
@@ -91,9 +93,7 @@ func (host *Host) GetCostSummary() *optimize.CostTracker {
 	if host == nil {
 		return &optimize.CostTracker{}
 	}
-	host.optMu.RLock()
-	rt := host.optRuntime
-	host.optMu.RUnlock()
+	rt := host.runtimeStateSnapshot().optRuntime
 	if rt == nil {
 		return &optimize.CostTracker{}
 	}
@@ -105,9 +105,7 @@ func (host *Host) OptimizationRuntime() *optimize.Runtime {
 	if host == nil {
 		return nil
 	}
-	host.optMu.RLock()
-	defer host.optMu.RUnlock()
-	return host.optRuntime
+	return host.runtimeStateSnapshot().optRuntime
 }
 
 func (host *Host) applyOptimizationConfig(cfg serverconfig.OptimizationConfig) {
@@ -115,15 +113,28 @@ func (host *Host) applyOptimizationConfig(cfg serverconfig.OptimizationConfig) {
 		return
 	}
 	normalized := serverconfig.NormalizeOptimizationConfig(cfg)
-	host.optMu.RLock()
-	rt := host.optRuntime
-	host.optMu.RUnlock()
+	rt := host.runtimeStateSnapshot().optRuntime
 	if rt == nil {
 		return
 	}
 	rt.SetEnabled(normalized.Enabled)
 	rt.SetQualityTier(optimize.QualityTier(normalized.QualityTier))
 	rt.SetMonthlyBudgetUSD(normalized.MonthlyBudgetUSD)
+}
+
+func (host *Host) runtimeStateSnapshot() hostRuntimeState {
+	if host == nil {
+		return hostRuntimeState{}
+	}
+	host.runtimeMu.RLock()
+	defer host.runtimeMu.RUnlock()
+	return host.runtimes
+}
+
+func (host *Host) swapRuntimeState(next hostRuntimeState) {
+	host.runtimeMu.Lock()
+	host.runtimes = next
+	host.runtimeMu.Unlock()
 }
 
 func (host *Host) ConfigManager() *serverconfig.Manager {
@@ -366,14 +377,11 @@ func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 	// 跨进程恢复 spent/turns（ADR-010）；路径在 appdata data 根下。
 	optRuntime := optimize.NewRuntimeWithStore(optCfg.MonthlyBudgetUSD, tier, optimize.DefaultCostStorePath())
 	optRuntime.SetEnabled(optCfg.Enabled)
-	host.optMu.Lock()
-	host.optRuntime = optRuntime
-	host.optMu.Unlock()
-
-	host.runtimeMu.Lock()
-	host.cacheRuntime = cacheRuntime
-	host.toolRuntime = toolRT
-	host.runtimeMu.Unlock()
+	host.swapRuntimeState(hostRuntimeState{
+		cacheRuntime: cacheRuntime,
+		toolRuntime:  toolRT,
+		optRuntime:   optRuntime,
+	})
 
 	// 构建 Virtual Model Runtime 并注册内置虚拟模型（MOA）
 	// host.configs 实现 SelectChannelForModel + ProviderStreamIdleTimeout，供 MOA 专家解析已有 ModelAdapter

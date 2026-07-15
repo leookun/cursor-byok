@@ -82,3 +82,50 @@ Implemented and verified.
 
 - Use the unified runtime metric export as the evidence source for regression remediation and runtime optimization proposals.
 - Continue routing metric-driven changes through existing Evolver task planning and bounded code-fix recipes.
+
+---
+
+## Important findings fix report — 2026-07-15
+
+### Status
+
+Implemented and verified in a follow-up fix commit.
+
+### Fixes
+
+1. Runtime pointer coherence:
+   - Replaced separate `optMu` / `runtimeMu` ownership with one Host-local `hostRuntimeState` tuple protected by `runtimeMu`.
+   - `rebuildLocked` now swaps cache, tool, and optimization runtime pointers together.
+   - Host accessors/config updates (`GetCostSummary`, `OptimizationRuntime`, `applyOptimizationConfig`) read the optimization pointer through the same tuple snapshot.
+   - `evolutionRuntimeMetricSnapshot` reads cache/tool/optimization pointers from one tuple snapshot before collecting stats, avoiding split-lock mixed-generation reads.
+
+2. Behavior coverage:
+   - Removed the source-string production-call-site assertion.
+   - `TestRunBackgroundEvolutionCheck_CallsRuntimeMetricExport` now executes the real `runBackgroundEvolutionCheck` path with an isolated temporary user data root and temporary repo root, then asserts the canonical `<dataRoot>/runtime-metrics/current.json` file contains optimization evidence.
+   - Nil/no-evidence fail-open behavior remains covered by `TestRuntimeMetricSnapshot_WithNilRuntimeDependencies` and `TestExportEvolutionRuntimeMetrics_SkipsWithoutEvidence`.
+
+### Scope preservation
+
+- Preserved current implementation commit `1f57f9b` and appended this fix report instead of rewriting the original report.
+- The review mentioned unrelated context/embedder/AOS code in the diff. Those files were already modified or untracked before Task 2 began (`internal/backend/host.go` was modified and `internal/backend/host_evolver.go` / `internal/backend/host_evolver_test.go` were untracked at Task 2 start), so this fix intentionally does not remove or refactor that pre-existing user work.
+- Staging scope is limited to owned Host files plus this report.
+
+### Verification output
+
+```text
+> go test ./internal/backend -run 'Test(RuntimeMetricSnapshot|ExportEvolutionRuntimeMetrics|RunBackgroundEvolutionCheck_CallsRuntimeMetricExport)' -count=1
+ok  	cursor/internal/backend	0.177s
+```
+
+```text
+> go test ./internal/backend -count=1
+ok  	cursor/internal/backend	0.242s
+```
+
+```text
+> go test ./internal/backend/runtime/cache ./internal/backend/runtime/tool ./internal/backend/runtime/optimize ./internal/backend/runtime/evolver -count=1
+ok  	cursor/internal/backend/runtime/cache	1.475s
+ok  	cursor/internal/backend/runtime/tool	0.572s
+ok  	cursor/internal/backend/runtime/optimize	0.550s
+ok  	cursor/internal/backend/runtime/evolver	3.312s
+```

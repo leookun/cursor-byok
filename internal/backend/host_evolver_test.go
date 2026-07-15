@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -74,7 +73,7 @@ func TestRuntimeMetricSnapshot_WithInitializedRuntimeDependencies(t *testing.T) 
 	optRT := optimize.NewRuntime(42, optimize.TierBalanced)
 	optRT.RecordCost("gpt-4o", 1000, 1000)
 
-	host := &Host{cacheRuntime: cacheRT, toolRuntime: toolRT, optRuntime: optRT}
+	host := &Host{runtimes: hostRuntimeState{cacheRuntime: cacheRT, toolRuntime: toolRT, optRuntime: optRT}}
 	snap := host.evolutionRuntimeMetricSnapshot()
 	if snap == nil {
 		t.Fatal("expected snapshot")
@@ -115,7 +114,7 @@ func TestExportEvolutionRuntimeMetrics_UsesHostSnapshot(t *testing.T) {
 
 	optRT := optimize.NewRuntime(7, optimize.TierBalanced)
 	optRT.RecordCost("gpt-4o-mini", 1000, 1000)
-	host := &Host{optRuntime: optRT}
+	host := &Host{runtimes: hostRuntimeState{optRuntime: optRT}}
 
 	if err := host.exportEvolutionRuntimeMetrics(); err != nil {
 		t.Fatalf("exportEvolutionRuntimeMetrics: %v", err)
@@ -147,16 +146,27 @@ func TestExportEvolutionRuntimeMetrics_SkipsWithoutEvidence(t *testing.T) {
 }
 
 func TestRunBackgroundEvolutionCheck_CallsRuntimeMetricExport(t *testing.T) {
-	data, err := os.ReadFile("host_evolver.go")
+	home := isolatedUserHome(t)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	withTempEvolutionRepo(t)
+
+	optRT := optimize.NewRuntime(11, optimize.TierBalanced)
+	optRT.RecordCost("gpt-4o-mini", 1000, 1000)
+	host := &Host{runtimes: hostRuntimeState{optRuntime: optRT}}
+
+	host.runBackgroundEvolutionCheck()
+
+	data, err := os.ReadFile(filepath.Join(appdata.DataRootPath(), "runtime-metrics", "current.json"))
 	if err != nil {
-		t.Fatalf("ReadFile(host_evolver.go): %v", err)
+		t.Fatalf("ReadFile(current.json): %v", err)
 	}
-	text := string(data)
-	if !strings.Contains(text, "host.exportEvolutionRuntimeMetrics()") {
-		t.Fatal("runBackgroundEvolutionCheck must call host.exportEvolutionRuntimeMetrics before Evolve")
+	var got evolver.RuntimeMetricSnapshot
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal(current.json): %v", err)
 	}
-	if !strings.Contains(text, "evolver.WriteRuntimeMetricExports(appdata.DataRootPath(), snap)") {
-		t.Fatal("exportEvolutionRuntimeMetrics must use the canonical WriteRuntimeMetricExports call site")
+	if !got.HasOptimize || got.OptimizeBudgetUSD != 11 || got.OptimizeTurns != 1 {
+		t.Fatalf("unexpected exported snapshot: %+v", got)
 	}
 }
 
@@ -187,4 +197,42 @@ type hostEvolverExecStub struct{}
 
 func (s *hostEvolverExecStub) OpenExec(toolName string, argsJSON []byte) (string, []byte, error) {
 	return "exec-1", []byte(`{"result":"file content"}`), nil
+}
+
+func withTempEvolutionRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, dir := range []string{
+		filepath.Join(root, "docs", "handbook"),
+		filepath.Join(root, "docs", "reports"),
+		filepath.Join(root, "docs", "adr"),
+		filepath.Join(root, "docs", "research"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module temp-evolution-repo\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("Chdir(%s): %v", root, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+	return root
+}
+
+func isolatedUserHome(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "cursor-byok-test-home-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp(user home): %v", err)
+	}
+	return dir
 }
