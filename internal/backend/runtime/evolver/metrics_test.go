@@ -115,6 +115,53 @@ func TestCollectRuntimeMetrics_ConsumesUnifiedRuntimeMetricExport(t *testing.T) 
 	}
 }
 
+func TestCollectRuntimeMetrics_RepoOverridePrecedesUnifiedExport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+
+	root := t.TempDir()
+	override := &RuntimeMetricSnapshot{
+		HasCache:          true,
+		CacheHitRate:      0.91,
+		CacheTokensSaved:  910,
+		HasToolCache:      true,
+		ToolCacheHitRate:  0.81,
+		ToolCacheHits:     81,
+		ToolCacheMisses:   19,
+		HasOptimize:       true,
+		OptimizeSpentUSD:  1.25,
+		OptimizeTurns:     12,
+		OptimizeBudgetUSD: 100,
+	}
+	unified := &RuntimeMetricSnapshot{
+		HasCache:          true,
+		CacheHitRate:      0.19,
+		CacheTokensSaved:  190,
+		HasToolCache:      true,
+		ToolCacheHitRate:  0.29,
+		ToolCacheHits:     29,
+		ToolCacheMisses:   71,
+		HasOptimize:       true,
+		OptimizeSpentUSD:  9.75,
+		OptimizeTurns:     97,
+		OptimizeBudgetUSD: 200,
+	}
+	writeJSON(t, filepath.Join(appdata.DataRootPath(), "runtime-metrics", "current.json"), unified)
+	writeJSON(t, filepath.Join(root, "docs", "reports", ".baselines", "runtime-metrics-current.json"), override)
+
+	cur := NewEvolver().CollectRuntimeMetrics(root)
+	if cur == nil || cur.CacheHitRate != override.CacheHitRate ||
+		cur.CacheTokensSaved != override.CacheTokensSaved ||
+		cur.ToolCacheHitRate != override.ToolCacheHitRate ||
+		cur.ToolCacheHits != override.ToolCacheHits ||
+		cur.OptimizeSpentUSD != override.OptimizeSpentUSD ||
+		cur.OptimizeTurns != override.OptimizeTurns ||
+		cur.OptimizeBudgetUSD != override.OptimizeBudgetUSD {
+		t.Fatalf("repo-local override must win over unified export: got %+v, want %+v", cur, override)
+	}
+}
+
 func TestCompareRuntimeMetrics_EmptySnapshotsDoNotClaimStableBaseline(t *testing.T) {
 	e := NewEvolver()
 	rep := e.CompareRuntimeMetrics(&RuntimeMetricSnapshot{}, &RuntimeMetricSnapshot{})

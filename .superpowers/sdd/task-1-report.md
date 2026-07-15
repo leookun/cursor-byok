@@ -67,3 +67,67 @@ ok  	cursor/internal/backend/runtime/evolver	2.552s
 ## Concerns
 
 - `internal/backend/runtime/evolver/` is untracked in this worktree, so staging the owned files will add those files rather than record a normal tracked-file delta. I staged only the task-owned files.
+
+## Task 1 Review Fix Report
+
+### Status
+
+The review fixes are implemented and verified. This append records the second deterministic precedence test and the durable ADR/research/benchmark writeback. The prior report above is preserved unchanged.
+
+### Files changed in this fix
+
+- `internal/backend/runtime/evolver/metrics_test.go`
+- `docs/adr/045-runtime-metric-baselines-and-regressions.md`
+- `docs/research/runtime-metric-baselines-regressions.md`
+- `docs/reports/2026-07-15-phase25-runtime-metric-baselines.md`
+- `.superpowers/sdd/task-1-report.md`
+
+### Evidence and behavior
+
+- Added `TestCollectRuntimeMetrics_RepoOverridePrecedesUnifiedExport`, which writes distinct evidence-bearing snapshots to both `docs/reports/.baselines/runtime-metrics-current.json` and `<dataRoot>/runtime-metrics/current.json` under isolated temporary roots. The collected cache, tool-cache, and optimize values must match the repo-local override, proving it remains highest priority.
+- ADR-045 now records the exact source ordering: repo-local CI/fixture override, unified live export, then granular fallbacks.
+- ADR-045, the research note, and the Phase 25 report record the verified writer/collector gap, the evidence-bearing predicate, no-source baseline protection, fail-open behavior, unchanged thresholds, and the remaining Host production export integration as the next phase.
+- No provider/model registry abstraction or threshold change was introduced.
+
+### Tests and commands
+
+Focused Evolver coverage:
+
+    go test ./internal/backend/runtime/evolver -run 'RuntimeMetric|CollectRuntime|CompareRuntime|Propose_IncludesRuntime' -count=1
+
+Output:
+
+    ok  	cursor/internal/backend/runtime/evolver	0.485s
+
+Full Evolver package suite:
+
+    go test ./internal/backend/runtime/evolver
+
+Output:
+
+    ok  	cursor/internal/backend/runtime/evolver	2.891s
+
+Focused documentation consistency coverage:
+
+    go test ./internal/docguard -run 'Handbook|ADR|Research' -count=1
+
+Output:
+
+    ok  	cursor/internal/docguard	0.277s
+
+### Self-review
+
+- Test scope is deterministic and isolated with temporary repository and user-data roots.
+- Override precedence is asserted across all three runtime metric surfaces, not only one field.
+- Documentation matches the implemented order and evidence predicate; handbook indexes were already consistent and were not modified.
+- Existing granular fallbacks, fail-open collection, regression thresholds, and implementation ownership remain unchanged.
+- The fix commit will stage only the four review-fix files above plus this report; unrelated dirty files remain unstaged.
+
+### Concerns
+
+- Host production wiring still needs to call `WriteRuntimeMetricExports` from the background Evolver cycle; that is explicitly documented as the next phase and is outside this fix scope.
+- The repository has extensive unrelated dirty and untracked files. They are preserved and excluded from the fix commit.
+
+### Report path
+
+`.superpowers/sdd/task-1-report.md`
