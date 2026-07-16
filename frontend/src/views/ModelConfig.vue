@@ -2,18 +2,30 @@
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
+import ModelGroupModal from "@/components/ModelGroupModal.vue";
+import Select from "@/components/ui/Select.vue";
 import { showModal } from "@/composables/useModal";
+import { buildModelAdapterGroups } from "@/utils/modelAdapterGroups";
 import {
+  ANTHROPIC_THINKING_EFFORT_DEFAULT,
   appState,
+  activateModelAdapterGroup,
   createEmptyModelAdapter,
+  deleteModelGroup,
   deleteModelAdapterAt,
+  discoverAndAddModelAdapters,
   duplicateModelAdapterAt,
   getModelAdapterTestResultByID,
   openModelEditorWindow,
   reloadUserConfig,
+  reorderModelGroups,
+  measureModelGroupConnection,
   runModelAdapterTest,
+  saveModelGroup,
   startModelAdapterTest,
   toUserError,
+  updateModelGroup,
+  updateModelGroupReasoning,
 } from "@/state/appState";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -24,17 +36,54 @@ const typeTabs = [
   { label: "Anthropic", value: "anthropic", icon: "icon-[logos--claude-icon]" },
 ];
 
+const reasoningEffortOptions = [
+  { label: "低", value: "low", icon: "icon-[mdi--head-outline]" },
+  { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
+  { label: "高", value: "high", icon: "icon-[mdi--brain]" },
+  { label: "极高", value: "xhigh", icon: "icon-[mdi--head-cog-outline]" },
+  { label: "最高", value: "max", icon: "icon-[mdi--brain]" },
+];
+
+const anthropicThinkingEffortOptions = [
+  { label: "低", value: "low", icon: "icon-[mdi--head-outline]" },
+  { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
+  { label: "高", value: "high", icon: "icon-[mdi--brain]" },
+  { label: "极高", value: "xhigh", icon: "icon-[mdi--head-cog-outline]" },
+  { label: "最大", value: "max", icon: "icon-[mdi--brain]" },
+];
+
 const activeType = ref("openai");
+const groupModalVisible = ref(false);
+const editingGroup = ref(null);
+const reasoningModalVisible = ref(false);
+const reasoningTargetGroup = ref(null);
+const reasoningDraftEffort = ref("medium");
+const expandedGroupKeys = ref(new Set());
+const discoveringGroupKey = ref("");
+const activatingGroupID = ref("");
+const draggingGroupKey = ref("");
+const dragOverGroupKey = ref("");
+const dragOverGroupPosition = ref("");
+const applyingReasoningGroupID = ref("");
+const measuringGroupKey = ref("");
+const measuringAllGroups = ref(false);
+const groupConnectionResults = ref({});
 const batchTesting = ref(false);
 const batchStopping = ref(false);
 const batchTotal = ref(0);
 const batchCompleted = ref(0);
+const batchScopeKey = ref("");
 const batchActiveCalls = new Set();
 let batchStopRequested = false;
 
 const filteredAdapters = computed(() =>
   appState.modelAdapters.filter((adapter) => adapter.type === activeType.value),
 );
+const filteredModelGroups = computed(() =>
+  appState.modelGroups.filter((group) => group.type === activeType.value),
+);
+const filteredGroups = computed(() => buildModelAdapterGroups(filteredModelGroups.value, filteredAdapters.value));
+const groupConnectionButtonText = computed(() => (measuringAllGroups.value ? "测速中..." : "测速全部渠道"));
 const batchButtonText = computed(() => {
   if (batchStopping.value) {
     return "停止中...";
@@ -46,12 +95,12 @@ const batchButtonText = computed(() => {
 });
 
 watch(
-  () => appState.modelAdapters,
-  (adapters) => {
-    if (adapters.some((adapter) => adapter.type === activeType.value)) {
+  () => appState.modelGroups,
+  (groups) => {
+    if (groups.some((group) => group.type === activeType.value)) {
       return;
     }
-    const fallback = typeTabs.find((tab) => adapters.some((adapter) => adapter.type === tab.value));
+    const fallback = typeTabs.find((tab) => groups.some((group) => group.type === tab.value));
     activeType.value = fallback?.value ?? "openai";
   },
   { deep: true, immediate: true },
@@ -92,10 +141,220 @@ function formatHost(value) {
   }
 }
 
-async function openEditor(index = -1) {
+function uniqueValues(adapters, key) {
+  return Array.from(new Set(adapters.map((adapter) => String(adapter?.[key] || "").trim())));
+}
+
+function formatGroupCredential(group) {
+  if (String(group.apiKey || "").trim()) {
+    return maskSecret(group.apiKey);
+  }
+  const keys = uniqueValues(group.adapters, "apiKey").filter(Boolean);
+  if (keys.length === 0) {
+    return "未配置密钥";
+  }
+  if (keys.length === 1) {
+    return maskSecret(keys[0]);
+  }
+  return `${keys.length} 个访问密钥`;
+}
+
+function isGroupExpanded(key) {
+  return expandedGroupKeys.value.has(key);
+}
+
+function toggleGroup(key) {
+  const next = new Set(expandedGroupKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  expandedGroupKeys.value = next;
+}
+
+function createModelForGroup(group) {
+  const empty = createEmptyModelAdapter();
+  const template = group.adapters[0] || empty;
+  return {
+    ...empty,
+    type: group.type,
+    baseURL: group.baseURL,
+    apiKey: group.apiKey || template.apiKey,
+    openAIEndpoint: group.openAIEndpoint || template.openAIEndpoint,
+    customHeadersEnabled: group.customHeadersEnabled ?? template.customHeadersEnabled,
+    customHeadersJSON: group.customHeadersJSON || template.customHeadersJSON,
+  };
+}
+
+function reasoningOptionsForGroup(group) {
+  return group?.type === "anthropic" ? anthropicThinkingEffortOptions : reasoningEffortOptions;
+}
+
+function currentGroupReasoningEffort(group) {
+  const adapter = group?.adapters?.[0] || {};
+  if (group?.type === "anthropic") {
+    return adapter.anthropicThinkingEffort || ANTHROPIC_THINKING_EFFORT_DEFAULT;
+  }
+  return adapter.reasoningEffort || "medium";
+}
+
+function reasoningLabel(group, value) {
+  return reasoningOptionsForGroup(group).find((option) => option.value === value)?.label || value || "-";
+}
+
+function openGroupReasoningModal(group) {
+  reasoningTargetGroup.value = group;
+  reasoningDraftEffort.value = currentGroupReasoningEffort(group);
+  reasoningModalVisible.value = true;
+}
+
+function closeGroupReasoningModal() {
+  reasoningModalVisible.value = false;
+  reasoningTargetGroup.value = null;
+  reasoningDraftEffort.value = "medium";
+}
+
+async function handleApplyGroupReasoning() {
+  const group = reasoningTargetGroup.value;
+  if (!group?.groupID || applyingReasoningGroupID.value) {
+    return;
+  }
+  applyingReasoningGroupID.value = group.groupID;
+  const selectedEffort = reasoningDraftEffort.value;
+  try {
+    const result = await updateModelGroupReasoning(group.groupID, selectedEffort);
+    if (!result.ok) {
+      await showActionError("批量设置推理强度失败", result.error);
+      return;
+    }
+    closeGroupReasoningModal();
+    await showModal({
+      title: "批量设置完成",
+      content: `已将分组“${group.name || formatHost(group.baseURL)}”中的 ${result.updated || 0} 个模型设置为“${reasoningLabel(group, selectedEffort)}”。`,
+      showCancel: false,
+    });
+  } finally {
+    applyingReasoningGroupID.value = "";
+  }
+}
+
+function formatLatency(latencyMS) {
+  const value = Math.max(0, Math.round(Number(latencyMS) || 0));
+  if (value < 1000) {
+    return `${value} ms`;
+  }
+  return `${(value / 1000).toFixed(2)} s`;
+}
+
+function getGroupConnectionResult(group) {
+  return groupConnectionResults.value[group?.groupID] || null;
+}
+
+function groupConnectionSummary(group) {
+  const result = getGroupConnectionResult(group);
+  if (!result) {
+    return "";
+  }
+  if (!result.ok) {
+    return `失败 ${formatLatency(result.latencyMS)}`;
+  }
+  return `${formatLatency(result.latencyMS)} / ${result.modelCount} 个模型`;
+}
+
+function storeGroupConnectionResult(groupID, result) {
+  groupConnectionResults.value = {
+    ...groupConnectionResults.value,
+    [groupID]: result,
+  };
+}
+
+async function handleMeasureGroupConnection(group, { silent = false } = {}) {
+  if (!group?.groupID || measuringGroupKey.value) {
+    return null;
+  }
+  measuringGroupKey.value = group.key;
+  try {
+    const result = await measureModelGroupConnection(group.groupID);
+    storeGroupConnectionResult(group.groupID, result);
+    if (!result.ok && !silent) {
+      await showActionError("渠道测速失败", result.error);
+    }
+    return result;
+  } finally {
+    measuringGroupKey.value = "";
+  }
+}
+
+async function handleMeasureAllGroupConnections() {
+  if (measuringAllGroups.value || measuringGroupKey.value) {
+    return;
+  }
+  const groups = filteredGroups.value.filter((group) => group.groupID);
+  if (groups.length === 0) {
+    return;
+  }
+  measuringAllGroups.value = true;
+  try {
+    for (const group of groups) {
+      await handleMeasureGroupConnection(group, { silent: true });
+    }
+  } finally {
+    measuringAllGroups.value = false;
+  }
+}
+
+async function handleSaveGroup(group) {
+  const targetGroupID = editingGroup.value?.groupID || "";
+  const result = targetGroupID
+    ? await updateModelGroup(targetGroupID, group)
+    : await saveModelGroup(group);
+  if (!result.ok) {
+    await showActionError(targetGroupID ? "编辑分组失败" : "添加分组失败", result.error);
+    return;
+  }
+  groupModalVisible.value = false;
+  editingGroup.value = null;
+}
+
+function openAddGroup() {
+  editingGroup.value = null;
+  groupModalVisible.value = true;
+}
+
+function openEditGroup(group) {
+  editingGroup.value = group;
+  groupModalVisible.value = true;
+}
+
+function closeGroupModal() {
+  groupModalVisible.value = false;
+  editingGroup.value = null;
+}
+
+async function handleDeleteGroup(group) {
+  if (!group?.groupID || appState.configSaving) {
+    return;
+  }
+  const confirmed = await showModal({
+    title: "删除分组",
+    content: `确定删除分组“${group.name || formatHost(group.baseURL)}”吗？该分组下的 ${group.adapters.length} 个模型将同时删除。`,
+    confirmText: "删除",
+    cancelText: "取消",
+  });
+  if (!confirmed) {
+    return;
+  }
+  const result = await deleteModelGroup(group.groupID);
+  if (!result.ok) {
+    await showActionError("删除分组失败", result.error);
+  }
+}
+
+async function openEditor(index = -1, preset = null) {
   const adapter = index >= 0
     ? appState.modelAdapters[index]
-    : {
+    : preset || {
         ...createEmptyModelAdapter(),
         type: activeType.value,
       };
@@ -104,6 +363,125 @@ async function openEditor(index = -1) {
   } catch (error) {
     await showActionError("打开失败", toUserError(error));
   }
+}
+
+async function openGroupModelEditor(group) {
+  await openEditor(-1, createModelForGroup(group));
+}
+
+function isActiveGroup(group) {
+  return Boolean(group.groupID) && appState.activeModelGroupID === group.groupID;
+}
+
+function canDragGroup(group) {
+  return Boolean(group?.groupID) && !appState.configSaving && !batchTesting.value && !discoveringGroupKey.value;
+}
+
+function resetGroupDragState() {
+  draggingGroupKey.value = "";
+  dragOverGroupKey.value = "";
+  dragOverGroupPosition.value = "";
+}
+
+function handleGroupDragStart(event, group) {
+  if (!canDragGroup(group)) {
+    event.preventDefault();
+    return;
+  }
+  draggingGroupKey.value = group.key;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", group.groupID);
+}
+
+function handleGroupDragOver(event, group) {
+  if (!canDragGroup(group) || !draggingGroupKey.value || draggingGroupKey.value === group.key) {
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  dragOverGroupKey.value = group.key;
+  const rect = event.currentTarget.getBoundingClientRect();
+  dragOverGroupPosition.value = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+}
+
+function handleGroupDragLeave(event, group) {
+  if (event.currentTarget?.contains?.(event.relatedTarget)) {
+    return;
+  }
+  if (dragOverGroupKey.value === group.key) {
+    dragOverGroupKey.value = "";
+    dragOverGroupPosition.value = "";
+  }
+}
+
+async function handleGroupDrop(event, targetGroup) {
+  event.preventDefault();
+  const sourceGroupID = event.dataTransfer.getData("text/plain");
+  const insertAfterTarget = dragOverGroupPosition.value === "after";
+  const sourceIndex = filteredGroups.value.findIndex((group) => group.groupID === sourceGroupID);
+  const targetIndex = filteredGroups.value.findIndex((group) => group.groupID === targetGroup.groupID);
+  resetGroupDragState();
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return;
+  }
+
+  const orderedGroupIDs = filteredGroups.value.map((group) => group.groupID).filter(Boolean);
+  const [sourceID] = orderedGroupIDs.splice(sourceIndex, 1);
+  const nextTargetIndex = orderedGroupIDs.indexOf(targetGroup.groupID);
+  if (nextTargetIndex < 0) {
+    return;
+  }
+  orderedGroupIDs.splice(nextTargetIndex + (insertAfterTarget ? 1 : 0), 0, sourceID);
+
+  const result = await reorderModelGroups(orderedGroupIDs, activeType.value);
+  if (!result.ok) {
+    await reloadUserConfig({ modelAdaptersOnly: true }).catch(() => { });
+    await showActionError("分组排序失败", result.error);
+  }
+}
+
+async function handleActivateGroup(group) {
+  if (!group.groupID || activatingGroupID.value || isActiveGroup(group)) {
+    return;
+  }
+  activatingGroupID.value = group.groupID;
+  try {
+    const result = await activateModelAdapterGroup(group.groupID);
+    if (!result.ok) {
+      await showActionError("使用分组失败", result.error);
+    }
+  } catch (error) {
+    await showActionError("使用分组失败", toUserError(error));
+  } finally {
+    activatingGroupID.value = "";
+  }
+}
+
+async function handleDiscoverGroupModels(group) {
+  if (discoveringGroupKey.value || !group.groupID) {
+    return;
+  }
+  discoveringGroupKey.value = group.key;
+  let result;
+  try {
+    result = await discoverAndAddModelAdapters(group);
+    if (!result.ok) {
+      await showActionError("获取模型失败", result.error);
+      return;
+    }
+    const next = new Set(expandedGroupKeys.value);
+    next.add(group.key);
+    expandedGroupKeys.value = next;
+  } catch (error) {
+    await showActionError("获取模型失败", toUserError(error));
+    return;
+  } finally {
+    discoveringGroupKey.value = "";
+  }
+  await showModal({
+    title: "获取模型完成",
+    content: `上游返回 ${result.discovered} 个模型，新增 ${result.added} 个，跳过 ${result.skipped} 个已存在模型。`,
+  });
 }
 
 async function handleDeleteModelAdapter(index) {
@@ -162,30 +540,33 @@ async function stopBatchTesting() {
   );
 }
 
-async function handleTestAllModelAdapters() {
+async function runModelAdapterBatch(adapters, scopeKey) {
   if (batchTesting.value) {
-    await stopBatchTesting();
+    if (batchScopeKey.value === scopeKey) {
+      await stopBatchTesting();
+    }
     return;
   }
-  const adapters = filteredAdapters.value.slice();
-  if (adapters.length === 0) {
+  const targets = adapters.slice();
+  if (targets.length === 0) {
     return;
   }
+  batchScopeKey.value = scopeKey;
   batchStopRequested = false;
   batchTesting.value = true;
   batchStopping.value = false;
-  batchTotal.value = adapters.length;
+  batchTotal.value = targets.length;
   batchCompleted.value = 0;
   let nextIndex = 0;
   try {
-    const workers = Array.from({ length: Math.min(BATCH_TEST_CONCURRENCY, adapters.length) }, async () => {
+    const workers = Array.from({ length: Math.min(BATCH_TEST_CONCURRENCY, targets.length) }, async () => {
       while (!batchStopRequested) {
         const currentIndex = nextIndex;
         nextIndex += 1;
-        if (currentIndex >= adapters.length) {
+        if (currentIndex >= targets.length) {
           return;
         }
-        const adapter = adapters[currentIndex];
+        const adapter = targets[currentIndex];
         const call = startModelAdapterTest(adapter);
         batchActiveCalls.add(call);
         try {
@@ -206,7 +587,27 @@ async function handleTestAllModelAdapters() {
     batchStopRequested = false;
     batchTesting.value = false;
     batchStopping.value = false;
+    batchScopeKey.value = "";
   }
+}
+
+async function handleTestAllModelAdapters() {
+  if (batchTesting.value) {
+    await stopBatchTesting();
+    return;
+  }
+  await runModelAdapterBatch(filteredAdapters.value, `all:${activeType.value}`);
+}
+
+async function handleTestModelGroup(group) {
+  await runModelAdapterBatch(group.adapters, group.key);
+}
+
+function groupTestButtonText(group) {
+  if (batchTesting.value && batchScopeKey.value === group.key) {
+    return batchStopping.value ? "停止中..." : `停止 ${batchCompleted.value}/${batchTotal.value}`;
+  }
+  return "测试分组";
 }
 
 onMounted(async () => {
@@ -240,6 +641,20 @@ onBeforeUnmount(() => {
         <div class="center-row gap-2">
           <Button
             variant="default"
+            :disabled="appState.configSaving || batchTesting"
+            @click="openAddGroup"
+          >
+            添加分组
+          </Button>
+          <Button
+            variant="default"
+            :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey) || filteredGroups.length === 0"
+            @click="handleMeasureAllGroupConnections"
+          >
+            {{ groupConnectionButtonText }}
+          </Button>
+          <Button
+            variant="default"
             :disabled="appState.configSaving || (!batchTesting && filteredAdapters.length === 0)"
             @click="handleTestAllModelAdapters"
           >
@@ -251,72 +666,222 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="min-h-0 flex-1">
-      <div v-if="filteredAdapters.length === 0"
+      <div v-if="filteredGroups.length === 0"
         class="flex h-full min-h-[220px] items-center justify-center rounded-[8px] border border-dashed border-[#3a3a3a] bg-[#232323] px-4 text-sm text-[#a3a3a3]">
-        当前还没有配置任何 {{ typeLabel(activeType) }} 模型。
+        当前还没有配置任何 {{ typeLabel(activeType) }} 分组。
       </div>
 
       <div v-else class="h-full min-h-0 overflow-y-auto pr-1">
-        <div class="grid gap-3 pb-1 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+        <div class="flex flex-col gap-3 pb-1">
           <Card
-            v-for="(adapter, index) in filteredAdapters"
-            :key="adapter.id || `${adapter.baseURL}-${adapter.modelID}-${index}`"
+            v-for="group in filteredGroups"
+            :key="group.key"
+            :class="[
+              draggingGroupKey === group.key ? 'opacity-60' : '',
+              dragOverGroupKey === group.key ? 'ring-2 ring-[#10AD5D]/70' : '',
+              dragOverGroupKey === group.key && dragOverGroupPosition === 'before' ? 'ring-offset-2 ring-offset-[#10AD5D]/30' : '',
+              dragOverGroupKey === group.key && dragOverGroupPosition === 'after' ? 'shadow-[0_8px_0_0_rgba(16,173,93,0.35)]' : '',
+            ]"
+            @dragover="handleGroupDragOver($event, group)"
+            @dragleave="handleGroupDragLeave($event, group)"
+            @drop="handleGroupDrop($event, group)"
           >
-            <div class="flex h-full min-h-[154px] flex-col justify-between gap-3">
-              <div class="flex flex-col gap-2.5">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-base font-medium text-white">{{ adapter.displayName }}</div>
-                    <div class="mt-1 truncate text-sm text-[#8f8f8f]">{{ adapter.modelID }}</div>
-                    <div v-if="adapter.type === 'openai'" class="mt-0.5 truncate text-xs text-[#737373]">
+            <div class="flex flex-col gap-3">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-3">
+                  <button
+                    type="button"
+                    class="center-row h-9 w-9 shrink-0 cursor-grab rounded-[8px] border border-[#3f3f3f] bg-[#232323] text-[#8f8f8f] transition-colors duration-150 hover:border-[#4a4a4a] hover:text-white active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+                    :disabled="!canDragGroup(group)"
+                    :draggable="canDragGroup(group)"
+                    title="拖拽排序"
+                    @dragstart.stop="handleGroupDragStart($event, group)"
+                    @dragend="resetGroupDragState"
+                  >
+                    <span class="icon-[mdi--drag-vertical] text-[18px]"></span>
+                  </button>
+                  <div class="center-row h-9 w-9 shrink-0 rounded-[8px] border border-[#3f3f3f] bg-[#232323]">
+                    <span class="icon-[bxl--openai] text-[18px] !text-white" v-if="group.type === 'openai'"></span>
+                    <span class="icon-[logos--claude-icon] text-[18px]" v-else></span>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <div class="truncate text-base font-medium text-white">{{ group.name || formatHost(group.baseURL) }}</div>
+                      <span class="rounded-[999px] border border-[#3f3f3f] px-2 py-0.5 text-[11px] text-[#cfcfcf]">
+                        {{ group.adapters.length }} 个模型
+                      </span>
+                      <span class="rounded-[999px] border border-[#3f3f3f] px-2 py-0.5 text-[11px] text-[#8f8f8f]">
+                        {{ formatGroupCredential(group) }}
+                      </span>
+                      <span
+                        v-if="groupConnectionSummary(group)"
+                        class="rounded-[999px] border px-2 py-0.5 text-[11px]"
+                        :class="getGroupConnectionResult(group)?.ok ? 'border-[#14532d] text-[#86efac]' : 'border-[#4b1d1d] text-[#fca5a5]'"
+                      >
+                        {{ groupConnectionSummary(group) }}
+                      </span>
+                    </div>
+                    <div class="mt-1 max-w-[520px] truncate text-xs text-[#737373]" :title="group.baseURL">
+                      {{ group.baseURL }}
+                    </div>
+                  </div>
+                </div>
+                <div class="center-row flex-wrap gap-2">
+                  <Button
+                    :variant="isActiveGroup(group) ? 'primary' : 'default'"
+                    :disabled="appState.configSaving || Boolean(activatingGroupID) || !group.groupID || isActiveGroup(group)"
+                    @click="handleActivateGroup(group)"
+                  >
+                    {{ activatingGroupID === group.groupID ? "切换中..." : (isActiveGroup(group) ? "当前分组" : "使用当前分组") }}
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || group.adapters.length === 0 || (batchTesting && batchScopeKey !== group.key)"
+                    @click="handleTestModelGroup(group)"
+                  >
+                    {{ groupTestButtonText(group) }}
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey)"
+                    @click="handleMeasureGroupConnection(group)"
+                  >
+                    {{ measuringGroupKey === group.key ? "测速中..." : "测速渠道" }}
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || applyingReasoningGroupID === group.groupID"
+                    @click="openGroupReasoningModal(group)"
+                  >
+                    批量推理
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey)"
+                    @click="handleDiscoverGroupModels(group)"
+                  >
+                    {{ discoveringGroupKey === group.key ? "获取中..." : "获取全部模型" }}
+                  </Button>
+                  <Button variant="default" :disabled="appState.configSaving || batchTesting" @click="openGroupModelEditor(group)">
+                    添加模型
+                  </Button>
+                  <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey)"
+                    @click="openEditGroup(group)"
+                  >
+                    编辑分组
+                  </Button>
+                  <Button
+                    variant="text"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey)"
+                    @click="handleDeleteGroup(group)"
+                  >
+                    删除分组
+                  </Button>
+                  <Button variant="text" @click="toggleGroup(group.key)">
+                    {{ isGroupExpanded(group.key) ? "收起" : "展开" }}
+                    <span
+                      class="ml-1 text-[14px] transition-transform"
+                      :class="isGroupExpanded(group.key) ? 'icon-[mdi--chevron-up]' : 'icon-[mdi--chevron-down]'"
+                    ></span>
+                  </Button>
+                </div>
+              </div>
+
+              <div v-if="isGroupExpanded(group.key)" class="border-t border-[#3a3a3a]">
+                <div
+                  v-for="(adapter, index) in group.adapters"
+                  :key="adapter.id || `${adapter.baseURL}-${adapter.modelID}-${index}`"
+                  class="flex flex-col gap-3 border-b border-[#343434] py-3 last:border-b-0 last:pb-0 md:flex-row md:items-center"
+                >
+                  <div class="min-w-0 flex-[1.2]">
+                    <div class="truncate text-sm font-medium text-white">{{ adapter.displayName }}</div>
+                    <div class="mt-1 truncate text-xs text-[#8f8f8f]">{{ adapter.modelID }}</div>
+                    <div v-if="adapter.type === 'openai'" class="mt-0.5 truncate text-[11px] text-[#666]">
                       {{ adapter.openAIEndpoint || "/v1/responses" }}
                     </div>
                   </div>
-                  <span
-                    class="center-row shrink-0 gap-1 rounded-[999px] border border-[#3f3f3f] px-[7px] py-[4px] text-[11px] font-medium text-[#cfcfcf]"
-                  >
-                    <span class="icon-[bxl--openai] text-[14px] !text-white" v-if="adapter.type === 'openai'"></span>
-                    <span class="icon-[logos--claude-icon] text-[14px]" v-else></span>
-                    <span>{{ typeLabel(adapter.type) }}</span>
-                  </span>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2 text-sm text-[#a3a3a3]">
-                  <div class="rounded-[8px] bg-[#232323] px-3 py-2">
-                    <div class="text-[11px] uppercase tracking-[0.08em] text-[#666]">Host</div>
-                    <div class="mt-1 truncate text-[#d4d4d4]" :title="adapter.baseURL">{{ formatHost(adapter.baseURL) }}</div>
+                  <div class="min-w-[120px] flex-[0.7] rounded-[8px] bg-[#232323] px-3 py-2">
+                    <div class="text-[10px] uppercase tracking-[0.08em] text-[#666]">API Key</div>
+                    <div class="mt-1 truncate text-xs text-[#d4d4d4]">{{ maskSecret(adapter.apiKey) }}</div>
                   </div>
-                  <div class="rounded-[8px] bg-[#232323] px-3 py-2">
-                    <div class="text-[11px] uppercase tracking-[0.08em] text-[#666]">API Key</div>
-                    <div class="mt-1 truncate text-[#d4d4d4]">{{ maskSecret(adapter.apiKey) }}</div>
+                  <div class="min-w-[180px] flex-1">
+                    <ModelAdapterTestCard
+                      compact
+                      title="测试"
+                      empty-text="未测试"
+                      :result="getAdapterTestResult(adapter)"
+                    />
+                  </div>
+                  <div class="center-row shrink-0 flex-wrap justify-end gap-2">
+                    <Button
+                      variant="default"
+                      :disabled="appState.configSaving || batchTesting || isAdapterTesting(adapter)"
+                      @click="handleTestModelAdapter(adapter)"
+                    >
+                      {{ isAdapterTesting(adapter) ? "测试中..." : "测试" }}
+                    </Button>
+                    <Button variant="default" :disabled="appState.configSaving" @click="openEditor(appState.modelAdapters.indexOf(adapter))">编辑</Button>
+                    <Button variant="default" :disabled="appState.configSaving" @click="handleDuplicateModelAdapter(appState.modelAdapters.indexOf(adapter))">复制</Button>
+                    <Button variant="text" :disabled="appState.configSaving"
+                      @click="handleDeleteModelAdapter(appState.modelAdapters.indexOf(adapter))">删除</Button>
                   </div>
                 </div>
-
-                <ModelAdapterTestCard
-                  compact
-                  title="测试"
-                  empty-text="未测试"
-                  :result="getAdapterTestResult(adapter)"
-                />
-              </div>
-
-              <div class="center-row flex-wrap justify-end gap-2 border-t border-[#343434] pt-3">
-                <Button
-                  variant="default"
-                  :disabled="appState.configSaving || batchTesting || isAdapterTesting(adapter)"
-                  @click="handleTestModelAdapter(adapter)"
-                >
-                  {{ isAdapterTesting(adapter) ? "测试中..." : "测试" }}
-                </Button>
-                <Button variant="default" :disabled="appState.configSaving" @click="openEditor(appState.modelAdapters.indexOf(adapter))">编辑</Button>
-                <Button variant="default" :disabled="appState.configSaving" @click="handleDuplicateModelAdapter(appState.modelAdapters.indexOf(adapter))">复制</Button>
-                <Button variant="text" :disabled="appState.configSaving"
-                  @click="handleDeleteModelAdapter(appState.modelAdapters.indexOf(adapter))">删除</Button>
               </div>
             </div>
           </Card>
         </div>
       </div>
     </div>
+
+    <ModelGroupModal
+      :visible="groupModalVisible"
+      :type="activeType"
+      :group="editingGroup"
+      :saving="appState.configSaving"
+      @cancel="closeGroupModal"
+      @save="handleSaveGroup"
+    />
+
+    <Teleport to="body">
+      <Transition name="modal-mask">
+        <div
+          v-show="reasoningModalVisible"
+          class="modal-mask-layer fixed inset-0 z-999 flex items-center justify-center bg-black/50 p-4"
+          @click.self="closeGroupReasoningModal"
+        >
+          <Transition name="modal-content">
+            <div
+              v-show="reasoningModalVisible"
+              class="relative z-10 w-full max-w-[380px] overflow-hidden rounded-[8px] p-px shadow-[0_25px_50px_-12px_rgba(0,0,0,0.6)]"
+              style="background: linear-gradient(to bottom, #656565 0%, #3A3A3A 10px, #3A3A3A 100%);"
+              @click.stop
+            >
+              <div class="rounded-[7px] bg-[#292929] p-5">
+                <h3 class="mb-3 text-base font-medium text-white">批量设置推理强度</h3>
+                <p class="mb-4 text-sm leading-relaxed text-[#a3a3a3]">
+                  {{ reasoningTargetGroup?.name || formatHost(reasoningTargetGroup?.baseURL) }} · {{ reasoningTargetGroup?.adapters?.length || 0 }} 个模型
+                </p>
+                <Select
+                  v-model="reasoningDraftEffort"
+                  :options="reasoningOptionsForGroup(reasoningTargetGroup)"
+                  :disabled="Boolean(applyingReasoningGroupID)"
+                  aria-label="批量设置推理强度"
+                />
+                <div class="mt-5 flex justify-end gap-2">
+                  <Button variant="default" :disabled="Boolean(applyingReasoningGroupID)" @click="closeGroupReasoningModal">
+                    取消
+                  </Button>
+                  <Button variant="primary" :disabled="Boolean(applyingReasoningGroupID)" @click="handleApplyGroupReasoning">
+                    {{ applyingReasoningGroupID ? "保存中..." : "保存" }}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>

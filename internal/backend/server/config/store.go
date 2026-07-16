@@ -139,6 +139,9 @@ func shouldPersistNormalizedConfig(raw []byte, current Config, normalized Config
 	if !yamlHasKey(raw, "backendListenAddr") || !yamlHasKey(raw, "proxyListenAddr") {
 		return true
 	}
+	if len(current.ModelGroups) != len(normalized.ModelGroups) || current.ActiveModelGroupID != normalized.ActiveModelGroupID {
+		return true
+	}
 	if current.BackendListenAddr != normalized.BackendListenAddr || current.ProxyListenAddr != normalized.ProxyListenAddr {
 		return true
 	}

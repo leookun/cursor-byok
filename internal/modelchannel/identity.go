@@ -3,12 +3,18 @@ package modelchannel
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 )
 
 const ChannelIDHexLength = 16
+
+const GroupIDHexLength = 32
+
+const GroupIDPrefix = "grp_"
 
 const (
 	OpenAIEndpointResponses       = "/v1/responses"
@@ -94,8 +100,55 @@ func BuildChannelID(baseURL string, modelID string, apiKey string, name string, 
 	})
 }
 
+func BuildGroupID(providerType string, baseURL string, apiKey string, customHeadersEnabled bool, customHeadersJSON string) string {
+	return GroupIDPrefix + buildIdentityID([]string{
+		strings.ToLower(strings.TrimSpace(providerType)),
+		strings.TrimSpace(baseURL),
+		strings.TrimSpace(apiKey),
+		normalizeGroupHeaders(customHeadersEnabled, customHeadersJSON),
+	}, GroupIDHexLength)
+}
+
+func normalizeGroupHeaders(enabled bool, headersJSON string) string {
+	if !enabled {
+		return ""
+	}
+	text := strings.TrimSpace(headersJSON)
+	var headers map[string]string
+	if err := json.Unmarshal([]byte(text), &headers); err != nil || headers == nil {
+		return text
+	}
+	type headerPair struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	pairs := make([]headerPair, 0, len(headers))
+	for name, value := range headers {
+		pairs = append(pairs, headerPair{Name: strings.ToLower(strings.TrimSpace(name)), Value: value})
+	}
+	sort.Slice(pairs, func(left int, right int) bool {
+		if pairs[left].Name == pairs[right].Name {
+			return pairs[left].Value < pairs[right].Value
+		}
+		return pairs[left].Name < pairs[right].Name
+	})
+	payload, err := json.Marshal(pairs)
+	if err != nil {
+		return text
+	}
+	return string(payload)
+}
+
 func buildChannelID(parts []string) string {
+	return buildIdentityID(parts, ChannelIDHexLength)
+}
+
+func buildIdentityID(parts []string, length int) string {
 	payload := strings.Join(parts, "\n")
 	hashBytes := sha256.Sum256([]byte(payload))
-	return hex.EncodeToString(hashBytes[:])[:ChannelIDHexLength]
+	encoded := hex.EncodeToString(hashBytes[:])
+	if length <= 0 || length > len(encoded) {
+		return encoded
+	}
+	return encoded[:length]
 }

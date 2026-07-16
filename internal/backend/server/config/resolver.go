@@ -20,11 +20,11 @@ func (manager *Manager) SelectChannelForModel(_ context.Context, modelID string)
 	if manager == nil {
 		return nil, legacyruntime.ErrChannelNotAvailable
 	}
-	adapters, err := NormalizeModelAdapterConfigs(manager.Current().ModelAdapters)
+	config, err := NormalizeConfig(manager.Current())
 	if err != nil {
 		return nil, err
 	}
-	return resolveModelAdapterChannel(adapters, modelID)
+	return resolveModelAdapterChannel(ActiveModelAdapterConfigs(config), modelID)
 }
 
 func resolveModelAdapterChannel(adapters []ModelAdapterConfig, requestedModel string) (*legacyruntime.ResolvedChannel, error) {

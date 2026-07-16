@@ -304,18 +304,19 @@ func OpenAIEndpointURL(baseURL string, endpoint string) string {
 	if !strings.HasPrefix(normalizedEndpoint, "/") {
 		normalizedEndpoint = "/" + normalizedEndpoint
 	}
-	// 规则0：自定义路径模式
-	// - baseURL 已含 endpoint 后缀（/chat/completions 或 /responses）→ 直接用 base
-	// - 否则追加 /chat/completions（默认协议形态，覆盖 Z.AI /v4 等场景）
+	// 规则0：自定义路径模式下，baseURL 就是用户填写的完整请求地址。
+	// 不再隐式追加 endpoint，确保模型发现和真实推理使用同一地址语义。
 	if normalizedEndpoint == modelchannel.OpenAIEndpointCustom {
-		if OpenAIEndpointFromBaseURL(base) != "" {
-			return base
-		}
-		return base + "/chat/completions"
-	}
-	// 规则1：baseURL 已含 endpoint 后缀 → 直接用 base
-	if OpenAIEndpointFromBaseURL(base) != "" {
 		return base
+	}
+	// 规则1：baseURL 已含标准 endpoint 后缀时，先还原 API 根路径，
+	// 再按用户选择的接口请求重新拼接，避免地址后缀覆盖显式选择。
+	if endpointFromURL := OpenAIEndpointFromBaseURL(base); endpointFromURL != "" {
+		suffix := "/responses"
+		if endpointFromURL == modelchannel.OpenAIEndpointChatCompletions {
+			suffix = "/chat/completions"
+		}
+		base = strings.TrimRight(base[:len(base)-len(suffix)], "/")
 	}
 	// 规则2：baseURL 以 /vN 结尾时，剥离 endpoint 的版本前缀（/v1/、/v2/ 等）
 	// 这样 base=.../v4 + endpoint=/v1/chat/completions → .../v4/chat/completions
@@ -366,10 +367,14 @@ func stripEndpointVersionPrefix(endpoint string) (string, bool) {
 }
 
 func ResolveOpenAIEndpoint(baseURL string, endpoint string) string {
+	normalized := modelchannel.NormalizeOpenAIEndpoint("openai", endpoint)
+	if normalized != modelchannel.OpenAIEndpointCustom {
+		return normalized
+	}
 	if endpointFromURL := OpenAIEndpointFromBaseURL(baseURL); endpointFromURL != "" {
 		return endpointFromURL
 	}
-	return modelchannel.NormalizeOpenAIEndpoint("openai", endpoint)
+	return normalized
 }
 
 func OpenAIEndpointFromBaseURL(baseURL string) string {

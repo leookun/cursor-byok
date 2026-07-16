@@ -1,4 +1,5 @@
 import {
+  DiscoverModelGroupModels,
   GetState,
   LoadUserConfig,
   SaveUserConfig,
@@ -23,21 +24,22 @@ import {
   OpenModelEditorWindow,
 } from "@bindings/cursor/internal/bridge/windowservice.js";
 import { Call } from "@wailsio/runtime";
+import { redactForLog } from "@/utils/redactForLog";
 
 const API_LOG_PREFIX = "[clientApi]";
 const PROXY_SERVICE_NAME = "cursor/internal/bridge.ProxyService";
 
 function logSuccess(name, payload, result) {
   console.log(`${API_LOG_PREFIX} ${name} response`, {
-    payload,
-    result,
+    payload: redactForLog(payload),
+    result: redactForLog(result),
   });
 }
 
 function logError(name, payload, error) {
   console.error(`${API_LOG_PREFIX} ${name} error`, {
-    payload,
-    error,
+    payload: redactForLog(payload),
+    error: redactForLog(error),
   });
 }
 
@@ -138,6 +140,18 @@ export function testModelAdapter(adapter) {
       logError("TestModelAdapter", adapter, error);
       throw error;
     },
+  );
+}
+
+export function discoverModelAdapterModels(adapterID) {
+  return withApiLogging("DiscoverModelAdapterModels", { adapterID }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.DiscoverModelAdapterModels`, adapterID),
+  );
+}
+
+export function discoverModelGroupModels(groupID) {
+  return withApiLogging("DiscoverModelGroupModels", { groupID }, () =>
+    DiscoverModelGroupModels(groupID),
   );
 }
 
