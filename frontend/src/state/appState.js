@@ -20,6 +20,7 @@ import {
   testModelAdapter,
 } from "@/services/clientApi";
 import { buildDiscoveredModelAdditions } from "@/utils/modelDiscovery";
+import { buildModelGroupCopy, isCopiedModelGroupID } from "@/utils/modelGroupCopy";
 
 const APP_STATE_STORAGE_KEY = "cursor-client:runtime-state:v2";
 const GENERIC_SERVICE_ERROR = "服务错误";
@@ -588,8 +589,14 @@ function buildConfigPayload(source = appState) {
     providerStreamIdleTimeout: normalized.providerStreamIdleTimeout,
     backendListenAddr: normalized.backendListenAddr,
     proxyListenAddr: normalized.proxyListenAddr,
-    modelGroups: normalized.modelGroups.map(({ id, ...group }) => group),
-    modelAdapters: normalized.modelAdapters.map(({ id, groupID, ...adapter }) => adapter),
+    modelGroups: normalized.modelGroups.map(({ id, ...group }) => ({
+      ...group,
+      ...(isCopiedModelGroupID(id) ? { id } : {}),
+    })),
+    modelAdapters: normalized.modelAdapters.map(({ id, groupID, ...adapter }) => ({
+      ...adapter,
+      ...(isCopiedModelGroupID(groupID) ? { groupID } : {}),
+    })),
     activeModelGroupID: normalized.activeModelGroupID,
     routing: normalized.routing,
     homeMetrics: normalized.homeMetrics,
@@ -1200,6 +1207,44 @@ export async function saveModelGroup(group) {
   );
 }
 
+export async function duplicateModelGroup(groupID) {
+  const targetGroupID = asString(groupID);
+  if (!targetGroupID) {
+    return { ok: false, error: "妯″瀷鍒嗙粍涓嶅瓨鍦ㄦ垨鏃犳硶澶嶅埗" };
+  }
+
+  const currentConfig = await loadPersistedUserConfig();
+  const currentGroups = normalizeModelGroups(currentConfig.modelGroups);
+  const sourceGroup = currentGroups.find((group) => group.id === targetGroupID);
+  if (!sourceGroup) {
+    return { ok: false, error: "妯″瀷鍒嗙粍涓嶅瓨鍦ㄦ垨宸插垹闄わ紝鏃犳硶澶嶅埗" };
+  }
+
+  const currentAdapters = normalizeModelAdapters(currentConfig.modelAdapters);
+  const sourceAdapters = currentAdapters.filter((adapter) => adapter.groupID === targetGroupID);
+  let copy;
+  try {
+    copy = buildModelGroupCopy(sourceGroup, sourceAdapters, currentGroups, currentAdapters);
+  } catch (error) {
+    return { ok: false, error: toUserError(error) };
+  }
+
+  const result = await persistConfigPayload(
+    {
+      ...currentConfig,
+      modelGroups: [...currentGroups, copy.group],
+      modelAdapters: [...currentAdapters, ...copy.adapters],
+    },
+    { modelAdaptersOnly: true },
+  );
+  return {
+    ...result,
+    groupID: result.ok ? copy.group.id : "",
+    groupName: result.ok ? copy.group.name : "",
+    modelCount: result.ok ? copy.adapters.length : 0,
+  };
+}
+
 export async function updateModelGroup(groupID, group) {
   const targetGroupID = asString(groupID);
   if (!targetGroupID) {
@@ -1405,7 +1450,7 @@ export function normalizeModelGroups(source) {
 
 export function validateModelGroups(source) {
   const groups = normalizeModelGroups(source);
-  const seen = new Set();
+  const seen = new Map();
   for (const [index, group] of groups.entries()) {
     const prefix = `分组 ${index + 1}`;
     if (!group.name) {
@@ -1436,10 +1481,15 @@ export function validateModelGroups(source) {
       group.customHeadersEnabled,
       group.customHeadersEnabled ? group.customHeadersJSON : "",
     ]);
-    if (seen.has(identity)) {
+    const previousGroupID = seen.get(identity);
+    if (
+      previousGroupID &&
+      !isCopiedModelGroupID(previousGroupID) &&
+      !isCopiedModelGroupID(group.id)
+    ) {
       return `${prefix} 与现有分组的渠道配置重复`;
     }
-    seen.add(identity);
+    seen.set(identity, group.id);
   }
   return "";
 }

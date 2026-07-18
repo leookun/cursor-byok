@@ -19,11 +19,12 @@ const (
 	DefaultRoutingMode                      = "local"
 	DefaultProviderStreamIdleTimeoutSeconds = 240
 	MinProviderStreamIdleTimeoutSeconds     = 30
+	copiedModelGroupIDPrefix                = "grp_copy_"
 )
 
 type ModelAdapterConfig struct {
-	ID                          string `json:"id,omitempty" yaml:"-"`
-	GroupID                     string `json:"groupID,omitempty" yaml:"-"`
+	ID                          string `json:"id,omitempty" yaml:"id,omitempty"`
+	GroupID                     string `json:"groupID,omitempty" yaml:"groupID,omitempty"`
 	DisplayName                 string `json:"displayName" yaml:"displayName"`
 	Type                        string `json:"type" yaml:"type"`
 	BaseURL                     string `json:"baseURL" yaml:"baseURL"`
@@ -46,7 +47,7 @@ type ModelAdapterConfig struct {
 }
 
 type ModelGroupConfig struct {
-	ID                   string `json:"id,omitempty" yaml:"-"`
+	ID                   string `json:"id,omitempty" yaml:"id,omitempty"`
 	Name                 string `json:"name" yaml:"name"`
 	Type                 string `json:"type" yaml:"type"`
 	BaseURL              string `json:"baseURL" yaml:"baseURL"`
@@ -75,6 +76,26 @@ type Config struct {
 	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
+}
+
+// Copied groups need a stable instance ID because the normal channel hash intentionally merges identical credentials.
+func isCopiedModelGroupID(value string) bool {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, copiedModelGroupIDPrefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(value, copiedModelGroupIDPrefix)
+	if suffix == "" {
+		return false
+	}
+	for _, character := range suffix {
+		if (character < 'a' || character > 'z') &&
+			(character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func DefaultConfig() Config {
@@ -187,7 +208,11 @@ func NormalizeModelGroupConfigs(input []ModelGroupConfig) ([]ModelGroupConfig, e
 				return nil, err
 			}
 		}
-		next.ID = modelchannel.BuildGroupID(next.Type, next.BaseURL, next.APIKey, next.CustomHeadersEnabled, next.CustomHeadersJSON)
+		if isCopiedModelGroupID(item.ID) {
+			next.ID = strings.TrimSpace(item.ID)
+		} else {
+			next.ID = modelchannel.BuildGroupID(next.Type, next.BaseURL, next.APIKey, next.CustomHeadersEnabled, next.CustomHeadersJSON)
+		}
 		if _, exists := seenGroupIDs[next.ID]; exists {
 			return nil, errors.New("模型分组不能重复，请检查 type、baseURL、apiKey 和自定义请求头")
 		}
@@ -283,7 +308,11 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 			return nil, errors.New("模型适配器 anthropicThinkingEffort 仅支持 low、medium、high、xhigh、max")
 		}
 		next.ID = modelchannel.BuildChannelID(next.BaseURL, next.ModelID, next.APIKey, next.DisplayName, next.OpenAIEndpoint)
-		next.GroupID = modelchannel.BuildGroupID(next.Type, next.BaseURL, next.APIKey, next.CustomHeadersEnabled, next.CustomHeadersJSON)
+		if isCopiedModelGroupID(item.GroupID) {
+			next.GroupID = strings.TrimSpace(item.GroupID)
+		} else {
+			next.GroupID = modelchannel.BuildGroupID(next.Type, next.BaseURL, next.APIKey, next.CustomHeadersEnabled, next.CustomHeadersJSON)
+		}
 		if _, exists := seenChannelIDs[next.ID]; exists {
 			return nil, errors.New("模型适配器渠道不能重复，请检查 url、modelID、apiKey、displayName、endpoint 组合")
 		}

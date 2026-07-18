@@ -14,6 +14,7 @@ import {
   deleteModelGroup,
   deleteModelAdapterAt,
   discoverAndAddModelAdapters,
+  duplicateModelGroup,
   duplicateModelAdapterAt,
   getModelAdapterTestResultByID,
   openModelEditorWindow,
@@ -60,6 +61,7 @@ const reasoningTargetGroup = ref(null);
 const reasoningDraftEffort = ref("medium");
 const expandedGroupKeys = ref(new Set());
 const discoveringGroupKey = ref("");
+const duplicatingGroupKey = ref("");
 const activatingGroupID = ref("");
 const draggingGroupKey = ref("");
 const dragOverGroupKey = ref("");
@@ -351,6 +353,30 @@ async function handleDeleteGroup(group) {
   }
 }
 
+async function handleDuplicateGroup(group) {
+  if (!group?.groupID || appState.configSaving || duplicatingGroupKey.value) {
+    return;
+  }
+  duplicatingGroupKey.value = group.key;
+  try {
+    const result = await duplicateModelGroup(group.groupID);
+    if (!result.ok) {
+      await showActionError("复制分组失败", result.error);
+      return;
+    }
+    const copiedGroupName = result.groupName || `${group.name || formatHost(group.baseURL)} - 副本`;
+    await showModal({
+      title: "复制分组完成",
+      content: `已创建分组“${copiedGroupName}”，新增 ${result.modelCount || 0} 个模型。`,
+      showCancel: false,
+    });
+  } catch (error) {
+    await showActionError("复制分组失败", toUserError(error));
+  } finally {
+    duplicatingGroupKey.value = "";
+  }
+}
+
 async function openEditor(index = -1, preset = null) {
   const adapter = index >= 0
     ? appState.modelAdapters[index]
@@ -374,7 +400,11 @@ function isActiveGroup(group) {
 }
 
 function canDragGroup(group) {
-  return Boolean(group?.groupID) && !appState.configSaving && !batchTesting.value && !discoveringGroupKey.value;
+  return Boolean(group?.groupID)
+    && !appState.configSaving
+    && !batchTesting.value
+    && !discoveringGroupKey.value
+    && !duplicatingGroupKey.value;
 }
 
 function resetGroupDragState() {
@@ -641,26 +671,26 @@ onBeforeUnmount(() => {
         <div class="center-row gap-2">
           <Button
             variant="default"
-            :disabled="appState.configSaving || batchTesting"
+            :disabled="appState.configSaving || batchTesting || Boolean(duplicatingGroupKey)"
             @click="openAddGroup"
           >
             添加分组
           </Button>
           <Button
             variant="default"
-            :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey) || filteredGroups.length === 0"
+            :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey) || filteredGroups.length === 0"
             @click="handleMeasureAllGroupConnections"
           >
             {{ groupConnectionButtonText }}
           </Button>
           <Button
             variant="default"
-            :disabled="appState.configSaving || (!batchTesting && filteredAdapters.length === 0)"
+            :disabled="appState.configSaving || Boolean(duplicatingGroupKey) || (!batchTesting && filteredAdapters.length === 0)"
             @click="handleTestAllModelAdapters"
           >
             {{ batchButtonText }}
           </Button>
-          <Button variant="primary" :disabled="appState.configSaving || batchTesting" @click="openEditor()">新增模型</Button>
+          <Button variant="primary" :disabled="appState.configSaving || batchTesting || Boolean(duplicatingGroupKey)" @click="openEditor()">新增模型</Button>
         </div>
       </div>
     </div>
@@ -729,52 +759,59 @@ onBeforeUnmount(() => {
                 <div class="center-row flex-wrap gap-2">
                   <Button
                     :variant="isActiveGroup(group) ? 'primary' : 'default'"
-                    :disabled="appState.configSaving || Boolean(activatingGroupID) || !group.groupID || isActiveGroup(group)"
+                    :disabled="appState.configSaving || Boolean(duplicatingGroupKey) || Boolean(activatingGroupID) || !group.groupID || isActiveGroup(group)"
                     @click="handleActivateGroup(group)"
                   >
                     {{ activatingGroupID === group.groupID ? "切换中..." : (isActiveGroup(group) ? "当前分组" : "使用当前分组") }}
                   </Button>
                   <Button
                     variant="default"
-                    :disabled="appState.configSaving || group.adapters.length === 0 || (batchTesting && batchScopeKey !== group.key)"
+                    :disabled="appState.configSaving || Boolean(duplicatingGroupKey) || group.adapters.length === 0 || (batchTesting && batchScopeKey !== group.key)"
                     @click="handleTestModelGroup(group)"
                   >
                     {{ groupTestButtonText(group) }}
                   </Button>
                   <Button
                     variant="default"
-                    :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey)"
+                    :disabled="appState.configSaving || batchTesting || measuringAllGroups || Boolean(measuringGroupKey) || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey)"
                     @click="handleMeasureGroupConnection(group)"
                   >
                     {{ measuringGroupKey === group.key ? "测速中..." : "测速渠道" }}
                   </Button>
                   <Button
                     variant="default"
-                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || applyingReasoningGroupID === group.groupID"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey) || applyingReasoningGroupID === group.groupID"
                     @click="openGroupReasoningModal(group)"
                   >
                     批量推理
                   </Button>
                   <Button
                     variant="default"
-                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey)"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey)"
                     @click="handleDiscoverGroupModels(group)"
                   >
                     {{ discoveringGroupKey === group.key ? "获取中..." : "获取全部模型" }}
                   </Button>
-                  <Button variant="default" :disabled="appState.configSaving || batchTesting" @click="openGroupModelEditor(group)">
+                  <Button variant="default" :disabled="appState.configSaving || batchTesting || Boolean(duplicatingGroupKey)" @click="openGroupModelEditor(group)">
                     添加模型
                   </Button>
                   <Button
                     variant="default"
-                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey)"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey)"
                     @click="openEditGroup(group)"
                   >
                     编辑分组
                   </Button>
                   <Button
+                    variant="default"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey)"
+                    @click="handleDuplicateGroup(group)"
+                  >
+                    {{ duplicatingGroupKey === group.key ? "复制中..." : "复制分组" }}
+                  </Button>
+                  <Button
                     variant="text"
-                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey)"
+                    :disabled="appState.configSaving || batchTesting || Boolean(discoveringGroupKey) || Boolean(duplicatingGroupKey)"
                     @click="handleDeleteGroup(group)"
                   >
                     删除分组
