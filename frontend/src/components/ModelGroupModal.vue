@@ -2,7 +2,7 @@
 import Button from "@/components/ui/Button.vue";
 import Input from "@/components/ui/Input.vue";
 import Select from "@/components/ui/Select.vue";
-import { buildModelGroupBaseURL, splitModelGroupBaseURL } from "@/utils/modelAdapterGroups";
+import { buildModelGroupBaseURL } from "@/utils/modelAdapterGroups";
 import { reactive, watch } from "vue";
 
 const props = defineProps({
@@ -23,7 +23,6 @@ const draft = reactive({
   name: "",
   apiKey: "",
   address: "",
-  port: "443",
   openAIEndpoint: "/v1/responses",
   customHeadersEnabled: false,
   customHeadersJSON: "{}",
@@ -32,12 +31,10 @@ const errors = reactive({ form: "" });
 
 function resetDraft() {
   const source = props.group && typeof props.group === "object" ? props.group : null;
-  const endpoint = splitModelGroupBaseURL(source?.baseURL);
   Object.assign(draft, {
     name: String(source?.name || ""),
     apiKey: String(source?.apiKey || ""),
-    address: source ? endpoint.address : "",
-    port: source ? endpoint.port : "443",
+    address: String(source?.baseURL || ""),
     openAIEndpoint: String(source?.openAIEndpoint || "/v1/responses"),
     customHeadersEnabled: Boolean(source?.customHeadersEnabled),
     customHeadersJSON: String(source?.customHeadersJSON || "{}"),
@@ -68,7 +65,7 @@ function handleSave() {
     errors.form = "分组 Key 不能为空";
     return;
   }
-  const endpoint = buildModelGroupBaseURL(draft.address, draft.port);
+  const endpoint = buildModelGroupBaseURL(draft.address);
   if (endpoint.error) {
     errors.form = endpoint.error;
     return;
@@ -152,14 +149,10 @@ function handleSave() {
                 </label>
               </div>
 
-              <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_120px]">
+              <div class="mt-3">
                 <label class="flex flex-col gap-1">
                   <span class="text-sm text-[#d4d4d4]">请求地址</span>
                   <Input v-model="draft.address" :disabled="saving" placeholder="https://api.example.com/v1" />
-                </label>
-                <label class="flex flex-col gap-1">
-                  <span class="text-sm text-[#d4d4d4]">请求端口</span>
-                  <Input v-model="draft.port" inputmode="numeric" :disabled="saving" placeholder="443" />
                 </label>
               </div>
 

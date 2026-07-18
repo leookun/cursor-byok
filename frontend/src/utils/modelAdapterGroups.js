@@ -103,27 +103,8 @@ export function buildModelAdapterGroups(modelGroups, adapters) {
   return Array.from(groupsByIdentity.values());
 }
 
-export function splitModelGroupBaseURL(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return { address: "", port: "443" };
-  }
-  try {
-    const parsed = new URL(text);
-    const host = parsed.hostname.includes(":") ? `[${parsed.hostname}]` : parsed.hostname;
-    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
-    return {
-      address: `${parsed.protocol}//${host}${path}`,
-      port: parsed.port || (parsed.protocol === "http:" ? "80" : "443"),
-    };
-  } catch {
-    return { address: text, port: "443" };
-  }
-}
-
-export function buildModelGroupBaseURL(address, port) {
+export function buildModelGroupBaseURL(address) {
   let text = String(address || "").trim();
-  const portText = String(port || "").trim();
   if (!text) {
     return { baseURL: "", error: "请求地址不能为空" };
   }
@@ -139,10 +120,9 @@ export function buildModelGroupBaseURL(address, port) {
   if (!parsed.hostname || parsed.username || parsed.password || parsed.search || parsed.hash) {
     return { baseURL: "", error: "请求地址不能包含认证信息、查询参数或锚点" };
   }
-  if (!/^\d+$/.test(portText) || Number(portText) < 1 || Number(portText) > 65535) {
-    return { baseURL: "", error: "请求端口必须在 1-65535 之间" };
+  if (parsed.port && Number(parsed.port) < 1) {
+    return { baseURL: "", error: "请求地址中的端口必须在 1-65535 之间" };
   }
-  parsed.port = portText;
   return { baseURL: parsed.toString().replace(/\/+$/, ""), error: "" };
 }
 

@@ -84,10 +84,15 @@ test("显式空分组在没有模型时仍然显示", () => {
   assert.equal(groups[0].adapters.length, 0);
 });
 
-test("请求地址与端口组合为标准 baseURL", () => {
+test("请求地址直接保留显式端口并允许省略默认端口", () => {
   assert.deepEqual(
-    buildModelGroupBaseURL("api.example.com/v1", "8443"),
+    buildModelGroupBaseURL("api.example.com/v1"),
+    { baseURL: "https://api.example.com/v1", error: "" },
+  );
+  assert.deepEqual(
+    buildModelGroupBaseURL("https://api.example.com:8443/v1"),
     { baseURL: "https://api.example.com:8443/v1", error: "" },
   );
-  assert.equal(buildModelGroupBaseURL("https://api.example.com/v1", "70000").error.length > 0, true);
+  assert.equal(buildModelGroupBaseURL("https://api.example.com:70000/v1").error.length > 0, true);
+  assert.equal(buildModelGroupBaseURL("https://api.example.com:0/v1").error.length > 0, true);
 });
