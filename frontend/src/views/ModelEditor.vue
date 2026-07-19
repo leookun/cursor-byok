@@ -20,6 +20,7 @@ import {
   OPENAI_ENDPOINT_CUSTOM,
   OPENAI_ENDPOINT_RESPONSES,
   OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
+  SYSTEM_PROMPT_MAX_BYTES,
   runModelAdapterTest,
   saveModelAdapterAt,
   toUserError,
@@ -55,6 +56,11 @@ const openAIEndpointOptions = [
   { label: "自定义路径(请输入完整请求地址)", value: OPENAI_ENDPOINT_CUSTOM, icon: "icon-[mdi--pencil-outline]" },
 ];
 
+const systemPromptPositionOptions = [
+  { label: "追加在内置提示词后（推荐）", value: "after", icon: "icon-[mdi--format-vertical-align-bottom]" },
+  { label: "放在内置提示词前", value: "before", icon: "icon-[mdi--format-vertical-align-top]" },
+];
+
 const editorIndex = ref(-1);
 const draft = reactive(createEmptyModelAdapter());
 const errorMessage = ref("");
@@ -77,6 +83,7 @@ function createOptionalPositiveIntegerModel(key) {
 const maxCompletionTokensInput = createOptionalPositiveIntegerModel("maxCompletionTokens");
 const anthropicMaxTokensInput = createOptionalPositiveIntegerModel("anthropicMaxTokens");
 const contextWindowTokensInput = createOptionalPositiveIntegerModel("contextWindowTokens");
+const systemPromptBytes = computed(() => new TextEncoder().encode(String(draft.systemPrompt || "")).length);
 const interfacePlaceholder = computed(() =>
   draft.type === "anthropic" ? "例如：https://api.anthropic.com" : "例如：https://api.openai.com/v1",
 );
@@ -134,6 +141,7 @@ const fieldTips = {
   openAIEndpoint: "选择接口协议端点。选“自定义路径”时，请在接口地址栏填写完整请求地址（含 /chat/completions 或 /responses 路径后缀），系统会根据末段自动判断协议形态。",
   openAIExtraParams: "开启后会把 JSON 对象覆盖到 OpenAI 请求体。同名字段以这里为准。OpenAI service_tier 支持 auto、default、flex、scale、priority。",
   customHeaders: "开启后会把 JSON 对象覆盖到最终请求头。同名请求头以这里为准，值必须是字符串。",
+  systemPrompt: "仅对当前模型渠道生效。提示词会与 Cursor 内置系统提示词合并，不会替换内置工具和 Agent 指令。",
   anthropicExtraParams: "开启后会把 JSON 对象覆盖到 Anthropic 请求体。同名字段以这里为准。",
   anthropicMaxTokens: "Anthropic 模型单次回复允许生成的最大 Token 数。留空时使用默认值。",
   anthropicThinkingEffort: "Anthropic adaptive thinking 的思考强度。请求会固定使用新版 thinking.type=adaptive。",
@@ -494,6 +502,42 @@ onMounted(async () => {
             spellcheck="false"
             class="mt-3 min-h-[120px] w-full resize-none rounded-[6px] border border-[#3f3f3f] bg-[#1f1f1f] px-3 py-2 font-mono text-xs text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
           />
+        </div>
+
+        <div class="rounded-[8px] border border-[#343434] bg-[#252525] p-3">
+          <div class="flex items-center justify-between gap-3">
+            <span class="center-row justify-start gap-1.5 text-sm text-[#d4d4d4]">
+              <Tooltip :content="fieldTips.systemPrompt" />
+              <span>自定义系统提示词</span>
+            </span>
+            <label class="center-row gap-2 text-xs text-[#d4d4d4]">
+              <input
+                v-model="draft.systemPromptEnabled"
+                type="checkbox"
+                class="size-4 accent-[#10AD5D]"
+              />
+              <span>启用</span>
+            </label>
+          </div>
+          <div v-if="draft.systemPromptEnabled" class="mt-3 flex flex-col gap-3">
+            <Select
+              v-model="draft.systemPromptPosition"
+              :options="systemPromptPositionOptions"
+            />
+            <textarea
+              v-model="draft.systemPrompt"
+              rows="7"
+              spellcheck="false"
+              placeholder="例如：当任务未完成时继续执行，不要在中途停止。"
+              class="min-h-[160px] w-full resize-y rounded-[6px] border border-[#3f3f3f] bg-[#1f1f1f] px-3 py-2 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
+            />
+            <div class="flex items-center justify-between text-xs text-[#858585]">
+              <span>与内置提示词合并，不会替换 Cursor 的工具指令。</span>
+              <span :class="systemPromptBytes > SYSTEM_PROMPT_MAX_BYTES ? 'text-[#f87171]' : ''">
+                {{ systemPromptBytes }} / {{ SYSTEM_PROMPT_MAX_BYTES }} 字节
+              </span>
+            </div>
+          </div>
         </div>
 
         <div class="rounded-[8px] border border-[#343434] bg-[#252525] p-3">

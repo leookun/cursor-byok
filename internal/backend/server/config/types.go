@@ -16,6 +16,8 @@ const (
 	DefaultProxyListenAddr                  = "127.0.0.1:18080"
 	DefaultFrontendBaseURL                  = "http://127.0.0.1"
 	DefaultRoutingMode                      = "local"
+	DefaultSystemPromptPosition             = "after"
+	MaxSystemPromptBytes                    = 32 * 1024
 	DefaultProviderStreamIdleTimeoutSeconds = 240
 	MinProviderStreamIdleTimeoutSeconds     = 30
 )
@@ -34,6 +36,9 @@ type ModelAdapterConfig struct {
 	OpenAIExtraParamsJSON       string `json:"openAIExtraParamsJSON" yaml:"openAIExtraParamsJSON"`
 	CustomHeadersEnabled        bool   `json:"customHeadersEnabled" yaml:"customHeadersEnabled"`
 	CustomHeadersJSON           string `json:"customHeadersJSON" yaml:"customHeadersJSON"`
+	SystemPromptEnabled         bool   `json:"systemPromptEnabled" yaml:"systemPromptEnabled"`
+	SystemPrompt                string `json:"systemPrompt" yaml:"systemPrompt"`
+	SystemPromptPosition        string `json:"systemPromptPosition" yaml:"systemPromptPosition"`
 	AnthropicExtraParamsEnabled bool   `json:"anthropicExtraParamsEnabled" yaml:"anthropicExtraParamsEnabled"`
 	AnthropicExtraParamsJSON    string `json:"anthropicExtraParamsJSON" yaml:"anthropicExtraParamsJSON"`
 	ContextWindowTokens         int    `json:"contextWindowTokens" yaml:"contextWindowTokens"`
@@ -140,6 +145,19 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		}
 		next.CustomHeadersEnabled = item.CustomHeadersEnabled
 		next.CustomHeadersJSON = strings.TrimSpace(item.CustomHeadersJSON)
+		next.SystemPromptEnabled = item.SystemPromptEnabled
+		next.SystemPrompt = strings.TrimSpace(item.SystemPrompt)
+		next.SystemPromptPosition = normalizeSystemPromptPosition(item.SystemPromptPosition)
+		if next.SystemPromptEnabled {
+			switch {
+			case next.SystemPrompt == "":
+				return nil, errors.New("模型适配器 systemPrompt 启用时不能为空")
+			case len([]byte(next.SystemPrompt)) > MaxSystemPromptBytes:
+				return nil, fmt.Errorf("模型适配器 systemPrompt 不能超过 %d 字节", MaxSystemPromptBytes)
+			case next.SystemPromptPosition == "":
+				return nil, errors.New("模型适配器 systemPromptPosition 仅支持 before 或 after")
+			}
+		}
 		switch {
 		case next.DisplayName == "":
 			return nil, errors.New("模型适配器 displayName 不能为空")
@@ -287,6 +305,17 @@ func normalizeRoutingMode(value string) string {
 		return "local"
 	case "upstream":
 		return "upstream"
+	default:
+		return ""
+	}
+}
+
+func normalizeSystemPromptPosition(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", DefaultSystemPromptPosition:
+		return DefaultSystemPromptPosition
+	case "before":
+		return "before"
 	default:
 		return ""
 	}

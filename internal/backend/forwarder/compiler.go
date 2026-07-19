@@ -2,6 +2,7 @@
 package forwarder
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,70 @@ import (
 type PromptCompiler interface {
 	Compile(conversation *ConversationFile, mode agentv1.AgentMode, latestUserText string, modelName string) (CompiledConversation, error)
 	DerivePromptContexts(conversation *ConversationFile, mode agentv1.AgentMode, latestUserText string) ([]PromptContextMessage, error)
+}
+
+func (service *Service) compileConversation(conversation *ConversationFile, mode agentv1.AgentMode, latestUserText string, modelID string, modelName string) (CompiledConversation, error) {
+	if service == nil || service.compiler == nil {
+		return CompiledConversation{}, fmt.Errorf("prompt compiler is unavailable")
+	}
+	compiled, err := service.compiler.Compile(conversation, mode, latestUserText, modelName)
+	if err != nil {
+		return CompiledConversation{}, err
+	}
+	if service.resolver == nil {
+		return compiled, nil
+	}
+	channel, err := service.resolver.SelectChannelForModel(context.Background(), strings.TrimSpace(modelID))
+	if err != nil {
+		return CompiledConversation{}, err
+	}
+	if channel == nil {
+		return CompiledConversation{}, fmt.Errorf("no available channel for model %q", strings.TrimSpace(modelID))
+	}
+	return applyConfiguredSystemPrompt(compiled, channel.SystemPromptEnabled, channel.SystemPrompt, channel.SystemPromptPosition), nil
+}
+
+func applyConfiguredSystemPrompt(compiled CompiledConversation, enabled bool, promptText string, position string) CompiledConversation {
+	promptText = strings.TrimSpace(promptText)
+	if !enabled || promptText == "" || compiled.ConfiguredSystemPromptApplied {
+		return compiled
+	}
+
+	messages := append([]modeladapter.Message(nil), compiled.Messages...)
+	systemIndex := -1
+	for index := range messages {
+		if strings.EqualFold(strings.TrimSpace(messages[index].Role), "system") {
+			systemIndex = index
+			break
+		}
+	}
+
+	position = strings.ToLower(strings.TrimSpace(position))
+	if position != "before" {
+		position = "after"
+	}
+	if systemIndex < 0 {
+		messages = append([]modeladapter.Message{{Role: "system", Content: promptText}}, messages...)
+	} else {
+		systemMessage := messages[systemIndex]
+		baseText := strings.TrimSpace(systemMessage.Content)
+		if position == "before" {
+			systemMessage.Content = strings.TrimSpace(strings.Join(filterNonEmpty([]string{promptText, baseText}), "\n\n"))
+		} else {
+			systemMessage.Content = strings.TrimSpace(strings.Join(filterNonEmpty([]string{baseText, promptText}), "\n\n"))
+		}
+		messages[systemIndex] = systemMessage
+	}
+
+	compiled.Messages = messages
+	compiled.ConfiguredSystemPromptApplied = true
+	compiled.CompileSummary = strings.TrimSpace(fmt.Sprintf(
+		"%s model_system_prompt=true model_system_prompt_position=%s model_system_prompt_bytes=%d",
+		compiled.CompileSummary,
+		position,
+		len([]byte(promptText)),
+	))
+	return compiled
 }
 
 type DefaultPromptCompiler struct {

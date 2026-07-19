@@ -280,11 +280,12 @@ type PromptContextMessage struct {
 }
 
 type CompiledConversation struct {
-	Mode               agentv1.AgentMode
-	Messages           []modeladapter.Message
-	StableMessageCount int
-	Tools              []json.RawMessage
-	CompileSummary     string
+	Mode                          agentv1.AgentMode
+	Messages                      []modeladapter.Message
+	StableMessageCount            int
+	Tools                         []json.RawMessage
+	CompileSummary                string
+	ConfiguredSystemPromptApplied bool
 }
 
 type ToolRequestKind string

@@ -575,7 +575,7 @@ func (service *Service) applyCompactionPlan(stream *ActiveStream, conversationID
 	if plan.PreserveCurrentTurnInputs {
 		latestUserText = plan.CurrentUserText
 	}
-	recompiled, err := service.compiler.Compile(candidateConversation, stream.Mode, latestUserText, stream.ModelName)
+	recompiled, err := service.compileConversation(candidateConversation, stream.Mode, latestUserText, stream.ModelID, stream.ModelName)
 	if err != nil {
 		return err
 	}
