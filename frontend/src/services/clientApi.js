@@ -146,3 +146,9 @@ export function getModelAdapterTestResults() {
     Call.ByName(`${PROXY_SERVICE_NAME}.GetModelAdapterTestResults`),
   );
 }
+
+export function fetchProviderModels(adapter) {
+  return withApiLogging("FetchProviderModels", adapter, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.FetchProviderModels`, adapter),
+  );
+}

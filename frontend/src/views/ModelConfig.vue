@@ -2,7 +2,9 @@
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
+import ModelFetchModal from "@/components/ModelFetchModal.vue";
 import { showModal } from "@/composables/useModal";
+import { formatModelHost, maskSecret } from "@/utils/modelAdapterFormat.js";
 import {
   appState,
   createEmptyModelAdapter,
@@ -25,6 +27,7 @@ const typeTabs = [
 ];
 
 const activeType = ref("openai");
+const fetchModalVisible = ref(false);
 const batchTesting = ref(false);
 const batchStopping = ref(false);
 const batchTotal = ref(0);
@@ -64,32 +67,8 @@ async function showActionError(title, error) {
   });
 }
 
-function maskSecret(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "-";
-  }
-  if (text.length <= 8) {
-    return `${"*".repeat(Math.max(text.length - 2, 0))}${text.slice(-2)}`;
-  }
-  return `${text.slice(0, 4)}****${text.slice(-4)}`;
-}
-
 function typeLabel(type) {
   return type === "anthropic" ? "Anthropic" : "OpenAI";
-}
-
-function formatHost(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "-";
-  }
-  try {
-    const parsed = new URL(text);
-    return parsed.host || text;
-  } catch {
-    return text.replace(/^https?:\/\//, "");
-  }
 }
 
 async function openEditor(index = -1) {
@@ -104,6 +83,19 @@ async function openEditor(index = -1) {
   } catch (error) {
     await showActionError("打开失败", toUserError(error));
   }
+}
+
+// 打开「从接口拉取模型」弹窗，复用当前 Tab 类型作为来源筛选。
+function openFetchModal() {
+  if (filteredAdapters.value.length === 0) {
+    return;
+  }
+  fetchModalVisible.value = true;
+}
+
+// 批量导入完成后刷新当前模型列表。
+async function handleImported() {
+  await reloadUserConfig({ modelAdaptersOnly: true }).catch(() => { });
 }
 
 async function handleDeleteModelAdapter(index) {
@@ -245,6 +237,14 @@ onBeforeUnmount(() => {
           >
             {{ batchButtonText }}
           </Button>
+          <Button
+            variant="default"
+            :disabled="appState.configSaving || batchTesting || filteredAdapters.length === 0"
+            @click="openFetchModal"
+          >
+            <span class="icon-[mdi--cloud-download-outline] text-[14px]"></span>
+            <span>拉取模型</span>
+          </Button>
           <Button variant="primary" :disabled="appState.configSaving || batchTesting" @click="openEditor()">新增模型</Button>
         </div>
       </div>
@@ -284,11 +284,11 @@ onBeforeUnmount(() => {
                 <div class="grid grid-cols-2 gap-2 text-sm text-[#a3a3a3]">
                   <div class="rounded-[8px] bg-[#232323] px-3 py-2">
                     <div class="text-[11px] uppercase tracking-[0.08em] text-[#666]">Host</div>
-                    <div class="mt-1 truncate text-[#d4d4d4]" :title="adapter.baseURL">{{ formatHost(adapter.baseURL) }}</div>
+                    <div class="mt-1 truncate text-[#d4d4d4]" :title="adapter.baseURL">{{ formatModelHost(adapter.baseURL) || "-" }}</div>
                   </div>
                   <div class="rounded-[8px] bg-[#232323] px-3 py-2">
                     <div class="text-[11px] uppercase tracking-[0.08em] text-[#666]">API Key</div>
-                    <div class="mt-1 truncate text-[#d4d4d4]">{{ maskSecret(adapter.apiKey) }}</div>
+                    <div class="mt-1 truncate text-[#d4d4d4]">{{ maskSecret(adapter.apiKey) || "-" }}</div>
                   </div>
                 </div>
 
@@ -318,5 +318,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <ModelFetchModal v-model:visible="fetchModalVisible" :type="activeType" @imported="handleImported" />
   </div>
 </template>

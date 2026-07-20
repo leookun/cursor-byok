@@ -51,7 +51,9 @@ tasks:
     cmds:
       - rm -rf ./gen/agentv1 ./gen/aiserverv1
       - protoc -I ./proto --go_out=. --go_opt=module=cursor --connect-go_out=. --connect-go_opt=module=cursor ./proto/agent_v1.proto ./proto/aiserver_v1.proto
-      - gofmt -w $(find ./gen -name '*.go' -type f)
+      - gofmt -w ./gen
+      #- gofmt -w $(find ./gen -name '*.go' -type f)
+      
 
   go:mod:tidy:
     summary: 整理 Go 依赖

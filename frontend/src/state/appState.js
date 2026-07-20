@@ -1266,19 +1266,27 @@ function splitDisplayNameSeed(value) {
   return { base, number: Number.isFinite(number) ? number : 0 };
 }
 
-function buildNextDisplayName(existingAdapters, sourceName) {
-  const { base } = splitDisplayNameSeed(sourceName);
-  let next = 1;
-  const taken = new Set(
+// takenDisplayNameSet 收集已有适配器的显示名集合，用于显示名去重。
+function takenDisplayNameSet(existingAdapters) {
+  return new Set(
     normalizeModelAdapters(existingAdapters)
       .map((adapter) => adapter.displayName)
       .filter(Boolean),
   );
+}
 
+// nextNumberedName 在已占用集合中寻找下一个可用的 "base-N" 名称。
+function nextNumberedName(base, taken) {
+  let next = 1;
   while (taken.has(`${base}-${next}`)) {
     next += 1;
   }
   return `${base}-${next}`;
+}
+
+function buildNextDisplayName(existingAdapters, sourceName) {
+  const { base } = splitDisplayNameSeed(sourceName);
+  return nextNumberedName(base, takenDisplayNameSet(existingAdapters));
 }
 
 export async function duplicateModelAdapterAt(index) {
@@ -1300,6 +1308,66 @@ export async function duplicateModelAdapterAt(index) {
   };
 
   nextAdapters.splice(index + 1, 0, duplicate);
+
+  return persistConfigPayload(
+    {
+      ...currentConfig,
+      modelAdapters: nextAdapters,
+    },
+    { modelAdaptersOnly: true },
+  );
+}
+
+// buildAdapterFromModelEntry 基于一个已配置的来源适配器与一个远端模型条目，
+// 构造出一条待导入的模型适配器：复用来源的 type/baseURL/apiKey 等设置，仅替换模型标识与显示名。
+export function buildAdapterFromModelEntry(sourceAdapter, entry) {
+  const entryID = asString(entry?.id).trim();
+  return {
+    ...sourceAdapter,
+    id: "",
+    modelID: entryID,
+    displayName: asString(entry?.displayName).trim() || entryID,
+    tooltipData: "备注",
+  };
+}
+
+// collectExistingModelKeys 返回与来源适配器同 type+规范化 baseURL 的已存在 modelID 集合，
+// 供批量导入时按条目 O(1) 查询是否重复。
+export function collectExistingModelKeys(sourceAdapter, existingAdapters) {
+  const source = normalizeModelAdapter(sourceAdapter);
+  const type = source.type;
+  const base = normalizeBaseURL(source.baseURL);
+  const keys = new Set();
+  for (const adapter of normalizeModelAdapters(existingAdapters)) {
+    if (adapter.type === type && normalizeBaseURL(adapter.baseURL) === base) {
+      keys.add(adapter.modelID);
+    }
+  }
+  return keys;
+}
+
+// importModelAdapters 批量导入模型适配器：一次性读取当前配置、追加全部新条目、单次落盘，
+// 落盘前维护一个增量显示名集合做去重，候选名未被占用则原样保留，否则追加序号后缀。
+export async function importModelAdapters(adapters) {
+  const incoming = normalizeModelAdapters(adapters).filter((adapter) => adapter.modelID);
+  if (incoming.length === 0) {
+    return { ok: false, error: "没有可导入的模型" };
+  }
+
+  const currentConfig = await loadPersistedUserConfig();
+  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters);
+  const taken = takenDisplayNameSet(nextAdapters);
+
+  for (const adapter of incoming) {
+    const candidate = asString(adapter.displayName || adapter.modelID).trim() || "模型";
+    let displayName = candidate;
+    if (taken.has(candidate)) {
+      const { base } = splitDisplayNameSeed(candidate);
+      displayName = nextNumberedName(base, taken);
+    }
+    taken.add(displayName);
+    nextAdapters.push({ ...adapter, displayName });
+  }
 
   return persistConfigPayload(
     {
