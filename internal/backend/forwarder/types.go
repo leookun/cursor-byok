@@ -134,6 +134,7 @@ type ActiveStream struct {
 	ProviderActive                              bool
 	ProviderCancel                              func()
 	ProviderPassCount                           int
+	ProviderTransientRetryCount                 int
 	ToolInvocationCount                         int
 	ActorMailbox                                chan streamCommandEnvelope
 	ActorDone                                   chan struct{}

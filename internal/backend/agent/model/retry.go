@@ -1,4 +1,5 @@
-// retry.go 保留 provider HTTP 请求入口的历史命名；provider 错误交给客户端重连链路处理。
+// retry.go 保留 provider HTTP 请求入口的历史命名；单次 HTTP 调用不在适配器内重试。
+// 对尚未产生输出的瞬时 HTTP 错误，由 forwarder 在同一 RunSSE 会话内安全重试。
 package modeladapter
 
 import (
@@ -6,7 +7,7 @@ import (
 	"net/http"
 )
 
-// DoProviderRequestWithRetry 保留旧入口名；本地模式不在服务端重试 provider 请求。
+// DoProviderRequestWithRetry 保留旧入口名；适配器只执行一次 provider HTTP 请求。
 func DoProviderRequestWithRetry(
 	ctx context.Context,
 	client *http.Client,

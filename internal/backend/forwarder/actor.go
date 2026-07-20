@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -697,6 +698,15 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 	usage := stream.ProviderUsage
 	hadToolInvocation := stream.ToolInvocationCount > 0
 	terminalToolInvocation := stream.ProviderTerminalToolInvocation
+	passProducedOutput := providerPassProducedOutput(
+		accumulatedText,
+		accumulatedReasoning,
+		accumulatedReasoningSignature,
+		accumulatedReasoningItemID,
+		finishReason,
+		hadToolInvocation,
+		terminalToolInvocation,
+	)
 	existingCompletion := stream.PendingProviderCompletion
 	stream.ProviderActive = false
 	stream.ProviderCancel = nil
@@ -722,12 +732,33 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 	if payload.Err != nil {
 		var providerErr providerTerminalError
 		if errors.As(payload.Err, &providerErr) {
+			if attempt, delay, statusCode, retry := reserveTransientProviderRetry(stream, unwrapProviderTerminalError(payload.Err), passProducedOutput); retry {
+				service.setTurnPhase(stream, TurnPhaseWaitingExternal)
+				log.Printf(
+					"forwarder transient provider retry scheduled request_id=%s model_call_id=%s status=%d attempt=%d delay_ms=%d",
+					strings.TrimSpace(requestID),
+					strings.TrimSpace(modelCallID),
+					statusCode,
+					attempt,
+					delay.Milliseconds(),
+				)
+				service.debug.LogProvider(context.Background(), requestID, conversationID, "provider_transient_retry_scheduled", map[string]any{
+					"model_call_id":  strings.TrimSpace(modelCallID),
+					"attempt":        attempt,
+					"delay_ms":       delay.Milliseconds(),
+					"status_code":    statusCode,
+					"provider_error": providerErr.Error(),
+				})
+				service.scheduleStreamTimer(stream, providerTimerKey(streamTimerProviderResume, ""), delay, streamTimerProviderResume, "", 0, "provider transient retry")
+				return nil
+			}
 			service.setTurnPhase(stream, TurnPhaseFailed)
 			return service.closeStreamWithProviderError(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, usage, providerErr, !hadToolInvocation)
 		}
 		service.setTurnPhase(stream, TurnPhaseFailed)
 		return service.failStream(stream, "unknown", payload.Err)
 	}
+	resetTransientProviderRetry(stream)
 	if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, !hadToolInvocation); err != nil {
 		return service.failStreamIfNonTerminal(stream, "unknown", err)
 	}
