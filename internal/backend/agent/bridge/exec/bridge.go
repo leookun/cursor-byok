@@ -4,6 +4,8 @@ package execbridge
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -1214,12 +1216,153 @@ func summarizeGrepResult(result *agentv1.GrepResult) string {
 	}
 	switch item := result.GetResult().(type) {
 	case *agentv1.GrepResult_Success:
-		return fmt.Sprintf("grep success pattern=%s mode=%s", item.Success.GetPattern(), item.Success.GetOutputMode())
+		return formatGrepSuccess(item.Success)
 	case *agentv1.GrepResult_Error:
 		return item.Error.GetError()
 	default:
 		return "unknown grep result"
 	}
+}
+
+func formatGrepSuccess(success *agentv1.GrepSuccess) string {
+	if success == nil {
+		return "grep result missing"
+	}
+	var blocks []string
+	workspaceNames := make([]string, 0, len(success.GetWorkspaceResults()))
+	for workspace := range success.GetWorkspaceResults() {
+		workspaceNames = append(workspaceNames, workspace)
+	}
+	sort.Strings(workspaceNames)
+	for _, workspace := range workspaceNames {
+		if output := formatGrepUnionResult(success.GetWorkspaceResults()[workspace]); output != "" {
+			if workspace != "" && len(success.GetWorkspaceResults()) > 1 {
+				output = fmt.Sprintf("[workspace: %s]\n%s", workspace, output)
+			}
+			blocks = append(blocks, output)
+		}
+	}
+	if output := formatGrepUnionResult(success.GetActiveEditorResult()); output != "" {
+		blocks = append(blocks, "[active editor]\n"+output)
+	}
+	if len(blocks) == 0 {
+		if pattern := strings.TrimSpace(success.GetPattern()); pattern != "" {
+			return fmt.Sprintf("no matches for %s", pattern)
+		}
+		return "no matches"
+	}
+	return truncateReplayText("Grep", strings.Join(blocks, "\n"), grepReplayPayloadLimit)
+}
+
+func formatGrepUnionResult(result *agentv1.GrepUnionResult) string {
+	if result == nil {
+		return ""
+	}
+	if content := result.GetContent(); content != nil {
+		return formatGrepContentResult(content)
+	}
+	if files := result.GetFiles(); files != nil {
+		lines := append([]string(nil), files.GetFiles()...)
+		if notice := formatGrepTruncationNotice(
+			"files",
+			len(files.GetFiles()),
+			int(files.GetTotalFiles()),
+			files.GetClientTruncated(),
+			files.GetRipgrepTruncated(),
+			files.GetHeadLimitApplied(),
+			files.GetOffsetApplied(),
+		); notice != "" {
+			lines = append(lines, notice)
+		}
+		return strings.Join(lines, "\n")
+	}
+	if counts := result.GetCount(); counts != nil {
+		lines := make([]string, 0, len(counts.GetCounts())+2)
+		for _, count := range counts.GetCounts() {
+			if count != nil {
+				lines = append(lines, fmt.Sprintf("%s: %d", count.GetFile(), count.GetCount()))
+			}
+		}
+		if counts.GetTotalFiles() > 0 || counts.GetTotalMatches() > 0 {
+			lines = append(lines, fmt.Sprintf("[total: %d matches in %d files]", counts.GetTotalMatches(), counts.GetTotalFiles()))
+		}
+		if notice := formatGrepTruncationNotice(
+			"counts",
+			len(counts.GetCounts()),
+			int(counts.GetTotalFiles()),
+			counts.GetClientTruncated(),
+			counts.GetRipgrepTruncated(),
+			counts.GetHeadLimitApplied(),
+			counts.GetOffsetApplied(),
+		); notice != "" {
+			lines = append(lines, notice)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return ""
+}
+
+func formatGrepContentResult(content *agentv1.GrepContentResult) string {
+	lines := make([]string, 0)
+	shown := 0
+	for _, fileMatch := range content.GetMatches() {
+		if fileMatch == nil {
+			continue
+		}
+		for _, match := range fileMatch.GetMatches() {
+			if match == nil {
+				continue
+			}
+			separator := ":"
+			if match.GetIsContextLine() {
+				separator = "-"
+			}
+			text := strings.TrimRight(match.GetContent(), "\r\n")
+			if match.GetContentTruncated() && !strings.Contains(text, "[truncated:") {
+				text += " [content truncated]"
+			}
+			lines = append(lines, fmt.Sprintf("%s%s%d%s%s", fileMatch.GetFile(), separator, match.GetLineNumber(), separator, text))
+			shown++
+		}
+	}
+	if content.GetTotalMatchedLines() > 0 || content.GetTotalLines() > 0 {
+		lines = append(lines, fmt.Sprintf("[total: %d matched lines, %d output lines]", content.GetTotalMatchedLines(), content.GetTotalLines()))
+	}
+	if notice := formatGrepTruncationNotice(
+		"content lines",
+		shown,
+		int(content.GetTotalLines()),
+		content.GetClientTruncated(),
+		content.GetRipgrepTruncated(),
+		content.GetHeadLimitApplied(),
+		content.GetOffsetApplied(),
+	); notice != "" {
+		lines = append(lines, notice)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatGrepTruncationNotice(kind string, shown int, total int, clientTruncated bool, ripgrepTruncated bool, headLimit int32, offset int32) string {
+	if total < shown {
+		total = shown
+	}
+	if !clientTruncated && !ripgrepTruncated && headLimit <= 0 && offset <= 0 && total <= shown {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("shown %d of %d %s", shown, total, kind)}
+	if clientTruncated {
+		parts = append(parts, "client limit reached")
+	}
+	if ripgrepTruncated {
+		parts = append(parts, "ripgrep limit reached")
+	}
+	if headLimit > 0 {
+		parts = append(parts, fmt.Sprintf("head limit=%d", headLimit))
+	}
+	if offset > 0 {
+		parts = append(parts, fmt.Sprintf("offset=%d", offset))
+	}
+	return "[grep result limited: " + strings.Join(parts, "; ") + "]"
 }
 
 func summarizeGlobContinuationPayload(result *agentv1.GrepResult, argsJSON []byte) string {
@@ -1261,16 +1404,71 @@ func summarizeLsResult(result *agentv1.LsResult) string {
 	}
 	switch item := result.GetResult().(type) {
 	case *agentv1.LsResult_Success:
-		return fmt.Sprintf("ls success path=%s files=%d", item.Success.GetDirectoryTreeRoot().GetAbsPath(), item.Success.GetDirectoryTreeRoot().GetNumFiles())
+		return formatLsTree(item.Success.GetDirectoryTreeRoot(), "")
 	case *agentv1.LsResult_Error:
 		return item.Error.GetError()
 	case *agentv1.LsResult_Rejected:
 		return item.Rejected.GetReason()
 	case *agentv1.LsResult_Timeout:
-		return fmt.Sprintf("ls timeout path=%s", item.Timeout.GetDirectoryTreeRoot().GetAbsPath())
+		return formatLsTree(item.Timeout.GetDirectoryTreeRoot(), "ls timed out; partial result follows")
 	default:
 		return "unknown ls result"
 	}
+}
+
+func formatLsTree(root *agentv1.LsDirectoryTreeNode, prefix string) string {
+	if root == nil {
+		if prefix != "" {
+			return prefix
+		}
+		return "ls result missing directory tree"
+	}
+	lines := make([]string, 0, int(root.GetNumFiles())+1)
+	if prefix != "" {
+		lines = append(lines, prefix)
+	}
+	lines = append(lines, root.GetAbsPath())
+	shownFiles := 0
+	unexpanded := false
+	var appendNode func(*agentv1.LsDirectoryTreeNode, int)
+	appendNode = func(node *agentv1.LsDirectoryTreeNode, depth int) {
+		if node == nil {
+			return
+		}
+		indent := strings.Repeat("  ", depth)
+		for _, file := range node.GetChildrenFiles() {
+			if file == nil {
+				continue
+			}
+			lines = append(lines, indent+file.GetName())
+			shownFiles++
+		}
+		dirs := append([]*agentv1.LsDirectoryTreeNode(nil), node.GetChildrenDirs()...)
+		sort.SliceStable(dirs, func(i, j int) bool {
+			return dirs[i].GetAbsPath() < dirs[j].GetAbsPath()
+		})
+		for _, child := range dirs {
+			if child == nil {
+				continue
+			}
+			name := filepath.Base(strings.TrimRight(child.GetAbsPath(), `\/`))
+			if name == "." || name == "" {
+				name = child.GetAbsPath()
+			}
+			lines = append(lines, indent+name+string(filepath.Separator))
+			appendNode(child, depth+1)
+		}
+		if !node.GetChildrenWereProcessed() && node.GetNumFiles() > int32(len(node.GetChildrenFiles())) {
+			unexpanded = true
+		}
+	}
+	appendNode(root, 1)
+	if total := int(root.GetNumFiles()); total > shownFiles {
+		lines = append(lines, fmt.Sprintf("[ls listing incomplete: showing %d of %d files from supplied tree]", shownFiles, total))
+	} else if unexpanded {
+		lines = append(lines, "[ls listing incomplete: one or more directories were not expanded]")
+	}
+	return truncateReplayText("Ls", strings.Join(lines, "\n"), lsReplayPayloadLimit)
 }
 
 // summarizeMcpResult 生成 MCP 执行结果摘要。
@@ -1577,6 +1775,8 @@ const (
 	grepReplayMatchesPerFile   = 100
 	grepReplayTotalMatches     = 300
 	grepReplayListLimit        = 300
+	grepReplayPayloadLimit     = 64 * replayKiB
+	lsReplayPayloadLimit       = 64 * replayKiB
 	mcpReplayTextTotalLimit    = 32 * replayKiB
 	mcpReplayTextItemLimit     = 32 * replayKiB
 	mcpReplayContentItemLimit  = 20
