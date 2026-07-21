@@ -42,7 +42,9 @@ tasks:
         vars:
           ARCH:
             ref: .ARCH
+      - go run ./scripts/scan_secrets  # 隐私扫描：发现疑似密钥则中断构建
       - go build {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"
+      - go run ./scripts/scan_secrets --binary "{{.OUTPUT}}"  # 构建产物扫描
       - cmd: powershell Remove-item *.syso
         platforms: [windows]
       - cmd: rm -f *.syso

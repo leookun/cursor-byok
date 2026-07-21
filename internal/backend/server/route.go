@@ -72,6 +72,12 @@ func GET(pattern string, options ...RouteOption) Option {
 func POST(pattern string, options ...RouteOption) Option {
 	return routeOption(http.MethodPost, pattern, options...)
 }
+func PUT(pattern string, options ...RouteOption) Option {
+	return routeOption(http.MethodPut, pattern, options...)
+}
+func DELETE(pattern string, options ...RouteOption) Option {
+	return routeOption(http.MethodDelete, pattern, options...)
+}
 func Any(pattern string, options ...RouteOption) Option { return routeOption("", pattern, options...) }
 
 func routeOption(method string, pattern string, options ...RouteOption) Option {

@@ -5,21 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"cursor/internal/usagefile"
 )
 
-type usageFileDocument struct {
-	Totals struct {
-		ProviderCalls     int64 `json:"provider_calls"`
-		TurnsTotal        int64 `json:"turns_total"`
-		ValidTurnsTotal   int64 `json:"valid_turns_total"`
-		InvalidTurnsTotal int64 `json:"invalid_turns_total"`
-		InputTokens       int64 `json:"input_tokens"`
-		OutputTokens      int64 `json:"output_tokens"`
-		CacheReadTokens   int64 `json:"cache_read_tokens"`
-		CacheWriteTokens  int64 `json:"cache_write_tokens"`
-		TotalTokens       int64 `json:"total_tokens"`
-	} `json:"totals"`
-}
+// usageFileDocument is an alias for the shared usagefile.Document so that
+// the reader and the writer (forwarder.UsageFileStore) cannot drift apart.
+type usageFileDocument = usagefile.Document
 
 func LoadUsageSummary(path string) (Summary, error) {
 	body, err := os.ReadFile(path)

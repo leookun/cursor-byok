@@ -3,11 +3,8 @@ package runtimecore
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
-
-	"google.golang.org/protobuf/proto"
 
 	"cursor/gen/agentv1"
 )
@@ -334,66 +331,4 @@ type ToolInvocation struct {
 	ProviderStatus string
 	// ModelCallID 表示本轮模型调用标识。
 	ModelCallID string
-}
-
-// NormalizeSupportedMode 规范化并校验当前支持的会话 mode。
-//
-// 当前默认口径：
-// 1. 未显式携带 mode 或值为 `AGENT_MODE_UNSPECIFIED` 时，按 `AGENT_MODE_AGENT` 处理；
-// 2. 仅允许 `AGENT_MODE_AGENT`、`AGENT_MODE_ASK`、`AGENT_MODE_PLAN`、`AGENT_MODE_DEBUG`、`AGENT_MODE_MULTITASK`；
-// 3. 其他 mode 一律报错，不允许静默回退。
-func NormalizeSupportedMode(mode agentv1.AgentMode) (agentv1.AgentMode, error) {
-	switch mode {
-	case agentv1.AgentMode_AGENT_MODE_UNSPECIFIED:
-		return agentv1.AgentMode_AGENT_MODE_AGENT, nil
-	case agentv1.AgentMode_AGENT_MODE_AGENT,
-		agentv1.AgentMode_AGENT_MODE_ASK,
-		agentv1.AgentMode_AGENT_MODE_PLAN,
-		agentv1.AgentMode_AGENT_MODE_DEBUG,
-		agentv1.AgentMode_AGENT_MODE_MULTITASK:
-		return mode, nil
-	default:
-		return agentv1.AgentMode_AGENT_MODE_UNSPECIFIED, fmt.Errorf("unsupported mode: %s", mode.String())
-	}
-}
-
-// CloneToolCallMap 深拷贝 tool_call 结果映射，避免共享 proto 指针。
-func CloneToolCallMap(items map[string]*agentv1.ToolCall) map[string]*agentv1.ToolCall {
-	if len(items) == 0 {
-		return make(map[string]*agentv1.ToolCall)
-	}
-
-	cloned := make(map[string]*agentv1.ToolCall, len(items))
-	for key, value := range items {
-		if value == nil {
-			cloned[key] = nil
-			continue
-		}
-		typed, ok := proto.Clone(value).(*agentv1.ToolCall)
-		if !ok {
-			cloned[key] = nil
-			continue
-		}
-		cloned[key] = typed
-	}
-	return cloned
-}
-
-// IsCurrentlySupportedTool 判断当前 Phase 5 稳定化版本是否真正支持该工具。
-//
-// 当前规则：
-// 1. 只返回 runtime/loop 当前已经具备完整推进链路的能力；
-// 2. 结果用于限制实际对模型暴露的工具集合，避免模型调用未实现能力后把整轮 run 直接打失败；
-// 3. 必须保持最小闭环优先，而不是优先暴露抓包里存在但服务端尚未支持的能力。
-func IsCurrentlySupportedTool(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "Read", "Write", "PatchEdit", "Delete", "Shell", "AwaitShell", "WriteShellStdin", "ForceBackgroundShell",
-		"Glob", "Grep", "ReadLints",
-		"AskQuestion", "CreatePlan", "SwitchMode", "WebSearch", "WebFetch",
-		"TodoWrite", "Task",
-		"CallMcpTool", "FetchMcpResource":
-		return true
-	default:
-		return false
-	}
 }

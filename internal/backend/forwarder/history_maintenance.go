@@ -17,7 +17,22 @@ func (service *Service) startHistoryMaintenance() {
 	if service == nil || service.store == nil {
 		return
 	}
+	service.ensureStopCh()
+	service.wg.Add(1)
 	go func() {
+		defer service.wg.Done()
+		// R17 lifecycle unification: guard against panics so the WaitGroup
+		// always drains, even on a broken filesystem.
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf("forwarder history maintenance panicked: %v", r)
+			}
+		}()
+		// runHistoryMaintenance is a one-shot FS sweep (no long-running loop),
+		// so observing stopCh inside its body is not necessary; the goroutine
+		// exits naturally once the sweep completes. The WaitGroup still lets
+		// Shutdown wait for it so we never leave it writing after the host
+		// appears to have exited.
 		if err := service.runHistoryMaintenance(); err != nil {
 			logger.Infof("forwarder history maintenance failed: %v", err)
 		}

@@ -5,6 +5,7 @@ package forwarder
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,21 +20,6 @@ type DefaultProviderGateway struct {
 	router modeladapter.ModelAdapterRouter
 	vm     *vm.Manager
 	cache  *cacheruntime.Runtime
-}
-
-// NewProviderGateway 创建默认 provider 网关。
-func NewProviderGateway(resolver modeladapter.ChannelResolver) *DefaultProviderGateway {
-	return &DefaultProviderGateway{
-		router: modeladapter.NewRouter(resolver),
-	}
-}
-
-// NewProviderGatewayWithVM 创建支持虚拟模型的 provider 网关。
-func NewProviderGatewayWithVM(resolver modeladapter.ChannelResolver, vmManager *vm.Manager) *DefaultProviderGateway {
-	return &DefaultProviderGateway{
-		router: modeladapter.NewRouter(resolver),
-		vm:     vmManager,
-	}
 }
 
 // NewProviderGatewayWithCache 创建支持缓存 + 虚拟模型的 provider 网关。
@@ -152,24 +138,18 @@ func (gateway *DefaultProviderGateway) CacheStore(req ProviderRequest, resultTex
 	_ = gateway.cache.Store(cacheMessages, "", req.ModelID, req.Mode.String(), resultText, promptTokens, outputTokens, defaultCacheTTL)
 }
 
-// CacheStats 返回缓存统计。
-func (gateway *DefaultProviderGateway) CacheStats() *cacheruntime.CacheStats {
-	if gateway.cache == nil {
-		return &cacheruntime.CacheStats{}
-	}
-	return gateway.cache.Stats()
-}
-
-// CacheCleanExpired 清理过期缓存。
-func (gateway *DefaultProviderGateway) CacheCleanExpired() (int, error) {
-	if gateway.cache == nil {
-		return 0, nil
-	}
-	return gateway.cache.CleanExpired()
-}
-
 // startVirtualStream 将请求路由到虚拟模型运行时，并将结果以流式事件发送给 forwarder。
 func (gateway *DefaultProviderGateway) startVirtualStream(ctx context.Context, req ProviderRequest, sink func(modeladapter.ModelEvent) error) error {
+	// Phase 26g: AOS re-entry hard guard. If the context indicates we are
+	// already inside an AOS execution (depth >= 1), reject any attempt to
+	// route to another virtual model. This prevents infinite AOS nesting.
+	if vm.GetAOSDepth(ctx) >= 1 {
+		return providerTerminalError{cause: &virtualModelError{
+			modelID: req.ModelID,
+			reason:  fmt.Sprintf("AOS re-entry blocked: already inside AOS execution (depth=%d)", vm.GetAOSDepth(ctx)),
+		}}
+	}
+
 	model, ok := gateway.vm.Get(req.ModelID)
 	if !ok || model == nil {
 		return providerTerminalError{cause: &virtualModelError{modelID: req.ModelID, reason: "virtual model not found or not enabled"}}
@@ -197,19 +177,33 @@ func (gateway *DefaultProviderGateway) startVirtualStream(ctx context.Context, r
 	}
 
 	// 执行虚拟模型
+	// [修复] 思考强度/最大 tokens 传递：Cursor 请求中的 ThinkingEffort/MaxTokens
+	// 必须透传到虚拟模型执行上下文，使 AOS/MOA 的内部 Leader/member 调用真正
+	// 受到用户在 Cursor 模型选择器中选择的参数影响。
 	result, err := model.Execute(ctx, &vm.ExecuteRequest{
 		RequestID:      req.RequestID,
 		ConversationID: req.ConversationID,
 		ModelCallID:    req.ModelCallID,
 		Messages:       vmMessages,
 		LatestUserText: latestUserText,
+		ThinkingEffort: req.ThinkingEffort,
+		MaxTokens:      req.MaxTokens,
 	})
 	if err != nil {
 		return providerTerminalError{cause: &virtualModelError{modelID: req.ModelID, reason: err.Error()}}
 	}
 
 	// 将结果转为流式事件
-	// 使用 Text 字段一次性推送完整结果（非流式模式）
+	// 默认使用 Text 字段一次性推送完整结果（Phase 1 非流式模式）。
+	// Phase 15 切片：如果虚拟模型返回了阶段性文本，先推送阶段状态再推送最终结果。
+	if result.PhaseText != "" {
+		if err := sink(modeladapter.ModelEvent{
+			Kind: modeladapter.ModelEventKindTextDelta,
+			Text: result.PhaseText,
+		}); err != nil {
+			return providerTerminalError{cause: err}
+		}
+	}
 	if result.Text != "" {
 		if err := sink(modeladapter.ModelEvent{
 			Kind: modeladapter.ModelEventKindTextDelta,

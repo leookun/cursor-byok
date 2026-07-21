@@ -652,7 +652,15 @@ func buildAvailableModelEntries(adapters []legacyruntime.ModelAdapterConfig) []m
 		isVirtual := strings.EqualFold(strings.TrimSpace(adapter.Type), "virtual")
 		tagline := thinkingEffortDisplayName(defaultThinkingEffort)
 		if isVirtual {
-			tagline = "Multi-model Orchestration"
+			// Distinguish AOS from MOA in the model picker (requirement: AOS
+			// must be selectable and clearly labeled). Use adapter TooltipData
+			// when present (populated by VMResolver.AdapterMetadata), otherwise
+			// fall back to the classic MOA tagline for backward compatibility.
+			if strings.TrimSpace(adapter.TooltipData) != "" {
+				tagline = adapter.TooltipData
+			} else {
+				tagline = "Multi-model Orchestration"
+			}
 		}
 		output = append(output, map[string]any{
 			"clientDisplayName":                  displayName,

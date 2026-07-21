@@ -84,6 +84,31 @@ func (m *MOAModel) ID() string         { return vmconfig.MOAModelID }
 func (m *MOAModel) DisplayName() string { return vmconfig.MOADisplayName }
 func (m *MOAModel) Enabled() bool       { return m.config != nil && m.config.Enabled }
 
+// AdapterMetadata 从 Planner adapter 继承元数据（tooltip + 上下文窗口等），
+// 使 Cursor 模型选择器展示正确的 MOA 描述。
+func (m *MOAModel) AdapterMetadata(ctx context.Context) virtualmodel.AdapterMetadata {
+	meta := virtualmodel.AdapterMetadata{TooltipData: vmconfig.MOATooltipData}
+	if m == nil || m.channelSvc == nil || m.config == nil {
+		return meta
+	}
+	adapterID := m.resolveAdapterForRole(vmconfig.RolePlanner)
+	if adapterID == "" {
+		// fallback：找第一个非空节点 adapter
+		for _, binding := range m.config.Nodes {
+			if binding != nil && binding.AdapterID != "" {
+				adapterID = binding.AdapterID
+				break
+			}
+		}
+	}
+	if adapterID == "" {
+		return meta
+	}
+	// ChannelInfo 目前不暴露上下文窗口等字段；tooltip 已足够。
+	// 当 ChannelService 扩展元数据接口后，在此处填充其余字段。
+	return meta
+}
+
 // HasChannelService 报告是否已注入生产/测试 ChannelService（生产路径必须为 true）。
 func (m *MOAModel) HasChannelService() bool {
 	return m != nil && m.channelSvc != nil
@@ -259,6 +284,23 @@ func (m *MOAModel) parsePlannerOutput(text string) []vmconfig.NodeRole {
 	return roles
 }
 
+// DefaultMaxParallelExperts is the default upper bound on concurrent expert
+// adapter calls when MaxParallelExperts is unset or non-positive. It
+// prevents N experts from spawning N simultaneous HTTP requests to the
+// upstream provider. Tuned for typical provider rate limits; users who
+// need stricter (e.g. low-RPM keys) or looser limits should set
+// VirtualModelConfig.MaxParallelExperts explicitly.
+const DefaultMaxParallelExperts = 4
+
+// maxParallelExperts returns the configured expert concurrency cap, falling
+// back to DefaultMaxParallelExperts when unset or non-positive.
+func (m *MOAModel) maxParallelExperts() int {
+	if m == nil || m.config == nil || m.config.MaxParallelExperts <= 0 {
+		return DefaultMaxParallelExperts
+	}
+	return m.config.MaxParallelExperts
+}
+
 // executeExperts 并行执行激活的专家节点。
 func (m *MOAModel) executeExperts(ctx context.Context, req *virtualmodel.ExecuteRequest, activeRoles []vmconfig.NodeRole, planText string) map[vmconfig.NodeRole]*nodeResult {
 	results := make(map[vmconfig.NodeRole]*nodeResult)
@@ -269,6 +311,16 @@ func (m *MOAModel) executeExperts(ctx context.Context, req *virtualmodel.Execute
 	for _, r := range activeRoles {
 		roleSet[r] = true
 	}
+
+	// Semaphore bounds concurrent adapter calls across all expert nodes.
+	// Acquired before spawning the worker goroutine so that blocked
+	// acquisitions still honor ctx cancellation.
+	maxParallel := m.maxParallelExperts()
+	if maxParallel < 1 {
+		maxParallel = DefaultMaxParallelExperts
+	}
+	sem := make(chan struct{}, maxParallel)
+	ctxCancelled := false
 
 	for _, node := range m.workflow.Nodes {
 		node := node
@@ -295,9 +347,24 @@ func (m *MOAModel) executeExperts(ctx context.Context, req *virtualmodel.Execute
 			continue
 		}
 
+		// Acquire the semaphore before spawning the worker; this lets us
+		// bail out promptly on ctx cancellation instead of queuing an
+		// unbounded number of goroutines that would all block on the sem.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			// Context cancelled while waiting for a slot: stop spawning
+			// additional experts. Already-running experts will observe
+			// ctx cancellation inside CallAdapter (or return normally).
+			ctxCancelled = true
+		}
+		if ctxCancelled {
+			break
+		}
 		wg.Add(1)
 		go func(n vmconfig.WorkflowNodeConfig) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			result := m.executeSingleExpert(ctx, req, n, planText)
 			mu.Lock()
 			results[n.Role] = result
@@ -679,20 +746,14 @@ func buildExpertResultsText(results map[vmconfig.NodeRole]*nodeResult) string {
 	return strings.Join(parts, "\n\n---\n\n")
 }
 
-// extractJSON 从文本中提取 JSON 块。
+// extractJSON 从文本中提取 JSON 块。Delegates to the shared
+// virtualmodel.ExtractJSONObject, which fixes the previous buggy
+// strings.Index/strings.LastIndex implementation that broke whenever a '}'
+// character appeared inside a JSON string value or fenced markdown block.
 func extractJSON(text string) string {
-	// 尝试找到 { ... } 块
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start >= 0 && end > start {
-		return text[start : end+1]
+	candidate, err := virtualmodel.ExtractJSONObject(text)
+	if err != nil {
+		return ""
 	}
-	// 尝试 ```json ... ``` 块
-	if idx := strings.Index(text, "```json"); idx >= 0 {
-		rest := text[idx+7:]
-		if endIdx := strings.Index(rest, "```"); endIdx >= 0 {
-			return strings.TrimSpace(rest[:endIdx])
-		}
-	}
-	return ""
+	return candidate
 }

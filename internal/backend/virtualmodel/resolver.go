@@ -8,7 +8,16 @@ import (
 	"strings"
 
 	legacyruntime "cursor/internal/runtime"
-	vmconfig "cursor/internal/backend/virtualmodel/config"
+)
+
+// [修复] 硬编码: 提取为命名常量, 避免魔法字符串
+const (
+	// VirtualAdapterType 虚拟模型适配器类型标识
+	VirtualAdapterType = "virtual"
+	// VirtualPlaceholderBaseURL 虚拟模型占位 BaseURL（Cursor 不会实际调用）
+	VirtualPlaceholderBaseURL = ""
+	// VirtualPlaceholderAPIKey 虚拟模型占位 APIKey
+	VirtualPlaceholderAPIKey = "virtual"
 )
 
 // AdapterResolver 将 adapterID 解析为实际的模型渠道。
@@ -24,6 +33,7 @@ type VMResolver struct {
 }
 
 // NewVMResolver 创建虚拟模型解析器。
+// [修复] 空值防护: 允许 manager 和 adapterSvc 为 nil（将在各方法中防御性检查）
 func NewVMResolver(manager *Manager, adapterSvc AdapterResolver) *VMResolver {
 	return &VMResolver{
 		manager:    manager,
@@ -64,16 +74,14 @@ func (r *VMResolver) ResolveFallbackAdapterID(ctx context.Context) (string, erro
 }
 
 // BuildVirtualModelAdapterConfigs 为已启用的虚拟模型构建 ModelAdapterConfig 条目。
-// 这些条目将被合并到 AvailableModels 响应中，使 Cursor 能看到 MOA 等虚拟模型。
+// 这些条目将被合并到 AvailableModels 响应中，使 Cursor 能看到 MOA/AOS 等虚拟模型。
+//
+// 禁止在此处调用 adapterSvc.ResolveModelAdapters：host.serverSystemSettings
+// 把 VMResolver 的 adapterSvc 设为自己，而 ResolveModelAdapters 又会 Merge
+// 虚拟模型，形成 AvailableModels 路径上的无限递归（Cursor 拉模型列表时整机卡死）。
 func (r *VMResolver) BuildVirtualModelAdapterConfigs(ctx context.Context) []legacyruntime.ModelAdapterConfig {
 	if r == nil || r.manager == nil {
 		return nil
-	}
-
-	// 尝试解析 fallback adapter（用于判断是否有 adapter 可用）
-	if _, err := r.ResolveFallbackAdapterID(ctx); err != nil {
-		// 没有物理 adapter 时仍可注册虚拟模型（只是无法实际执行）
-		_ = err
 	}
 
 	var configs []legacyruntime.ModelAdapterConfig
@@ -81,21 +89,48 @@ func (r *VMResolver) BuildVirtualModelAdapterConfigs(ctx context.Context) []lega
 		if !model.Enabled() {
 			continue
 		}
+		// AdapterMetadata 必须快速、无网络、不可再进入 ResolveModelAdapters。
+		meta := model.AdapterMetadata(ctx)
+		tooltip := strings.TrimSpace(meta.TooltipData)
+		if tooltip == "" {
+			tooltip = model.DisplayName()
+		}
+		// Context window 默认值：Cursor 侧部分逻辑对 0 窗口不友好。
+		// 未继承到物理 adapter 元数据时给 200k，与 local_runtime 默认一致。
+		ctxWin := meta.ContextWindowTokens
+		if ctxWin <= 0 {
+			ctxWin = 200_000
+		}
+		maxOut := meta.MaxCompletionTokens
+		if maxOut <= 0 {
+			maxOut = 65_536
+		}
 		configs = append(configs, legacyruntime.ModelAdapterConfig{
-			ID:          model.ID(),
-			DisplayName: model.DisplayName(),
-			Type:        "virtual",
-			BaseURL:     "http://127.0.0.1:18090", // 指向本地 backend（实际不会调用，仅占位）
-			APIKey:      "virtual",
-			TooltipData: vmconfig.MOATooltipData,
-			ModelID:     model.ID(),
+			ID:                      model.ID(),
+			DisplayName:             model.DisplayName(),
+			Type:                    VirtualAdapterType,
+			BaseURL:                 VirtualPlaceholderBaseURL,
+			APIKey:                  VirtualPlaceholderAPIKey,
+			TooltipData:             tooltip,
+			ModelID:                 model.ID(),
+			ContextWindowTokens:     ctxWin,
+			MaxCompletionTokens:     maxOut,
+			ReasoningEffort:         meta.ReasoningEffort,
+			AnthropicThinkingEffort: meta.AnthropicThinkingEffort,
+			ThinkingBudgetTokens:    meta.ThinkingBudgetTokens,
+			AnthropicMaxTokens:      meta.AnthropicMaxTokens,
 		})
 	}
+	// 无论如何都正常返回——不暴露日志库依赖
 	return configs
 }
 
 // MergeVirtualModelAdapters 将虚拟模型的 adapter 条目合并到物理模型 adapter 列表中。
+// [修复] 空值防护: 增加 nil receiver 检查
 func (r *VMResolver) MergeVirtualModelAdapters(ctx context.Context, physicalAdapters []legacyruntime.ModelAdapterConfig) []legacyruntime.ModelAdapterConfig {
+	if r == nil || r.manager == nil {
+		return physicalAdapters
+	}
 	virtualAdapters := r.BuildVirtualModelAdapterConfigs(ctx)
 	if len(virtualAdapters) == 0 {
 		return physicalAdapters

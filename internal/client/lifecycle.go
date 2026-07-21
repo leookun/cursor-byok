@@ -243,7 +243,8 @@ func (s *ProxyService) emitState() {
 	if state.Running {
 		state.LastError = ""
 	}
-	app.Event.Emit("proxy:state", state)
+	// R16: use centralized client package constant (was raw "proxy:state").
+	app.Event.Emit(eventProxyStateChanged, state)
 }
 
 // ShutdownForQuit 用于处理与 ShutdownForQuit 相关的逻辑。

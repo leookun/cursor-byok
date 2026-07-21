@@ -25,6 +25,12 @@ const (
 	backendHealthCheckInterval = 1 * time.Second
 	// backendHealthCheckAttemptTimeout 限制单次健康检查耗时，避免一次阻塞吃掉全部启动预算。
 	backendHealthCheckAttemptTimeout = 1 * time.Second
+
+	// IPC event names emitted by the client package. These mirror the
+	// canonical values in internal/app/events.go (golden test enforces).
+	// R16: lifecycle unification — replaces hardcoded string literals.
+	eventProxyStateChanged    = "proxy:state"
+	eventUserConfigChanged    = "user-config:changed"
 )
 
 // ProxyService 定义了当前模块中的 ProxyService 类型。
@@ -164,4 +170,13 @@ func (s *ProxyService) waitForBackend(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// BackendHost 返回当前已初始化的 backend.Host（可能为 nil）。
+// 供 runner 注入跨包回调（如模型活动状态桥接到 pet），避免暴露内部字段。
+func (s *ProxyService) BackendHost() *backend.Host {
+	if s == nil {
+		return nil
+	}
+	return s.backendHost
 }

@@ -12,6 +12,10 @@ type VirtualModelConfig struct {
 	Planner *NodeBindingConfig `json:"planner,omitempty" yaml:"planner,omitempty"`
 	// Nodes 各专家节点的 adapter 绑定。
 	Nodes map[string]*NodeBindingConfig `json:"nodes,omitempty" yaml:"nodes,omitempty"`
+	// MaxParallelExperts 限制 executeExperts 并行调用物理模型的并发数。
+	// <=0 表示使用默认值（见 moa 包常量 DefaultMaxParallelExperts）。
+	// 防止 N 个专家节点同时发起 HTTP 调用而压垮上游 provider。
+	MaxParallelExperts int `json:"maxParallelExperts,omitempty" yaml:"maxParallelExperts,omitempty"`
 }
 
 // NodeBindingConfig 将一个角色绑定到具体 adapter 的配置。
@@ -20,12 +24,6 @@ type NodeBindingConfig struct {
 	AdapterID string `json:"adapterID" yaml:"adapterID"`
 	// Enabled 是否启用该节点。
 	Enabled bool `json:"enabled" yaml:"enabled"`
-}
-
-// VirtualModelsConfig 是所有虚拟模型的顶层配置。
-type VirtualModelsConfig struct {
-	// MOA 模型配置。
-	MOA *VirtualModelConfig `json:"moa,omitempty" yaml:"moa,omitempty"`
 }
 
 // WorkflowConfig 定义工作流的结构。
@@ -99,6 +97,9 @@ const (
 // MOAModelID 是 MOA 虚拟模型在 AvailableModels 中的 channel ID。
 const MOAModelID = "moa"
 
+// AOSModelID 是 AOS 虚拟模型在 AvailableModels 中的 channel ID。
+const AOSModelID = "aos"
+
 // MOADisplayName 是 MOA 的显示名称。
 const MOADisplayName = "MOA"
 
@@ -114,7 +115,7 @@ const DefaultPlannerAdapterID = ""
 // IsVirtualModelID 判断给定 modelID 是否为虚拟模型。
 func IsVirtualModelID(modelID string) bool {
 	switch modelID {
-	case MOAModelID:
+	case MOAModelID, AOSModelID:
 		return true
 	default:
 		return false
@@ -200,9 +201,4 @@ func DefaultMOAConfig() *VirtualModelConfig {
 	}
 }
 
-// DefaultVirtualModelsConfig 返回默认的虚拟模型配置。
-func DefaultVirtualModelsConfig() *VirtualModelsConfig {
-	return &VirtualModelsConfig{
-		MOA: DefaultMOAConfig(),
-	}
-}
+

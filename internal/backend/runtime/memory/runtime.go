@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cursor/internal/backend/runtime/embedding"
 )
 
 // Layer 记忆层级。
@@ -76,7 +78,7 @@ type Runtime struct {
 	sessionFile string
 
 	// Long Memory: SQLite + embedding
-	longStore *longMemoryStore
+	longStore *sqliteLongMemoryStore
 }
 
 // NewRuntime 创建 Memory Runtime。
@@ -88,7 +90,7 @@ func NewRuntime(dir string) (*Runtime, error) {
 		}
 	}
 
-	longStore, err := newLongMemoryStore(filepath.Join(memDir, "long"))
+	longStore, err := newSQLiteLongMemoryStore(filepath.Join(memDir, "long"))
 	if err != nil {
 		return nil, fmt.Errorf("init long memory: %w", err)
 	}
@@ -190,6 +192,14 @@ func (rt *Runtime) BuildMemoryContext(ctx context.Context, query string) string 
 		return ""
 	}
 
+	// Working / Session：注入最近条目，不强制 query 关键词命中（会话摘要应对所有后续 turn 可见）。
+	if working, werr := rt.Recall(ctx, LayerWorking, "", 5); werr == nil && len(working) > 0 {
+		allMemories[LayerWorking] = working
+	}
+	if session, serr := rt.Recall(ctx, LayerSession, "", 5); serr == nil && len(session) > 0 {
+		allMemories[LayerSession] = session
+	}
+
 	var parts []string
 
 	// User Memory 优先（用户偏好）
@@ -205,7 +215,11 @@ func (rt *Runtime) BuildMemoryContext(ctx context.Context, query string) string 
 	if entries, ok := allMemories[LayerProject]; ok && len(entries) > 0 {
 		parts = append(parts, "<project_memory>")
 		for _, e := range entries {
-			parts = append(parts, "- "+e.Summary)
+			sum := e.Summary
+			if sum == "" {
+				sum = e.Content
+			}
+			parts = append(parts, "- "+sum)
 		}
 		parts = append(parts, "</project_memory>")
 	}
@@ -214,7 +228,11 @@ func (rt *Runtime) BuildMemoryContext(ctx context.Context, query string) string 
 	if entries, ok := allMemories[LayerLong]; ok && len(entries) > 0 {
 		parts = append(parts, "<long_term_memory>")
 		for _, e := range entries {
-			parts = append(parts, "- "+e.Summary)
+			sum := e.Summary
+			if sum == "" {
+				sum = e.Content
+			}
+			parts = append(parts, "- "+sum)
 		}
 		parts = append(parts, "</long_term_memory>")
 	}
@@ -226,6 +244,15 @@ func (rt *Runtime) BuildMemoryContext(ctx context.Context, query string) string 
 			parts = append(parts, "- "+e.Content)
 		}
 		parts = append(parts, "</session_memory>")
+	}
+
+	// Working Memory（当前 turn，内存）
+	if entries, ok := allMemories[LayerWorking]; ok && len(entries) > 0 {
+		parts = append(parts, "<working_memory>")
+		for _, e := range entries {
+			parts = append(parts, "- "+e.Content)
+		}
+		parts = append(parts, "</working_memory>")
 	}
 
 	return strings.Join(parts, "\n")
@@ -248,13 +275,44 @@ func (rt *Runtime) CleanExpired(ctx context.Context) (int, error) {
 	return rt.longStore.CleanExpired(ctx)
 }
 
+// Close 释放 SQLite 连接等资源。
+func (rt *Runtime) Close() error {
+	if rt == nil || rt.longStore == nil {
+		return nil
+	}
+	return rt.longStore.Close()
+}
+
+// SetEmbedder replaces the Long Memory embedder (ADR-025).
+// Pass an APIEmbedder or FallbackEmbedder for production semantic search.
+func (rt *Runtime) SetEmbedder(e embedding.Embedder) {
+	if rt == nil || rt.longStore == nil {
+		return
+	}
+	rt.longStore.SetEmbedder(e)
+}
+
 // --- 内部实现 ---
 
 func (rt *Runtime) searchWorking(query string, limit int) []Entry {
-	query = strings.ToLower(query)
+	// 空 query：返回最近 limit 条（Working 进程内全量可见）
+	if strings.TrimSpace(query) == "" {
+		if len(rt.working) == 0 {
+			return nil
+		}
+		if len(rt.working) <= limit {
+			out := make([]Entry, len(rt.working))
+			copy(out, rt.working)
+			return out
+		}
+		out := make([]Entry, limit)
+		copy(out, rt.working[len(rt.working)-limit:])
+		return out
+	}
+	q := strings.ToLower(query)
 	var results []Entry
 	for _, e := range rt.working {
-		if strings.Contains(strings.ToLower(e.Content), query) {
+		if strings.Contains(strings.ToLower(e.Content), q) {
 			results = append(results, e)
 		}
 	}
@@ -264,15 +322,44 @@ func (rt *Runtime) searchWorking(query string, limit int) []Entry {
 	return results
 }
 
+func (rt *Runtime) sessionPathFor(entry *Entry) string {
+	// Source 可作 session 分片键；默认 session.json
+	if entry != nil {
+		src := strings.TrimSpace(entry.Source)
+		if src != "" {
+			safe := strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+					return r
+				}
+				return '_'
+			}, src)
+			if safe != "" {
+				return filepath.Join(rt.dir, "session", safe+".json")
+			}
+		}
+	}
+	return rt.sessionFile
+}
+
 func (rt *Runtime) saveSessionEntry(entry *Entry) error {
-	entries, _ := rt.loadSessionEntriesRaw()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	path := rt.sessionPathFor(entry)
+	entries, _ := rt.loadSessionEntriesRawPath(path)
 	entries = append(entries, *entry)
-	return rt.writeSessionEntries(entries)
+	return rt.writeSessionEntriesPath(path, entries)
 }
 
 func (rt *Runtime) loadSessionEntriesRaw() ([]Entry, error) {
-	data, err := os.ReadFile(rt.sessionFile)
+	return rt.loadSessionEntriesRawPath(rt.sessionFile)
+}
+
+func (rt *Runtime) loadSessionEntriesRawPath(path string) ([]Entry, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
+		return nil, nil
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, nil
 	}
 	var entries []Entry
@@ -283,16 +370,57 @@ func (rt *Runtime) loadSessionEntriesRaw() ([]Entry, error) {
 }
 
 func (rt *Runtime) loadSessionEntries(query string, limit int) ([]Entry, error) {
-	entries, _ := rt.loadSessionEntriesRaw()
-	return filterByQuery(entries, query, limit), nil
+	// 聚合默认 session 文件 + session 目录下其它分片
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	var all []Entry
+	seen := map[string]struct{}{}
+	add := func(path string) {
+		entries, _ := rt.loadSessionEntriesRawPath(path)
+		for _, e := range entries {
+			if e.ID != "" {
+				if _, ok := seen[e.ID]; ok {
+					continue
+				}
+				seen[e.ID] = struct{}{}
+			}
+			all = append(all, e)
+		}
+	}
+	add(rt.sessionFile)
+	dir := filepath.Join(rt.dir, "session")
+	if ents, err := os.ReadDir(dir); err == nil {
+		for _, e := range ents {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			add(filepath.Join(dir, e.Name()))
+		}
+	}
+	return filterByQuery(all, query, limit), nil
 }
 
 func (rt *Runtime) writeSessionEntries(entries []Entry) error {
+	return rt.writeSessionEntriesPath(rt.sessionFile, entries)
+}
+
+func (rt *Runtime) writeSessionEntriesPath(path string, entries []Entry) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(rt.sessionFile, data, 0644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(path)
+		return os.Rename(tmp, path)
+	}
+	return nil
 }
 
 func (rt *Runtime) saveProjectEntry(entry *Entry) error {

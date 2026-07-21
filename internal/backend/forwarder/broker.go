@@ -2,6 +2,7 @@
 package forwarder
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -20,6 +21,11 @@ type StreamBroker struct {
 	mu      sync.RWMutex
 	streams map[string]*ActiveStream
 	nextID  atomic.Uint64
+
+	// shutdownOnce guards Shutdown so a closed broker does not accept new
+	// streams. R17: lifecycle unification.
+	shutdownOnce sync.Once
+	closed       atomic.Bool
 }
 
 // NewStreamBroker 创建活动流注册表。
@@ -33,6 +39,11 @@ func NewStreamBroker() *StreamBroker {
 func (broker *StreamBroker) OpenStream(requestID string, conversationID string, turnSeq int64, modelID string, modelName string, mode agentv1.AgentMode, latestUserText string) (*ActiveStream, error) {
 	normalizedRequestID := strings.TrimSpace(requestID)
 	if normalizedRequestID == "" {
+		return nil, nil
+	}
+	// R17: once Shutdown has been called, refuse new streams so a closing
+	// broker does not accumulate state that nothing will ever clean up.
+	if broker.closed.Load() {
 		return nil, nil
 	}
 	normalizedMode, err := validateSupportedActiveMode(mode)
@@ -439,4 +450,75 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// Shutdown cancels every inflight stream, stops all terminal-cleanup timers,
+// and clears the stream registry. Idempotent via sync.Once. R17: lifecycle
+// unification.
+//
+// After Shutdown returns, OpenStream/Subscribe/Publish/etc. become no-ops.
+// Callers that need to drain an in-flight ProviderCancel should still do so
+// before calling Shutdown; this method only guarantees the broker no longer
+// holds references to streams and that no TerminalCleanupTimer fires post-shutdown.
+func (broker *StreamBroker) Shutdown(ctx context.Context) error {
+	if broker == nil {
+		return nil
+	}
+	broker.shutdownOnce.Do(func() {
+		broker.closed.Store(true)
+		broker.mu.Lock()
+		streams := broker.streams
+		broker.streams = make(map[string]*ActiveStream)
+		broker.mu.Unlock()
+		for _, stream := range streams {
+			if stream == nil {
+				continue
+			}
+			stream.mu.Lock()
+			var timer *time.Timer
+			if stream.TerminalCleanupTimer != nil {
+				timer = stream.TerminalCleanupTimer
+				stream.TerminalCleanupTimer = nil
+			}
+			stream.TerminalCleanupSeq.Add(1)
+			if stream.ProviderCancel != nil {
+				stream.ProviderCancel()
+				stream.ProviderCancel = nil
+			}
+			stream.ProviderActive = false
+			subscribers := make([]*StreamSubscriber, 0, len(stream.Subscribers))
+			for _, sub := range stream.Subscribers {
+				subscribers = append(subscribers, sub)
+			}
+			stream.Subscribers = make(map[string]*StreamSubscriber)
+			stream.mu.Unlock()
+			if timer != nil {
+				timer.Stop()
+			}
+			// Close subscriber signals so any reader waiting on <-signal
+			// returns immediately rather than blocking on a dead broker.
+			for _, sub := range subscribers {
+				if sub == nil {
+					continue
+				}
+				// Non-blocking: subscriber.Signal has buffer 1, so this is best-effort.
+				select {
+				case sub.Signal <- struct{}{}:
+				default:
+				}
+			}
+		}
+	})
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return nil
+}
+
+// IsClosed reports whether Shutdown has been invoked on this broker.
+func (broker *StreamBroker) IsClosed() bool {
+	if broker == nil {
+		return false
+	}
+	return broker.closed.Load()
 }

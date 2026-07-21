@@ -504,12 +504,16 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 		stream.ProviderAccumulatedText += event.Text
 		stream.UpdatedAt = time.Now().UTC()
 		stream.mu.Unlock()
+		// 模型开始输出正文 → pet 切换到 working 状态
+		service.emitModelActivity("working")
 		return service.broker.Publish(requestID, StreamEvent{Message: buildTextDeltaMessage(event.Text)})
 	case modeladapter.ModelEventKindThinkingDelta:
 		stream.mu.Lock()
 		stream.ProviderAccumulatedReasoning += event.Text
 		stream.UpdatedAt = time.Now().UTC()
 		stream.mu.Unlock()
+		// 模型在思考 → pet 切换到 thinking 状态
+		service.emitModelActivity("thinking")
 		return service.broker.Publish(requestID, StreamEvent{Message: buildThinkingDeltaMessage(event.Text, event.ThinkingStyle)})
 	case modeladapter.ModelEventKindThinkingCompleted:
 		shouldEmitSyntheticThinking := false
@@ -644,6 +648,9 @@ func (service *Service) rewriteTaskToolCallModelForDisplay(stream *ActiveStream,
 	if taskToolCall == nil || taskToolCall.GetArgs() == nil {
 		return toolCall
 	}
+	if strings.TrimSpace(taskToolCall.GetArgs().GetModel()) != "" {
+		return toolCall
+	}
 	subagentType := taskSubagentTypeNameForDisplay(taskToolCall.GetArgs().GetSubagentType())
 	stream.mu.Lock()
 	parentModelID := strings.TrimSpace(stream.ModelID)
@@ -741,6 +748,8 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 		return nil
 	}
 	if payload.Err != nil {
+		// 模型调用出错 → pet 切换到 error 状态
+		service.emitModelActivity("error")
 		var providerErr providerTerminalError
 		if errors.As(payload.Err, &providerErr) {
 			service.setTurnPhase(stream, TurnPhaseFailed)
@@ -749,6 +758,8 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 		service.setTurnPhase(stream, TurnPhaseFailed)
 		return service.failStream(stream, "unknown", payload.Err)
 	}
+	// 模型调用正常结束 → pet 回到 idle 状态
+	service.emitModelActivity("idle")
 	if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, !hadToolInvocation); err != nil {
 		return service.failStreamIfNonTerminal(stream, TerminalErrorUnknown, err)
 	}
@@ -950,6 +961,14 @@ func (service *Service) scheduleStreamTimer(stream *ActiveStream, key string, de
 	stream.mu.Unlock()
 
 	go func() {
+		// R17: lifecycle unification — recover so a panicking timer callback
+		// does not crash the process. The goroutine already has an internal
+		// 30s timeout, so we leave that path as-is.
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf("forwarder timer goroutine panicked request_id=%s key=%s err=%v", strings.TrimSpace(stream.RequestID), strings.TrimSpace(key), r)
+			}
+		}()
 		if delay > 0 {
 			timer := time.NewTimer(delay)
 			defer timer.Stop()

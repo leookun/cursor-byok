@@ -7,6 +7,7 @@
 package cache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,13 +21,30 @@ import (
 	"cursor/internal/backend/runtime/embedding"
 )
 
+// DefaultMaxExactEntries caps on-disk exact cache size (0 = unlimited).
+// ponytail: true LRU eviction by LastHitAt (fallback CreatedAt); full file
+// scan under cap is O(n) but n<=cap so it stays cheap and simple.
+const DefaultMaxExactEntries = 2000
+
 // Runtime 是 Cache Runtime 的主入口。
 type Runtime struct {
-	dir       string
-	mu        sync.RWMutex
-	stats     *CacheStats
-	embedder  *embedding.SimpleEmbedder
-	semantic  embedding.Store
+	dir             string
+	mu              sync.RWMutex
+	stats           *CacheStats
+	embedder        embedding.Embedder
+	semantic        embedding.Store
+	maxExactEntries int // 0 = no cap
+
+	// promptCache 是稳定 system prompt 前缀缓存注册表：key 为 systemPrompt
+	// 内容的 SHA-256 哈希，value 为最近一次记录时间。命中时 caller 可对请求
+	// 打 prompt_cache 标记（或跳过前缀传递），复用 Provider 级 Prompt Cache。
+	// 采用单稳定前缀模型：system prompt 变化时旧前缀被替换/失效。
+	promptCache        map[string]time.Time
+	promptCacheKey     string // 当前稳定前缀的 key（空=无）
+	promptCacheEnabled bool
+
+	// closed 标记 Close 是否已调用（R14 lifecycle unification）。
+	closed bool
 }
 
 // CacheStats 缓存统计。
@@ -39,7 +57,17 @@ type CacheStats struct {
 	TotalMisses    int64   `json:"totalMisses"`
 	HitRate        float64 `json:"hitRate"`
 	TokensSaved    int64   `json:"tokensSaved"`
+	Evicted        int64   `json:"evicted"` // exact entries removed by LRU cap
 }
+
+// ponytail: CacheEntry lives at the application level. Provider-level Prompt
+// Cache (e.g. Anthropic cache_control, injected by the adapter) is NOT stored
+// here. The Cache Runtime tracks a stable system-prompt prefix registry
+// (promptCache) so callers can mark requests with prompt_cache when the prefix
+// matches, reusing the provider's own cache. Prefix hit is exposed via
+// SystemPrefixHit(systemPrompt); the single stable prefix is invalidated when
+// the system prompt changes. ponytail: simple map, O(1) lookup, fine for one
+// stable prefix per runtime.
 
 // CacheEntry 缓存条目。
 type CacheEntry struct {
@@ -47,13 +75,14 @@ type CacheEntry struct {
 	ModelID      string    `json:"modelID"`
 	Mode         string    `json:"mode"`
 	PromptHash   string    `json:"promptHash"`
-	PromptText   string    `json:"promptText,omitempty"`   // 用户问题的文本（用于语义匹配）
+	PromptText   string    `json:"promptText,omitempty"` // 用户问题的文本（用于语义匹配）
 	Result       string    `json:"result"`
 	PromptTokens int       `json:"promptTokens"`
 	OutputTokens int       `json:"outputTokens"`
 	CreatedAt    time.Time `json:"createdAt"`
 	ExpiresAt    time.Time `json:"expiresAt"`
 	HitCount     int       `json:"hitCount"`
+	LastHitAt    time.Time `json:"lastHitAt,omitempty"`
 }
 
 // NewRuntime 创建 Cache Runtime。
@@ -65,14 +94,46 @@ func NewRuntime(dir string) (*Runtime, error) {
 		return nil, fmt.Errorf("create semantic dir: %w", err)
 	}
 	rt := &Runtime{
-		dir:      dir,
-		stats:    &CacheStats{},
-		embedder: embedding.NewSimpleEmbedder(),
-		semantic: embedding.NewInMemoryStore(),
+		dir:             dir,
+		stats:           &CacheStats{},
+		embedder:        embedding.NewSimpleEmbedder(),
+		semantic:        embedding.NewInMemoryStore(),
+		maxExactEntries: DefaultMaxExactEntries,
+		promptCache:     map[string]time.Time{},
+		promptCacheEnabled: true,
 	}
 	rt.loadStats()
 	rt.loadSemanticStore()
 	return rt, nil
+}
+
+// systemPromptHash returns the stable key for a system prompt prefix.
+// Empty system prompts return "" (no prefix to cache).
+func systemPromptHash(systemPrompt string) string {
+	trimmed := strings.TrimSpace(systemPrompt)
+	if trimmed == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(trimmed))
+	return hex.EncodeToString(sum[:])
+}
+
+// SystemPrefixHit reports whether the given systemPrompt matches a registered
+// stable prefix. Callers (e.g. the Anthropic adapter) use this to mark a
+// request with prompt_cache / cache_control so the provider reuses its own
+// cached prefix. Empty systemPrompt or disabled cache returns false.
+func (rt *Runtime) SystemPrefixHit(systemPrompt string) bool {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	if !rt.promptCacheEnabled {
+		return false
+	}
+	key := systemPromptHash(systemPrompt)
+	if key == "" {
+		return false
+	}
+	_, ok := rt.promptCache[key]
+	return ok
 }
 
 // Lookup 查询缓存。
@@ -103,11 +164,35 @@ func (rt *Runtime) Lookup(messages []Message, systemPrompt string, modelID strin
 	return "", "", false
 }
 
+// registerSystemPrefix 记录稳定 system prompt 前缀。采用单稳定前缀模型：
+// 仅保留最新 systemPrompt 的哈希，system prompt 变化时旧前缀自动失效/被替换。
+func (rt *Runtime) registerSystemPrefix(systemPrompt string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if !rt.promptCacheEnabled {
+		return
+	}
+	key := systemPromptHash(systemPrompt)
+	if key == "" {
+		return
+	}
+	// 单稳定前缀模型：system prompt 变化（key 改变）时，旧前缀失效。
+	if rt.promptCacheKey != "" && rt.promptCacheKey != key {
+		delete(rt.promptCache, rt.promptCacheKey)
+	}
+	rt.promptCacheKey = key
+	rt.promptCache[key] = time.Now()
+}
+
 // Store 存储缓存条目（同时写入精确缓存和语义缓存）。
+// 同时注册 system prompt 稳定前缀到 Prompt Cache 注册表（命中时 caller 可跳过
+// 前缀重复传递或打 prompt_cache 标记）。system prompt 变化时旧前缀被替换。
 func (rt *Runtime) Store(messages []Message, systemPrompt string, modelID string, mode string, result string, promptTokens int, outputTokens int, ttl time.Duration) error {
 	if rt == nil {
 		return nil
 	}
+
+	rt.registerSystemPrefix(systemPrompt)
 
 	exactKey := rt.exactKey(messages, systemPrompt)
 	now := time.Now()
@@ -143,7 +228,87 @@ func (rt *Runtime) Store(messages []Message, systemPrompt string, modelID string
 		}
 	}
 
+	// Phase 5 slice: cap exact entries (true LRU by LastHitAt, fallback CreatedAt).
+	rt.enforceMaxExactEntries()
+
 	return nil
+}
+
+// lruTime returns the eviction timestamp for an entry: LastHitAt when it has
+// been hit, otherwise the creation time. Used so eviction keeps most-recently-
+// used entries, falling back to oldest-created only for never-hit entries.
+func lruTime(e CacheEntry) time.Time {
+	if !e.LastHitAt.IsZero() {
+		return e.LastHitAt
+	}
+	return e.CreatedAt
+}
+
+// enforceMaxExactEntries removes least-recently-used exact entries when over maxExactEntries.
+func (rt *Runtime) enforceMaxExactEntries() {
+	if rt == nil {
+		return
+	}
+	rt.mu.Lock()
+	max := rt.maxExactEntries
+	rt.mu.Unlock()
+	if max <= 0 {
+		return
+	}
+
+	type datedPath struct {
+		path string
+		at   time.Time
+	}
+	var all []datedPath
+	exactDir := filepath.Join(rt.dir, "exact")
+	prefixes, err := os.ReadDir(exactDir)
+	if err != nil {
+		return
+	}
+	for _, p := range prefixes {
+		if !p.IsDir() {
+			continue
+		}
+		sub, err := os.ReadDir(filepath.Join(exactDir, p.Name()))
+		if err != nil {
+			continue
+		}
+		for _, se := range sub {
+			if se.IsDir() || !strings.HasSuffix(se.Name(), ".json") {
+				continue
+			}
+			path := filepath.Join(exactDir, p.Name(), se.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			var entry CacheEntry
+			if err := json.Unmarshal(data, &entry); err != nil {
+				continue
+			}
+			all = append(all, datedPath{path: path, at: lruTime(entry)})
+		}
+	}
+	if len(all) <= max {
+		return
+	}
+	// Sort least-recently-used first (insertion sort — n small under cap).
+	// Most-recently-used entries are kept; oldest-created only breaks ties.
+	for i := 1; i < len(all); i++ {
+		j := i
+		for j > 0 && all[j].at.Before(all[j-1].at) {
+			all[j], all[j-1] = all[j-1], all[j]
+			j--
+		}
+	}
+	overflow := len(all) - max
+	for i := 0; i < overflow; i++ {
+		_ = os.Remove(all[i].path)
+	}
+	rt.mu.Lock()
+	rt.stats.Evicted += int64(overflow)
+	rt.mu.Unlock()
 }
 
 // Stats 返回缓存统计。
@@ -158,6 +323,98 @@ func (rt *Runtime) Stats() *CacheStats {
 		stats.HitRate = float64(stats.TotalHits) / float64(stats.TotalHits+stats.TotalMisses)
 	}
 	return &stats
+}
+
+// Entries 返回语义缓存当前条目数。
+func (rt *Runtime) Entries() int {
+	if rt == nil {
+		return 0
+	}
+	if rt.semantic == nil {
+		return 0
+	}
+	return rt.semantic.Size()
+}
+
+// CountExact 返回精确缓存当前磁盘条目数。
+func (rt *Runtime) CountExact() int {
+	if rt == nil {
+		return 0
+	}
+	n := 0
+	exactDir := filepath.Join(rt.dir, "exact")
+	prefixes, err := os.ReadDir(exactDir)
+	if err != nil {
+		return 0
+	}
+	for _, p := range prefixes {
+		if !p.IsDir() {
+			continue
+		}
+		sub, err := os.ReadDir(filepath.Join(exactDir, p.Name()))
+		if err != nil {
+			continue
+		}
+		for _, se := range sub {
+			if se.IsDir() || !strings.HasSuffix(se.Name(), ".json") {
+				continue
+			}
+			n++
+		}
+	}
+	return n
+}
+
+// Clear 清空精确缓存与语义缓存，并重置统计。
+func (rt *Runtime) Clear() error {
+	if rt == nil {
+		return nil
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	// 清空精确缓存（磁盘文件）。
+	exactDir := filepath.Join(rt.dir, "exact")
+	if entries, err := os.ReadDir(exactDir); err == nil {
+		for _, prefix := range entries {
+			if !prefix.IsDir() {
+				continue
+			}
+			if sub, err := os.ReadDir(filepath.Join(exactDir, prefix.Name())); err == nil {
+				for _, se := range sub {
+					if se.IsDir() || !strings.HasSuffix(se.Name(), ".json") {
+						continue
+					}
+					_ = os.Remove(filepath.Join(exactDir, prefix.Name(), se.Name()))
+				}
+			}
+		}
+	}
+
+	// 清空语义缓存（内存向量 store）。
+	if rt.semantic != nil {
+		rt.semantic.Clear()
+	}
+
+	// 重置统计。
+	rt.stats = &CacheStats{}
+	rt.persistStats()
+
+	// 清空 Prompt Cache 稳定前缀注册表。
+	rt.promptCache = map[string]time.Time{}
+	rt.promptCacheKey = ""
+	return nil
+}
+
+// SetEmbedder replaces the embedder (ADR-025).
+// Pass an APIEmbedder or FallbackEmbedder for production semantic search.
+func (rt *Runtime) SetEmbedder(e embedding.Embedder) {
+	if rt == nil || e == nil {
+		return
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.embedder = e
 }
 
 // Message 缓存用的消息类型。
@@ -236,12 +493,16 @@ func (rt *Runtime) lookupExact(key string) (*CacheEntry, bool) {
 		return nil, false
 	}
 
+	// Update LRU timestamp best-effort (write back without holding lock if possible).
 	entry.HitCount++
-	rt.writeEntry(&entry)
+	entry.LastHitAt = time.Now()
+	_ = rt.writeEntry(&entry)
+
 	return &entry, true
 }
 
 func (rt *Runtime) storeExact(key string, entry *CacheEntry) error {
+	entry.HitCount++
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return rt.writeEntry(entry)
@@ -266,6 +527,12 @@ func (rt *Runtime) exactEntryPath(key string) string {
 // --- 辅助方法 ---
 
 // extractUserText 从消息列表中提取用户问题文本（用于语义匹配）。
+//
+// NOTE: This is a deliberate local duplicate of
+// virtualmodel.LastUserMessage. The two cannot directly share code because
+// cache.Runtime uses its own local Message struct (cache.Message), not
+// virtualmodel.Message. Keep the body in sync with
+// internal/backend/virtualmodel/last_user_message.go.
 func (rt *Runtime) extractUserText(messages []Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" && strings.TrimSpace(messages[i].Content) != "" {
@@ -391,4 +658,40 @@ func (rt *Runtime) isExpired(path string, now time.Time) bool {
 		return true
 	}
 	return now.After(entry.ExpiresAt)
+}
+
+// Summary returns a compact cache efficiency line for evolution/benchmark evidence.
+func (s *CacheStats) Summary() string {
+	if s == nil {
+		return "cache stats: n/a"
+	}
+	return fmt.Sprintf("cache hitRate=%.4f exact=%d semantic=%d tokensSaved=%d",
+		s.HitRate, s.ExactHits, s.SemanticHits, s.TokensSaved)
+}
+
+// Close flushes in-memory stats to disk and marks the runtime closed.
+// Subsequent Close calls are no-ops. R14: lifecycle unification.
+func (rt *Runtime) Close(ctx context.Context) error {
+	if rt == nil {
+		return nil
+	}
+	rt.mu.Lock()
+	if rt.closed {
+		rt.mu.Unlock()
+		return nil
+	}
+	rt.closed = true
+	rt.mu.Unlock()
+	rt.persistStats()
+	return nil
+}
+
+// IsClosed reports whether Close has been invoked on this runtime.
+func (rt *Runtime) IsClosed() bool {
+	if rt == nil {
+		return false
+	}
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.closed
 }

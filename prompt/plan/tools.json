@@ -245,7 +245,7 @@
   },
   {
     "function": {
-      "description": "Lists files and directories under a directory path.\n\nUse this tool when you need directory structure, especially top-level project layout or immediate children of a folder. Do not use Glob(\"*\") or recursive Glob patterns to list a directory; use Ls instead.\n\nYou may provide ignore globs for large or irrelevant directories such as .git, node_modules, dist, build, .cursor-local-assistant-v2/history, or logs.",
+      "description": "Lists files and directories under a directory path.\n\nUse this tool when you need directory structure, especially top-level project layout or immediate children of a folder. Do not use Glob(\"*\") or recursive Glob patterns to list a directory; use Ls instead.\n\nYou may provide ignore globs for large or irrelevant directories such as .git, node_modules, dist, build, .cursor-byok/history, or logs.",
       "name": "Ls",
       "parameters": {
         "properties": {

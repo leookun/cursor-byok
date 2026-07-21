@@ -28,6 +28,17 @@ func (manager *Manager) SelectChannelForModel(_ context.Context, modelID string)
 }
 
 func resolveModelAdapterChannel(adapters []ModelAdapterConfig, requestedModel string) (*legacyruntime.ResolvedChannel, error) {
+	target := strings.TrimSpace(requestedModel)
+
+	// Prefer stable Ref match: "{providerID}:{modelID}" — unique even when API modelIDs collide.
+	if target != "" {
+		for i, adapter := range adapters {
+			if strings.TrimSpace(adapter.Ref) == target {
+				return channelFromAdapter(adapters[i]), nil
+			}
+		}
+	}
+
 	matchIndex, ok := modelchannel.ResolveAdapterIndex(
 		adapters,
 		requestedModel,
@@ -40,8 +51,10 @@ func resolveModelAdapterChannel(adapters []ModelAdapterConfig, requestedModel st
 	if !ok {
 		return nil, legacyruntime.ErrChannelNotAvailable
 	}
-	matched := adapters[matchIndex]
+	return channelFromAdapter(adapters[matchIndex]), nil
+}
 
+func channelFromAdapter(matched ModelAdapterConfig) *legacyruntime.ResolvedChannel {
 	resolved := &legacyruntime.ResolvedChannel{
 		ID:                          strings.TrimSpace(matched.ID),
 		Name:                        strings.TrimSpace(matched.DisplayName),
@@ -82,5 +95,5 @@ func resolveModelAdapterChannel(adapters []ModelAdapterConfig, requestedModel st
 	if strings.TrimSpace(matched.AnthropicThinkingEffort) != "" {
 		resolved.AnthropicThinkingEffort = strings.TrimSpace(matched.AnthropicThinkingEffort)
 	}
-	return resolved, nil
+	return resolved
 }

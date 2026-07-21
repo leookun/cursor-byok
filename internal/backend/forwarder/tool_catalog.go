@@ -8,6 +8,7 @@ import (
 
 	"cursor/gen/agentv1"
 	promptassets "cursor/prompt"
+	"cursor/internal/promptasset"
 )
 
 type DefaultToolCatalog struct {
@@ -279,17 +280,8 @@ func extractToolName(raw json.RawMessage) (string, error) {
 }
 
 // sanitizePromptAsset 去掉资产文件中的说明性标题，只保留真正的 prompt 文本。
+// Delegates to the shared internal/promptasset package so the forwarder and
+// the prompt engine cannot drift apart.
 func sanitizePromptAsset(text string, modelName string) string {
-	lines := strings.Split(text, "\n")
-	filtered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		switch trimmed {
-		case "# 通用系统提示词", "# 模式静态补充", "---":
-			continue
-		default:
-			filtered = append(filtered, line)
-		}
-	}
-	return promptassets.RenderPromptTemplate(strings.TrimSpace(strings.Join(filtered, "\n")), modelName)
+	return promptasset.Sanitize(text, modelName)
 }

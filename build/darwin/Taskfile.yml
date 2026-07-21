@@ -40,7 +40,9 @@ tasks:
             ref: .SCAN
       - task: common:generate:icons
     cmds:
+      - go run ./scripts/scan_secrets  # 隐私扫描：发现疑似密钥则中断构建
       - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
+      - go run ./scripts/scan_secrets --binary {{.OUTPUT}}  # 构建产物扫描
     vars:
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X cursor/internal/buildinfo.Version={{.APP_VERSION}}"{{end}}'
       BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'

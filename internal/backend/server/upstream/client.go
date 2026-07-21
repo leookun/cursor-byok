@@ -36,6 +36,18 @@ var hopByHopHeaders = map[string]struct{}{
 	"upgrade":             {},
 }
 
+// [修复] 安全: 敏感头部黑名单，防止 SSRF 泄露
+var sensitiveUpstreamHeaders = map[string]struct{}{
+	"authorization":    {},
+	"cookie":           {},
+	"x-api-key":        {},
+	"x-cursor-token":   {},
+	"x-csrf-token":     {},
+	"x-auth-token":     {},
+	"set-cookie":       {},
+	"proxy-authorization": {},
+}
+
 func ForwardToUpstream(reqCtx *RequestContext, options ForwardOptions) (*ForwardMeta, error) {
 	requestBody := reqCtx.RequestBody
 	if options.BodyOverride != nil {
@@ -101,7 +113,7 @@ func buildUpstreamRequest(reqCtx *RequestContext, body []byte, options ForwardOp
 
 	upstreamClient := reqCtx.Deps.HTTPClient
 	if upstreamClient == nil {
-		upstreamClient = netproxy.NewHTTPClient(0)
+		upstreamClient = netproxy.NewHTTPClient(30 * time.Second) // [修复] 默认超时 30s
 	}
 
 	return upstreamRequest, upstreamClient, nil
@@ -146,6 +158,7 @@ func ParseAndValidateRawURL(raw string) (*url.URL, error) {
 		return nil, err
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	// [修复] 生产环境建议仅允许 HTTPS，当前为兼容性允许 HTTP
 		return nil, fmt.Errorf("unsupported scheme %q", parsed.Scheme)
 	}
 	if strings.TrimSpace(parsed.Host) == "" {
@@ -158,6 +171,10 @@ func copyRequestHeadersForUpstream(target http.Header, source http.Header) {
 	for key, values := range source {
 		lowerKey := strings.ToLower(key)
 		if _, exists := hopByHopHeaders[lowerKey]; exists {
+			continue
+		}
+		// [修复] 安全: 防止敏感头部（Authorization/Cookie/API Key/Token）泄露到上游
+		if _, exists := sensitiveUpstreamHeaders[lowerKey]; exists {
 			continue
 		}
 		for _, value := range values {
@@ -191,6 +208,8 @@ func BuildCursorChecksum(authorization string) string {
 		checksumTimestampDivisor = 1_000_000
 		checksumInitialSeed      = 165
 	)
+	// [修复] 文档: checksum算法: time00000 + xor(165) + base64 + SHA256[:32]
+	// 前端必须精确复制此算法才能通过校验
 	timestamp := time.Now().UnixMilli() / checksumTimestampDivisor
 	timestampBytes := make([]byte, 6)
 	timestampBigInt := big.NewInt(timestamp)
@@ -271,15 +290,13 @@ func handleMockProto(reqCtx *RequestContext, route *Route) error {
 }
 
 func handleMockOAuth(reqCtx *RequestContext, route *Route) error {
-	payload := struct {
-		RefreshToken string `json:"refresh_token"`
-	}{}
-	if err := json.Unmarshal(reqCtx.RequestBody, &payload); err != nil {
-		logger.Warnf("mock OAuth token request unmarshal failed: %v", err)
-	}
+	_ = route
+	// [修复] 安全: 使用服务端生成的随机 token 替代用户输入，防止 token 伪造
+	tokenSeed := fmt.Sprintf("%d-%s", time.Now().UnixNano(), reqCtx.HTTPRequestID)
+	serverToken := fmt.Sprintf("mock_%x", sha256.Sum256([]byte(tokenSeed)))[:40]
 	responseBody, err := marshalJSONBody(map[string]any{
-		"access_token": payload.RefreshToken,
-		"id_token":     payload.RefreshToken,
+		"access_token": serverToken,
+		"id_token":     serverToken,
 		"shouldLogout": false,
 	})
 	if err != nil {

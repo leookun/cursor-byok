@@ -113,7 +113,8 @@ func (s *ProxyService) emitUserConfigChanged(cfg UserConfig) {
 	if app == nil {
 		return
 	}
-	app.Event.Emit("user-config:changed", cfg)
+	// R16: use centralized client package constant (was raw "user-config:changed").
+	app.Event.Emit(eventUserConfigChanged, cfg)
 }
 
 // resolveUserConfigPath 用于处理与 resolveUserConfigPath 相关的逻辑。

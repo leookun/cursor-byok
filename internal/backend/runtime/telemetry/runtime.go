@@ -3,6 +3,7 @@
 package telemetry
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,9 +14,11 @@ import (
 
 // Runtime 是 Telemetry Runtime 的主入口。
 type Runtime struct {
-	dir   string
-	mu    sync.Mutex
-	daily *DailySummary
+	dir     string
+	mu      sync.Mutex
+	daily   *DailySummary
+	// closed 标记 Close 是否已调用（R14 lifecycle unification）。
+	closed bool
 }
 
 // TurnRecord 单次 turn 的完整遥测数据。
@@ -154,4 +157,42 @@ func (rt *Runtime) loadDailySummary() {
 	if summary.Date == time.Now().Format("2006-01-02") {
 		rt.daily = &summary
 	}
+}
+
+// Close flushes the in-memory daily summary to disk and marks the runtime
+// closed. Subsequent Close calls are no-ops. R14: lifecycle unification.
+func (rt *Runtime) Close(ctx context.Context) error {
+	if rt == nil {
+		return nil
+	}
+	rt.mu.Lock()
+	if rt.closed {
+		rt.mu.Unlock()
+		return nil
+	}
+	rt.closed = true
+	rt.persistDailySummaryLocked()
+	rt.mu.Unlock()
+	return nil
+}
+
+// IsClosed reports whether Close has been invoked on this runtime.
+func (rt *Runtime) IsClosed() bool {
+	if rt == nil {
+		return false
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.closed
+}
+
+// persistDailySummaryLocked persists the daily summary assuming the caller
+// already holds rt.mu. Used by Close to avoid re-entrant locking.
+func (rt *Runtime) persistDailySummaryLocked() {
+	if rt == nil || rt.dir == "" {
+		return
+	}
+	path := filepath.Join(rt.dir, "daily_summary.json")
+	data, _ := json.MarshalIndent(rt.daily, "", "  ")
+	_ = os.WriteFile(path, data, 0644)
 }

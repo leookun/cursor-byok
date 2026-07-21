@@ -3,7 +3,6 @@ package forwarder
 import (
 	"encoding/json"
 	"strings"
-	"unicode/utf8"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -11,6 +10,7 @@ import (
 	"cursor/gen/aiserverv1"
 	modeladapter "cursor/internal/backend/agent/model"
 	promptengine "cursor/internal/backend/agent/prompt"
+	"cursor/internal/backend/runtime/compress"
 )
 
 const (
@@ -69,21 +69,10 @@ func estimateContextItemTokens(item *aiserverv1.ContextItem) int64 {
 	return estimateTextTokens(string(body))
 }
 
+// estimateTextTokens delegates to the shared compress.EstimateTokensPrecise
+// so forwarder and context runtime use a unified token-counting pipeline (ADR-035).
 func estimateTextTokens(text string) int64 {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return 0
-	}
-	runeCount := utf8.RuneCountInString(trimmed)
-	if runeCount <= 0 {
-		return 0
-	}
-	estimated := int64((runeCount + 3) / 4)
-	estimated += int64(strings.Count(trimmed, "\n"))
-	if estimated < 1 {
-		return 1
-	}
-	return estimated
+	return compress.EstimateTokensPrecise(text)
 }
 
 func estimateModelContentPartsTokens(content string, parts []modeladapter.ContentPart) int64 {

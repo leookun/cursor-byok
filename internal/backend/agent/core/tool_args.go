@@ -75,15 +75,6 @@ func HasArgKey(args map[string]any, keys ...string) bool {
 	return false
 }
 
-// BoolPtrIfPresent returns a bool pointer only when a matching key is present.
-func BoolPtrIfPresent(args map[string]any, keys ...string) *bool {
-	if !HasArgKey(args, keys...) {
-		return nil
-	}
-	value := ReadBoolArg(args, keys...)
-	return &value
-}
-
 // ReadStringSliceArg reads a string array value matching one of the provided keys.
 func ReadStringSliceArg(args map[string]any, keys ...string) []string {
 	for _, key := range keys {

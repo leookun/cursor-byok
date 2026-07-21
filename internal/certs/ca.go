@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	_ "embed"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -17,18 +16,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
-
-// embeddedCACertPEM 表示当前模块中的 embeddedCACertPEM 状态值。
-//
-//go:embed ca.crt
-var embeddedCACertPEM []byte
-
-// embeddedCAKeyPEM 表示当前模块中的 embeddedCAKeyPEM 状态值。
-//
-//go:embed ca.key
-var embeddedCAKeyPEM []byte
 
 // Manager 定义了当前模块中的 Manager 类型。
 type Manager struct {
@@ -36,12 +28,38 @@ type Manager struct {
 	caCert *x509.Certificate
 	// caKey 表示当前声明中的 caKey。
 	caKey crypto.PrivateKey
+	// caCertPEM 缓存构造 Manager 时使用的 CA 证书 PEM（可选），
+	// 供宿主信任注入（EnsureCA / loadCAFromDisk 会写入）。
+	caCertPEM []byte
 
-	// mu 表示当前声明中的 mu。
-	mu sync.Mutex
+	// mu guards cache and caCertPEM. Read-most: leaf cert lookup is hot path
+	// on every TLS handshake; use RWMutex so cache hits don't block on a
+	// writer that may be in the middle of a slow RSA keygen for another host.
+	mu sync.RWMutex
 	// cache 表示当前声明中的 cache。
 	cache map[string]*tls.Certificate
+
+	// genInFlight counts leaf cert generations currently in progress (atomic).
+	// Exposed for concurrency tests to prove parallel generation across
+	// distinct hosts. Zero-cost in production.
+	genInFlight int32
+	// genProbe, if non-nil, is invoked at the start of leaf generation. Used
+	// by tests to inject delays / counts. nil-checked so production pays only
+	// a single nil-compare.
+	genProbe func()
+	// sf coalesces concurrent CertificateForServerName calls for the same
+	// host: only one goroutine performs the expensive RSA keygen + x509 sign
+	// per host; duplicates wait and reuse the result. Calls for DIFFERENT
+	// hosts run in parallel because the cache mutex is not held during the
+	// expensive crypto work.
+	sf singleflight.Group
 }
+
+// setGenProbe installs a leaf-generation probe used by concurrency tests.
+// Must not be called concurrently with CertificateForServerName. Production
+// callers never need this; it exists so tests can observe the generation
+// critical section without reflection.
+func (m *Manager) setGenProbe(fn func()) { m.genProbe = fn }
 
 // NewManager 用于处理与 NewManager 相关的逻辑。
 func NewManager(caCertPath, caKeyPath string) (*Manager, error) {
@@ -49,22 +67,12 @@ func NewManager(caCertPath, caKeyPath string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewManagerFromPEM(certPEM, keyPEM)
-}
-
-// NewEmbeddedManager 用于处理与 NewEmbeddedManager 相关的逻辑。
-func NewEmbeddedManager() (*Manager, error) {
-	return NewManagerFromPEM(embeddedCACertPEM, embeddedCAKeyPEM)
-}
-
-// EmbeddedCACertPEM 用于处理与 EmbeddedCACertPEM 相关的逻辑。
-func EmbeddedCACertPEM() []byte {
-	return cloneBytes(embeddedCACertPEM)
-}
-
-// EmbeddedCAKeyPEM 用于处理与 EmbeddedCAKeyPEM 相关的逻辑。
-func EmbeddedCAKeyPEM() []byte {
-	return cloneBytes(embeddedCAKeyPEM)
+	mgr, err := NewManagerFromPEM(certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	mgr.caCertPEM = cloneBytes(certPEM)
+	return mgr, nil
 }
 
 // NewManagerFromPEM 用于处理与 NewManagerFromPEM 相关的逻辑。
@@ -95,12 +103,66 @@ func (m *Manager) CertificateForServerName(serverName string) (*tls.Certificate,
 		return nil, errors.New("empty server name")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	// Fast path: read lock, check cache. RWMutex means concurrent cache hits
+	// (the common case on every TLS handshake after first-touch) do not block
+	// on a writer that may be storing a freshly generated cert for another host.
+	m.mu.RLock()
 	if cert, ok := m.cache[host]; ok {
+		m.mu.RUnlock()
 		return cert, nil
 	}
+	m.mu.RUnlock()
+
+	// Slow path: singleflight per host. Only one goroutine generates per host;
+	// concurrent callers for the SAME host wait and reuse the result. Calls for
+	// DIFFERENT hosts run in parallel because the expensive RSA keygen + x509
+	// sign below runs WITHOUT holding m.mu.
+	v, err, _ := m.sf.Do(host, func() (any, error) {
+		// Double-check cache: another goroutine may have generated this host
+		// while we were waiting on the singleflight leader.
+		m.mu.RLock()
+		if cert, ok := m.cache[host]; ok {
+			m.mu.RUnlock()
+			return cert, nil
+		}
+		m.mu.RUnlock()
+
+		if m.genProbe != nil {
+			m.genProbe()
+		}
+
+		cert, err := m.generateLeafCert(host)
+		if err != nil {
+			return nil, err
+		}
+
+		// Store under a brief write lock. Generation happened outside the lock
+		// so concurrent generations for other hosts are not blocked by this
+		// mutation.
+		m.mu.Lock()
+		// Avoid clobbering if a concurrent singleflight for the same host raced
+		// (singleflight should prevent this, but the guard is cheap and safe).
+		if existing, ok := m.cache[host]; ok {
+			m.mu.Unlock()
+			return existing, nil
+		}
+		m.cache[host] = cert
+		m.mu.Unlock()
+		return cert, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*tls.Certificate), nil
+}
+
+// generateLeafCert performs the expensive RSA keygen + x509 signing for a
+// single host. Callers MUST NOT hold m.mu while invoking this — the RSA
+// keygen alone takes ~5-20ms and serializing it across distinct hosts would
+// bottleneck first-touch TLS handshakes under load.
+func (m *Manager) generateLeafCert(host string) (*tls.Certificate, error) {
+	atomic.AddInt32(&m.genInFlight, 1)
+	defer atomic.AddInt32(&m.genInFlight, -1)
 
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
@@ -159,7 +221,6 @@ func (m *Manager) CertificateForServerName(serverName string) (*tls.Certificate,
 	}
 	pair.Leaf = parsedLeaf
 
-	m.cache[host] = &pair
 	return &pair, nil
 }
 

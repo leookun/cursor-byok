@@ -10,6 +10,8 @@ package embedding
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"strings"
@@ -26,7 +28,63 @@ type Store interface {
 	Delete(ctx context.Context, id string) error
 	// Size 返回存储条目数。
 	Size() int
+	// Clear 清空所有条目。
+	Clear()
 }
+
+// Embedder 是统一的文本嵌入接口（ADR-025）。
+// SimpleEmbedder 和 APIEmbedder 都实现此接口。
+type Embedder interface {
+	// Embed 将文本转为向量。
+	Embed(text string) []float32
+	// EmbedMulti 批量嵌入。
+	EmbedMulti(texts []string) [][]float32
+}
+
+// FallbackEmbedder 在主 embedder 失败时自动回退到备用 embedder（ADR-025）。
+type FallbackEmbedder struct {
+	primary  Embedder // APIEmbedder（生产）
+	fallback Embedder // SimpleEmbedder（本地 fallback）
+}
+
+// NewFallbackEmbedder 创建回退嵌入器。
+func NewFallbackEmbedder(primary, fallback Embedder) *FallbackEmbedder {
+	return &FallbackEmbedder{primary: primary, fallback: fallback}
+}
+
+func (f *FallbackEmbedder) Embed(text string) []float32 {
+	if f == nil {
+		return nil
+	}
+	if f.primary != nil {
+		if vec := f.primary.Embed(text); len(vec) > 0 {
+			return vec
+		}
+	}
+	if f.fallback != nil {
+		return f.fallback.Embed(text)
+	}
+	return nil
+}
+
+func (f *FallbackEmbedder) EmbedMulti(texts []string) [][]float32 {
+	if f == nil {
+		return nil
+	}
+	if f.primary != nil {
+		if vecs := f.primary.EmbedMulti(texts); len(vecs) > 0 {
+			return vecs
+		}
+	}
+	if f.fallback != nil {
+		return f.fallback.EmbedMulti(texts)
+	}
+	return nil
+}
+
+// Compile-time interface conformance checks.
+var _ Embedder = (*SimpleEmbedder)(nil)
+var _ Embedder = (*FallbackEmbedder)(nil)
 
 // SearchResult 搜索结果。
 type SearchResult struct {
@@ -37,9 +95,12 @@ type SearchResult struct {
 
 // InMemoryStore 内存中的 embedding 存储（Phase 4 默认实现）。
 // Phase 5 升级为 SQLite + FAISS/HNSW。
+// 内置 FIFO 淘汰上限（默认 1000 条），防止无限增长。
 type InMemoryStore struct {
-	mu      sync.RWMutex
-	entries map[string]*storeEntry
+	mu         sync.RWMutex
+	entries    map[string]*storeEntry
+	order      []string // insertion order for FIFO eviction
+	maxEntries int      // 0 = unlimited
 }
 
 type storeEntry struct {
@@ -48,10 +109,22 @@ type storeEntry struct {
 	Embedding []float32
 }
 
-// NewInMemoryStore 创建内存存储。
+// DefaultMaxEntries 是 InMemoryStore 的默认最大条目上限。
+const DefaultMaxEntries = 1000
+
+// NewInMemoryStore 创建内存存储，默认上限 1000 条。
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		entries: make(map[string]*storeEntry),
+		entries:    make(map[string]*storeEntry),
+		maxEntries: DefaultMaxEntries,
+	}
+}
+
+// NewInMemoryStoreUnlimited 创建无上限的内存存储（测试用）。
+func NewInMemoryStoreUnlimited() *InMemoryStore {
+	return &InMemoryStore{
+		entries:    make(map[string]*storeEntry),
+		maxEntries: 0,
 	}
 }
 
@@ -61,6 +134,19 @@ func (s *InMemoryStore) Add(ctx context.Context, id string, text string, embeddi
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// FIFO eviction when at capacity
+	if s.maxEntries > 0 && len(s.entries) >= s.maxEntries {
+		if _, exists := s.entries[id]; !exists {
+			oldKey := s.order[0]
+			s.order = s.order[1:]
+			delete(s.entries, oldKey)
+		}
+	}
+
+	if _, exists := s.entries[id]; !exists {
+		s.order = append(s.order, id)
+	}
 	s.entries[id] = &storeEntry{
 		ID:        id,
 		Text:      text,
@@ -121,6 +207,12 @@ func (s *InMemoryStore) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.entries, id)
+	for i, k := range s.order {
+		if k == id {
+			s.order = append(s.order[:i], s.order[i+1:]...)
+			break
+		}
+	}
 	return nil
 }
 
@@ -131,6 +223,16 @@ func (s *InMemoryStore) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.entries)
+}
+
+func (s *InMemoryStore) Clear() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = make(map[string]*storeEntry)
+	s.order = nil
 }
 
 // CosineSimilarity 计算两个向量的余弦相似度。
@@ -151,48 +253,35 @@ func CosineSimilarity(a, b []float32) float64 {
 }
 
 // SimpleEmbedder 简单的关键词向量生成器（Phase 4 fallback）。
-// 不依赖外部 LLM，使用 TF-IDF 风格的关键词频率向量。
+// 不依赖外部 LLM，使用固定维度的哈希分桶词频向量。
 // Phase 5 升级为使用 adapter 的 embedding API。
+//
+// ponytail: 固定维度（simpleEmbedderDim）保证所有向量长度一致，
+// 否则 CosineSimilarity 在向量长度不匹配时返回 0，破坏语义搜索。
+// 词汇表不再增长到向量维度——每个词通过 sha256 哈希映射到一个桶。
 type SimpleEmbedder struct {
-	vocabulary map[string]int
-	mu         sync.RWMutex
+	mu sync.RWMutex
 }
+
+// simpleEmbedderDim 是 SimpleEmbedder 输出向量的固定维度。
+const simpleEmbedderDim = 256
 
 // NewSimpleEmbedder 创建简单嵌入器。
 func NewSimpleEmbedder() *SimpleEmbedder {
-	return &SimpleEmbedder{
-		vocabulary: make(map[string]int),
-	}
+	return &SimpleEmbedder{}
 }
 
-// Embed 将文本转为关键词向量。
+// Embed 将文本转为固定维度的哈希词频向量。
 func (e *SimpleEmbedder) Embed(text string) []float32 {
 	if e == nil {
 		return nil
 	}
-
 	words := tokenize(text)
-
-	e.mu.RLock()
-	vec := make([]float32, len(e.vocabulary)+len(words))
-	e.mu.RUnlock()
-
-	// 为新词分配位置
-	e.mu.Lock()
+	vec := make([]float32, simpleEmbedderDim)
 	for _, w := range words {
-		if _, ok := e.vocabulary[w]; !ok {
-			e.vocabulary[w] = len(e.vocabulary)
-		}
+		idx := hashWordToBucket(w, simpleEmbedderDim)
+		vec[idx]++
 	}
-	vocabSize := len(e.vocabulary)
-	vec = make([]float32, vocabSize)
-	for _, w := range words {
-		if idx, ok := e.vocabulary[w]; ok {
-			vec[idx]++
-		}
-	}
-	e.mu.Unlock()
-
 	// 归一化
 	var norm float32
 	for _, v := range vec {
@@ -204,7 +293,6 @@ func (e *SimpleEmbedder) Embed(text string) []float32 {
 			vec[i] /= norm
 		}
 	}
-
 	return vec
 }
 
@@ -215,16 +303,6 @@ func (e *SimpleEmbedder) EmbedMulti(texts []string) [][]float32 {
 		result[i] = e.Embed(t)
 	}
 	return result
-}
-
-// VocabularySize 返回词汇表大小。
-func (e *SimpleEmbedder) VocabularySize() int {
-	if e == nil {
-		return 0
-	}
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return len(e.vocabulary)
 }
 
 func tokenize(text string) []string {
@@ -245,4 +323,16 @@ func tokenize(text string) []string {
 		}
 	}
 	return result
+}
+
+// hashWordToBucket 将词通过 sha256 哈希映射到 [0, dim) 的桶。
+// 固定维度避免向量长度不匹配导致的相似度计算失败。
+func hashWordToBucket(word string, dim int) int {
+	if dim <= 0 {
+		return 0
+	}
+	sum := sha256.Sum256([]byte(word))
+	// 取前 8 字节作为 uint64，再 mod dim
+	v := binary.BigEndian.Uint64(sum[:8])
+	return int(v % uint64(dim))
 }

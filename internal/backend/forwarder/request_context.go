@@ -2,12 +2,15 @@ package forwarder
 
 import (
 	"fmt"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"cursor/gen/agentv1"
+	toolruntime "cursor/internal/backend/runtime/tool"
 )
 
 func normalizeRequestContextForStorage(requestContext *agentv1.RequestContext) *agentv1.RequestContext {
@@ -352,6 +355,54 @@ func collectMCPToolServers(requestContext *agentv1.RequestContext) map[string]st
 		return nil
 	}
 	return servers
+}
+
+// collectMCPToolInfos builds MCPToolInfo list from RequestContext for Tool Runtime sync (ADR-026).
+// Extracts tool name, server identifier, description, and input schema from McpDescriptors.
+func collectMCPToolInfos(requestContext *agentv1.RequestContext, servers map[string]string) []toolruntime.MCPToolInfo {
+	if requestContext == nil || len(servers) == 0 {
+		return nil
+	}
+	var infos []toolruntime.MCPToolInfo
+	addDescriptors := func(descriptors []*agentv1.McpDescriptor) {
+		for _, descriptor := range descriptors {
+			if descriptor == nil {
+				continue
+			}
+			serverIdentifier := firstNonEmpty(descriptor.GetServerIdentifier(), descriptor.GetServerName())
+			if strings.TrimSpace(serverIdentifier) == "" {
+				continue
+			}
+			for _, tool := range descriptor.GetTools() {
+				if tool == nil {
+					continue
+				}
+				toolName := strings.TrimSpace(tool.GetToolName())
+				if toolName == "" {
+					continue
+				}
+				desc := ""
+				if tool.Description != nil {
+					desc = strings.TrimSpace(tool.GetDescription())
+				}
+				var schema json.RawMessage
+				if tool.InputSchema != nil {
+					if raw, err := protojson.Marshal(tool.InputSchema); err == nil {
+						schema = raw
+					}
+				}
+				infos = append(infos, toolruntime.MCPToolInfo{
+					ToolName:    toolName,
+					Server:      serverIdentifier,
+					Description: desc,
+					Schema:      schema,
+				})
+			}
+		}
+	}
+	addDescriptors(requestContext.GetMcpFileSystemOptions().GetMcpDescriptors())
+	addDescriptors(requestContext.GetMcpMetaToolOptions().GetMcpDescriptors())
+	return infos
 }
 
 func escapeSkillPromptXML(value string) string {

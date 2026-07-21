@@ -1,4 +1,4 @@
-version: "3"
+version: 0.0.41
 
 # 构建元信息（修改后可执行：wails3 task common:update:build-assets）
 info:
@@ -8,7 +8,7 @@ info:
   description: "Cursor助手"
   copyright: "© 2026, Cursor助手"
   comments: "Cursor助手"
-  version: "0.0.39"
+  version: 0.0.41
 
 dev_mode:
   root_path: .

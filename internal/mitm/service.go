@@ -22,6 +22,7 @@ import (
 	"cursor/internal/netproxy"
 
 	"github.com/elazarl/goproxy"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -679,8 +680,13 @@ func isWhitelistedRelayHost(host string) bool {
 
 // mitmCertStore 缓存 goproxy 为站点动态签发的证书，避免同一 host 重复执行 RSA/x509 签发。
 type mitmCertStore struct {
-	mu    sync.Mutex
+	mu    sync.RWMutex
 	certs map[string]*tls.Certificate
+	// sf coalesces concurrent Fetch calls for the same hostname so that the
+	// expensive gen() callback (RSA keygen + x509 sign) runs at most once per
+	// host. Calls for DIFFERENT hosts run in parallel: gen() is invoked
+	// outside any lock held on the store.
+	sf singleflight.Group
 }
 
 func newMITMCertStore() *mitmCertStore {
@@ -693,18 +699,50 @@ func (store *mitmCertStore) Fetch(hostname string, gen func() (*tls.Certificate,
 		return gen()
 	}
 
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
+	// Fast path: read lock, check cache. RWMutex so concurrent cache hits
+	// (common case — every request after first-touch) do not block on a
+	// writer that may be storing a freshly generated cert for another host.
+	store.mu.RLock()
 	if cert, ok := store.certs[hostname]; ok {
+		store.mu.RUnlock()
 		return cert, nil
 	}
-	cert, err := gen()
+	store.mu.RUnlock()
+
+	// Slow path: singleflight per host — only one goroutine invokes gen()
+	// per hostname; concurrent callers for the SAME host wait and reuse.
+	// Calls for DIFFERENT hosts run in parallel because gen() executes
+	// WITHOUT holding store.mu.
+	v, err, _ := store.sf.Do(hostname, func() (any, error) {
+		// Double-check cache: another goroutine may have generated this host
+		// while we were waiting on the singleflight leader.
+		store.mu.RLock()
+		if cert, ok := store.certs[hostname]; ok {
+			store.mu.RUnlock()
+			return cert, nil
+		}
+		store.mu.RUnlock()
+
+		cert, err := gen()
+		if err != nil {
+			return nil, err
+		}
+
+		// Store under a brief write lock. Generation happened outside the
+		// lock so concurrent generations for other hosts are not blocked.
+		store.mu.Lock()
+		if existing, ok := store.certs[hostname]; ok {
+			store.mu.Unlock()
+			return existing, nil
+		}
+		store.certs[hostname] = cert
+		store.mu.Unlock()
+		return cert, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	store.certs[hostname] = cert
-	return cert, nil
+	return v.(*tls.Certificate), nil
 }
 
 // shouldHandleLocalCORSPreflight 用于处理与 shouldHandleLocalCORSPreflight 相关的逻辑。

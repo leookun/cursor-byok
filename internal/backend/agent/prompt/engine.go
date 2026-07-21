@@ -13,6 +13,7 @@ import (
 
 	"cursor/gen/agentv1"
 	runtimecore "cursor/internal/backend/agent/core"
+	"cursor/internal/promptasset"
 	promptassets "cursor/prompt"
 )
 
@@ -777,19 +778,10 @@ func mapPromptMode(mode agentv1.AgentMode) (promptassets.Mode, error) {
 }
 
 // sanitizePromptAsset 去除资产文件中的文档性标题，只保留真实 prompt 文本。
+// Delegates to the shared internal/promptasset package so the prompt engine
+// and the forwarder cannot drift apart.
 func sanitizePromptAsset(text string, modelName string) string {
-	lines := strings.Split(text, "\n")
-	filtered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		switch trimmed {
-		case "# 通用系统提示词", "# 模式静态补充", "---":
-			continue
-		default:
-			filtered = append(filtered, line)
-		}
-	}
-	return promptassets.RenderPromptTemplate(strings.TrimSpace(strings.Join(filtered, "\n")), modelName)
+	return promptasset.Sanitize(text, modelName)
 }
 
 // decodeToolsFromBaseline 从原始工具 JSON 中按原始顺序解码工具列表与名称。

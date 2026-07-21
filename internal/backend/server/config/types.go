@@ -20,28 +20,10 @@ const (
 	MinProviderStreamIdleTimeoutSeconds     = 30
 )
 
-type ModelAdapterConfig struct {
-	ID                          string `json:"id,omitempty" yaml:"-"`
-	DisplayName                 string `json:"displayName" yaml:"displayName"`
-	Type                        string `json:"type" yaml:"type"`
-	BaseURL                     string `json:"baseURL" yaml:"baseURL"`
-	APIKey                      string `json:"apiKey" yaml:"apiKey"`
-	TooltipData                 string `json:"tooltipData" yaml:"tooltipData"`
-	ModelID                     string `json:"modelID" yaml:"modelID"`
-	ReasoningEffort             string `json:"reasoningEffort" yaml:"reasoningEffort"`
-	OpenAIEndpoint              string `json:"openAIEndpoint" yaml:"openAIEndpoint"`
-	OpenAIExtraParamsEnabled    bool   `json:"openAIExtraParamsEnabled" yaml:"openAIExtraParamsEnabled"`
-	OpenAIExtraParamsJSON       string `json:"openAIExtraParamsJSON" yaml:"openAIExtraParamsJSON"`
-	CustomHeadersEnabled        bool   `json:"customHeadersEnabled" yaml:"customHeadersEnabled"`
-	CustomHeadersJSON           string `json:"customHeadersJSON" yaml:"customHeadersJSON"`
-	AnthropicExtraParamsEnabled bool   `json:"anthropicExtraParamsEnabled" yaml:"anthropicExtraParamsEnabled"`
-	AnthropicExtraParamsJSON    string `json:"anthropicExtraParamsJSON" yaml:"anthropicExtraParamsJSON"`
-	ContextWindowTokens         int    `json:"contextWindowTokens" yaml:"contextWindowTokens"`
-	MaxCompletionTokens         int    `json:"maxCompletionTokens" yaml:"maxCompletionTokens"`
-	AnthropicMaxTokens          int    `json:"anthropicMaxTokens" yaml:"anthropicMaxTokens"`
-	AnthropicThinkingEffort     string `json:"anthropicThinkingEffort,omitempty" yaml:"anthropicThinkingEffort,omitempty"`
-	ThinkingBudgetTokens        int    `json:"thinkingBudgetTokens" yaml:"thinkingBudgetTokens"`
-}
+// ModelAdapterConfig is a type alias for the canonical definition in modelchannel.
+// The shared struct lives in internal/modelchannel/adapter.go to avoid duplication
+// between config and runtime packages (which cannot import each other due to cycles).
+type ModelAdapterConfig = modelchannel.ModelAdapterConfig
 
 type RoutingConfig struct {
 	Mode string `json:"mode" yaml:"mode"`
@@ -52,7 +34,7 @@ type HomeMetricsConfig struct {
 }
 
 // OptimizationConfig 控制 Optimization Runtime（Token Budget + Cost Optimizer）。
-// 落盘路径：~/.cursor-local-assistant-v2/config.yaml → optimization
+// 落盘路径：~/.cursor-byok/config.yaml → optimization
 type OptimizationConfig struct {
 	// Enabled 为 false 时主链路仍注入 Runtime，但 AllocateBudget 不覆盖用户 max tokens（见 host 行为约定）。
 	// 当前实现：始终创建 Runtime；Enabled 供前端与后续策略使用。
@@ -77,25 +59,123 @@ type VirtualModelConfig struct {
 
 type VirtualModelsConfig struct {
 	MOA *VirtualModelConfig `json:"moa,omitempty" yaml:"moa,omitempty"`
+	AOS *AOSConfig          `json:"aos,omitempty" yaml:"aos,omitempty"`
+}
+
+// AOSConfig defines the AOS (AI Organization System) virtual model configuration.
+type AOSConfig struct {
+	Enabled       bool              `json:"enabled" yaml:"enabled"`
+	Leader        AOSLeaderConfig   `json:"leader" yaml:"leader"`
+	Members       []AOSMemberConfig `json:"members,omitempty" yaml:"members,omitempty"`
+	ExecutionMode string            `json:"executionMode,omitempty" yaml:"executionMode,omitempty"`
 }
 
 const (
-	DefaultOptimizationQualityTier    = "balanced"
-	DefaultOptimizationMonthlyBudget  = 50.0
-	DefaultOptimizationEnabled        = true
+	AOSExecutionModeInternal   = "internal"
+	AOSExecutionModeCursorTask = "cursor_task"
 )
 
+// AOSLeaderConfig defines the AOS team leader.
+type AOSLeaderConfig struct {
+	AdapterID string `json:"adapterID" yaml:"adapterID"`
+}
+
+// AOSMemberConfig defines an AOS team member (Prompt + ModelAdapter).
+//
+// Tags are intentionally NOT user-configurable. They are inferred at runtime
+// by AOSModel.RecognizeMembers (the Leader reads each member's name + prompt
+// and assigns routing tags before the first Sprint). This keeps the Leader's
+// per-turn dispatch prompt compact: it reads the short tags via MembersInfo(),
+// not the long SystemPrompt of every member.
+type AOSMemberConfig struct {
+	ID           string `json:"id" yaml:"id"`
+	Name         string `json:"name" yaml:"name"`
+	AdapterID    string `json:"adapterID" yaml:"adapterID"`
+	SystemPrompt string `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`
+}
+
+const (
+	DefaultOptimizationQualityTier   = "balanced"
+	DefaultOptimizationMonthlyBudget = 50.0
+	DefaultOptimizationEnabled       = true
+	DefaultEvolverBackgroundEnabled  = true
+	DefaultEvolverBackgroundInterval = 30 // minutes
+	DefaultPluginEnabled             = true
+)
+
+// EvolverBackgroundConfig controls the Host background self-evolution loop
+// (ADR-028). The loop runs Diagnose→Sediment→Persist at the configured
+// interval. Test/Benchmark/Writeback/Execute are never run in background;
+// they remain CLI-only flags.
+//
+// ponytail: interval=0 or Enabled=false disables the loop. No event bus,
+// no dashboard — just a ticker goroutine.
+type EvolverBackgroundConfig struct {
+	// Enabled controls whether the background evolution loop starts.
+	// Default: true.
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// IntervalMinutes is the period between evolution cycles.
+	// 0 or negative means disabled (same as Enabled=false).
+	// Default: 30 minutes.
+	IntervalMinutes int `json:"intervalMinutes" yaml:"intervalMinutes"`
+}
+
+// PluginConfig controls the Phase 8 Plugin Marketplace runtime
+// (ADR-021 + ADR-047). Enabled wires the plugin.Registry into the host and
+// exposes the Marketplace REST API; DataDir overrides the manifest storage
+// path (defaults to <appdata>/data/plugin).
+type PluginConfig struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	DataDir string `json:"dataDir,omitempty" yaml:"dataDir,omitempty"`
+}
+
+// ModelInProviderConfig is a model entry inside a ProviderConfig.
+// It excludes baseURL/apiKey/type which are inherited from the provider.
+type ModelInProviderConfig struct {
+	DisplayName                 string `json:"displayName" yaml:"displayName"`
+	TooltipData                 string `json:"tooltipData" yaml:"tooltipData"`
+	ModelID                     string `json:"modelID" yaml:"modelID"`
+	ReasoningEffort             string `json:"reasoningEffort" yaml:"reasoningEffort"`
+	OpenAIEndpoint              string `json:"openAIEndpoint" yaml:"openAIEndpoint"`
+	OpenAIExtraParamsEnabled    bool   `json:"openAIExtraParamsEnabled" yaml:"openAIExtraParamsEnabled"`
+	OpenAIExtraParamsJSON       string `json:"openAIExtraParamsJSON" yaml:"openAIExtraParamsJSON"`
+	CustomHeadersEnabled        bool   `json:"customHeadersEnabled" yaml:"customHeadersEnabled"`
+	CustomHeadersJSON           string `json:"customHeadersJSON" yaml:"customHeadersJSON"`
+	AnthropicExtraParamsEnabled bool   `json:"anthropicExtraParamsEnabled" yaml:"anthropicExtraParamsEnabled"`
+	AnthropicExtraParamsJSON    string `json:"anthropicExtraParamsJSON" yaml:"anthropicExtraParamsJSON"`
+	ContextWindowTokens         int    `json:"contextWindowTokens" yaml:"contextWindowTokens"`
+	MaxCompletionTokens         int    `json:"maxCompletionTokens" yaml:"maxCompletionTokens"`
+	AnthropicMaxTokens          int    `json:"anthropicMaxTokens" yaml:"anthropicMaxTokens"`
+	AnthropicThinkingEffort     string `json:"anthropicThinkingEffort,omitempty" yaml:"anthropicThinkingEffort,omitempty"`
+	ThinkingBudgetTokens        int    `json:"thinkingBudgetTokens" yaml:"thinkingBudgetTokens"`
+}
+
+// ProviderConfig groups models sharing the same baseURL/type.
+// Models inherit baseURL/type from the provider; API calls use the first key from APIKeys.
+type ProviderConfig struct {
+	ID      string                  `json:"id" yaml:"id"`
+	Name    string                  `json:"name" yaml:"name"`
+	Type    string                  `json:"type" yaml:"type"`
+	BaseURL string                  `json:"baseURL" yaml:"baseURL"`
+	APIKey  string                  `json:"apiKey" yaml:"apiKey"`           // Deprecated: kept for backward compat; use APIKeys
+	APIKeys []string                `json:"apiKeys,omitempty" yaml:"apiKeys,omitempty"` // Multiple API keys; first is primary
+	Models  []ModelInProviderConfig `json:"models" yaml:"models"`
+}
+
 type Config struct {
-	Log                       bool                 `json:"log" yaml:"log"`
-	ProviderStreamIdleTimeout int                  `json:"providerStreamIdleTimeout" yaml:"providerStreamIdleTimeout"`
-	BackendListenAddr         string               `json:"backendListenAddr" yaml:"backendListenAddr"`
-	ProxyListenAddr           string               `json:"proxyListenAddr" yaml:"proxyListenAddr"`
-	ModelAdapters             []ModelAdapterConfig `json:"modelAdapters" yaml:"modelAdapters"`
-	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
-	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
-	Optimization              OptimizationConfig   `json:"optimization" yaml:"optimization"`
-	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
-	VirtualModels             VirtualModelsConfig  `json:"virtualModels" yaml:"virtualModels"`
+	Log                       bool                    `json:"log" yaml:"log"`
+	ProviderStreamIdleTimeout int                     `json:"providerStreamIdleTimeout" yaml:"providerStreamIdleTimeout"`
+	BackendListenAddr         string                  `json:"backendListenAddr" yaml:"backendListenAddr"`
+	ProxyListenAddr           string                  `json:"proxyListenAddr" yaml:"proxyListenAddr"`
+	ModelAdapters             []ModelAdapterConfig    `json:"modelAdapters" yaml:"modelAdapters"`
+	Providers                 []ProviderConfig        `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Routing                   RoutingConfig           `json:"routing" yaml:"routing"`
+	HomeMetrics               HomeMetricsConfig       `json:"homeMetrics" yaml:"homeMetrics"`
+	Optimization              OptimizationConfig      `json:"optimization" yaml:"optimization"`
+	LastAgentModelHash        string                  `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
+	VirtualModels             VirtualModelsConfig     `json:"virtualModels" yaml:"virtualModels"`
+	EvolverBackground         EvolverBackgroundConfig `json:"evolverBackground" yaml:"evolverBackground"`
+	Plugin                    PluginConfig            `json:"plugin" yaml:"plugin"`
 }
 
 func DefaultConfig() Config {
@@ -113,6 +193,36 @@ func DefaultConfig() Config {
 			QualityTier:      DefaultOptimizationQualityTier,
 			MonthlyBudgetUSD: DefaultOptimizationMonthlyBudget,
 		},
+		EvolverBackground: DefaultEvolverBackgroundConfig(),
+		Plugin:            DefaultPluginConfig(),
+	}
+}
+
+// DefaultPluginConfig returns the default Plugin Marketplace config.
+func DefaultPluginConfig() PluginConfig {
+	return PluginConfig{
+		Enabled: DefaultPluginEnabled,
+	}
+}
+
+// NormalizePluginConfig normalizes the plugin config. A zero-valued struct
+// returns the default (enabled). DataDir is left empty to use the appdata
+// default when not explicitly set.
+func NormalizePluginConfig(input PluginConfig) PluginConfig {
+	if input == (PluginConfig{}) {
+		return DefaultPluginConfig()
+	}
+	return PluginConfig{
+		Enabled: input.Enabled,
+		DataDir: strings.TrimSpace(input.DataDir),
+	}
+}
+
+// DefaultEvolverBackgroundConfig returns the default background evolution config.
+func DefaultEvolverBackgroundConfig() EvolverBackgroundConfig {
+	return EvolverBackgroundConfig{
+		Enabled:         DefaultEvolverBackgroundEnabled,
+		IntervalMinutes: DefaultEvolverBackgroundInterval,
 	}
 }
 
@@ -138,12 +248,39 @@ func NormalizeConfig(input Config) (Config, error) {
 	if output.Routing.Mode == "" {
 		output.Routing.Mode = DefaultRoutingMode
 	}
-	adapters, err := NormalizeModelAdapterConfigs(input.ModelAdapters)
+
+	// When modelAdapters are present, regenerate providers from adapters.
+	// This makes modelAdapters the canonical source of truth — user edits
+	// from the frontend take precedence over stale providers from a prior save.
+	if len(input.ModelAdapters) > 0 {
+		output.Providers = GroupAdaptersToProviders(input.ModelAdapters)
+	} else if len(input.Providers) > 0 {
+		output.Providers = NormalizeProviders(input.Providers)
+	}
+
+	// Always derive modelAdapters from providers (for resolver compatibility)
+	output.ModelAdapters, err = FlattenProvidersToAdapters(output.Providers)
 	if err != nil {
 		return Config{}, err
 	}
-	output.ModelAdapters = adapters
+
+	output.EvolverBackground = NormalizeEvolverBackgroundConfig(input.EvolverBackground)
+	output.Plugin = NormalizePluginConfig(input.Plugin)
 	return output, nil
+}
+
+// NormalizeEvolverBackgroundConfig normalizes the evolver background config.
+// Zero-value fields are replaced with defaults. Interval <= 0 disables the loop.
+func NormalizeEvolverBackgroundConfig(input EvolverBackgroundConfig) EvolverBackgroundConfig {
+	// If the whole struct is zero-valued, return defaults.
+	if input == (EvolverBackgroundConfig{}) {
+		return DefaultEvolverBackgroundConfig()
+	}
+	// If interval is explicitly 0 or negative, treat as disabled regardless of Enabled.
+	if input.IntervalMinutes <= 0 {
+		return EvolverBackgroundConfig{Enabled: false, IntervalMinutes: 0}
+	}
+	return input
 }
 
 // NormalizeOptimizationConfig 归一化 Optimization 配置。
@@ -192,29 +329,51 @@ func normalizeQualityTier(value string) string {
 }
 
 func normalizeVirtualModelsConfig(input VirtualModelsConfig) VirtualModelsConfig {
-	if input.MOA == nil {
-		return VirtualModelsConfig{}
-	}
-	moa := *input.MOA
-	moa.WorkflowID = strings.TrimSpace(moa.WorkflowID)
-	if moa.Planner != nil {
-		p := *moa.Planner
-		p.AdapterID = strings.TrimSpace(p.AdapterID)
-		moa.Planner = &p
-	}
-	if moa.Nodes != nil {
-		nodes := make(map[string]*VirtualModelNodeBindingConfig, len(moa.Nodes))
-		for k, v := range moa.Nodes {
-			if v == nil {
-				continue
-			}
-			n := *v
-			n.AdapterID = strings.TrimSpace(n.AdapterID)
-			nodes[strings.TrimSpace(k)] = &n
+	result := VirtualModelsConfig{}
+	if input.MOA != nil {
+		moa := *input.MOA
+		moa.WorkflowID = strings.TrimSpace(moa.WorkflowID)
+		if moa.Planner != nil {
+			p := *moa.Planner
+			p.AdapterID = strings.TrimSpace(p.AdapterID)
+			moa.Planner = &p
 		}
-		moa.Nodes = nodes
+		if moa.Nodes != nil {
+			nodes := make(map[string]*VirtualModelNodeBindingConfig, len(moa.Nodes))
+			for k, v := range moa.Nodes {
+				if v == nil {
+					continue
+				}
+				n := *v
+				n.AdapterID = strings.TrimSpace(n.AdapterID)
+				nodes[strings.TrimSpace(k)] = &n
+			}
+			moa.Nodes = nodes
+		}
+		result.MOA = &moa
 	}
-	return VirtualModelsConfig{MOA: &moa}
+	if input.AOS != nil {
+		aos := *input.AOS
+		aos.Leader.AdapterID = strings.TrimSpace(aos.Leader.AdapterID)
+		aos.ExecutionMode = NormalizeAOSExecutionMode(aos.ExecutionMode)
+		for i := range aos.Members {
+			aos.Members[i].ID = strings.TrimSpace(aos.Members[i].ID)
+			aos.Members[i].AdapterID = strings.TrimSpace(aos.Members[i].AdapterID)
+		}
+		result.AOS = &aos
+	}
+	return result
+}
+
+// NormalizeAOSExecutionMode keeps the legacy direct-adapter mode explicit;
+// all other values use Cursor-native task execution.
+func NormalizeAOSExecutionMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case AOSExecutionModeInternal:
+		return AOSExecutionModeInternal
+	default:
+		return AOSExecutionModeCursorTask
+	}
 }
 
 func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterConfig, error) {
@@ -231,6 +390,7 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		}
 		nextType := normalizeModelAdapterType(item.Type)
 		next := ModelAdapterConfig{
+			Ref:                  strings.TrimSpace(item.Ref),
 			DisplayName:          strings.TrimSpace(item.DisplayName),
 			Type:                 nextType,
 			BaseURL:              baseURL,
@@ -328,24 +488,29 @@ func validateHeadersJSON(value string) error {
 }
 
 func normalizeReasoningEffort(value string) string {
+	// 未识别值（如 Cursor 新增的 "minimal" / "none" 等）回退到 "medium"，
+	// 而不是返回空字符串触发 validate 的 reasoningEffort 校验报错。
+	// 与前端 appState.js normalizeModelAdapter 行为保持一致。
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "medium":
 		return "medium"
 	case "low", "high", "xhigh":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return ""
+		return "medium"
 	}
 }
 
 func normalizeAnthropicThinkingEffort(value string) string {
+	// 与 normalizeReasoningEffort 对称：未识别值回退到默认 "xhigh"，
+	// 避免上游同步过来的脏值触发 validate 的 anthropicThinkingEffort 校验报错。
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "xhigh":
 		return "xhigh"
 	case "low", "medium", "high", "max":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return ""
+		return "xhigh"
 	}
 }
 

@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -110,8 +111,9 @@ func MockProtoAction(deps Dependencies, cfg CompatRouteConfig) server.HandlerFun
 }
 
 func newCompatRouteObjects(ctx *server.Context, deps Dependencies, cfg CompatRouteConfig) (*RequestContext, *Route, error) {
+	// [修复] 健壮性: nil context 应返回明确错误而非 nil，防止调用方 nil pointer dereference
 	if ctx == nil || ctx.Request == nil {
-		return nil, nil, nil
+		return nil, nil, fmt.Errorf("upstream: invalid request context (nil ctx or request)")
 	}
 	body, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
@@ -207,6 +209,11 @@ func DashboardIsOnNewPricingMockBuilder(reqCtx *RequestContext) (map[string]any,
 
 func resolveHTTPRequestID(request *http.Request) string {
 	requestID := strings.TrimSpace(request.Header.Get("x-request-id"))
+	// [修复] 安全: 限制request-id长度，防止DoS/日志注入
+	const maxRequestIDLen = 128
+	if len(requestID) > maxRequestIDLen {
+		requestID = requestID[:maxRequestIDLen]
+	}
 	if requestID != "" {
 		return requestID
 	}

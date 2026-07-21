@@ -8,8 +8,10 @@ const (
 	ReleasePageURL = "https://github.com/leookun/cursor-byok/releases"
 )
 
-// Version is injected at build time from build/config.yml.
-var Version = "0.0.0"
+// Version is the application version. Set at build time via ldflags:
+//   go build -ldflags="-X cursor/internal/buildinfo.Version=0.0.41"
+// Also kept in sync with build/config.yml info.version.
+var Version = "0.0.41"
 
 func CurrentVersion() string {
 	version := strings.TrimSpace(strings.TrimPrefix(Version, "v"))

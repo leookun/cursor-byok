@@ -96,11 +96,11 @@ internal/backend/
 
 助手目录固定为：
 
-- `~/.cursor-local-assistant-v2/config.yaml`
-- `~/.cursor-local-assistant-v2/data/ca.crt`
-- `~/.cursor-local-assistant-v2/data/ads/`
-- `~/.cursor-local-assistant-v2/history/`
-- `~/.cursor-local-assistant-v2/logs/`
+- `~/.cursor-byok/config.yaml`
+- `~/.cursor-byok/data/ca.crt`
+- `~/.cursor-byok/data/ads/`
+- `~/.cursor-byok/history/`
+- `~/.cursor-byok/logs/`
 
 约定：
 

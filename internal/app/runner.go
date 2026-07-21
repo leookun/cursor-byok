@@ -7,15 +7,11 @@ import (
 	"net/http"
 	"os"
 	goruntime "runtime"
-	"strings"
 	"time"
 
-	"cursor/internal/ads"
 	"cursor/internal/appdata"
 	serverconfig "cursor/internal/backend/server/config"
 	"cursor/internal/buildinfo"
-	"cursor/internal/cursor"
-	"cursor/internal/historymetrics"
 
 	"github.com/leaanthony/u"
 
@@ -33,8 +29,6 @@ import (
 const (
 	// appName 表示当前模块中的 appName 状态值。
 	appName = "Cursor助手"
-	// adRefreshInterval 表示后台广告拉取间隔。
-	adRefreshInterval = 3 * time.Minute
 )
 
 // EmbeddedResources 定义了当前模块中的 EmbeddedResources 类型。
@@ -49,17 +43,17 @@ type EmbeddedResources struct {
 
 // init 用于处理与 init 相关的逻辑。
 func init() {
-	application.RegisterEvent[bridge.ProxyState]("proxy:state")
-	application.RegisterEvent[bridge.UserConfig]("user-config:changed")
-	application.RegisterEvent[bridge.ModelAdapterTestResultsPayload]("model-adapter-test:updated")
-	application.RegisterEvent[bridge.AdRuntime](ads.EventUpdated)
-	application.RegisterEvent[updater.StatePayload](updater.EventState)
-	application.RegisterEvent[updater.ProgressPayload](updater.EventProgress)
-	application.RegisterEvent[updater.ReadyPayload](updater.EventReady)
-	application.RegisterEvent[updater.ErrorPayload](updater.EventError)
-	application.RegisterEvent[string](bridge.EventCursorActivity)
-	application.RegisterEvent[[]bridge.PetInfo](bridge.EventPetListChanged)
-	application.RegisterEvent[map[string]string](bridge.EventPetStateChanged)
+	// R16: use centralized event-name constants instead of raw strings.
+	application.RegisterEvent[bridge.ProxyState](EventProxyState)
+	application.RegisterEvent[bridge.UserConfig](EventUserConfigChanged)
+	application.RegisterEvent[bridge.ModelAdapterTestResultsPayload](EventModelAdapterTestUpdated)
+	application.RegisterEvent[updater.StatePayload](EventUpdateState)
+	application.RegisterEvent[updater.ProgressPayload](EventUpdateProgress)
+	application.RegisterEvent[updater.ReadyPayload](EventUpdateReady)
+	application.RegisterEvent[updater.ErrorPayload](EventUpdateError)
+	application.RegisterEvent[string](EventCursorActivity)
+	application.RegisterEvent[[]bridge.PetInfo](EventPetListChanged)
+	application.RegisterEvent[map[string]string](EventPetStateChanged)
 }
 
 // Run 用于处理与 Run 相关的逻辑。
@@ -67,64 +61,28 @@ func Run(resources EmbeddedResources) error {
 	logger.Init()
 	netproxy.InstallDefaultTransport()
 
-	embeddedCACertPEM := certs.EmbeddedCACertPEM()
-	logEmbeddedCAInfo(embeddedCACertPEM)
-
-	certManager, err := certs.NewEmbeddedManager()
+	certManager, err := certs.EnsureCA(appdata.CACertFilePath(), appdata.CAKeyFilePath())
 	if err != nil {
 		return err
 	}
+	caCertPEM := certManager.CACertPEM()
+	logEmbeddedCAInfo(caCertPEM)
 
 	defaultBackendBaseURL := "http://" + serverconfig.DefaultBackendListenAddr
 	proxyServer, err := mitm.NewProxyServer(serverconfig.DefaultProxyListenAddr, defaultBackendBaseURL, "", "", certManager)
 	if err != nil {
 		return err
 	}
-	proxyService := bridge.NewProxyService(proxyServer, certManager, embeddedCACertPEM)
+	proxyService := bridge.NewProxyService(proxyServer, certManager, caCertPEM)
 	// 将 mitm 的 Cursor 活跃信号接到 PetService（最终发射 cursor:activity 事件）
 	proxyServer.SetCursorActivityCallback(proxyService.FireCursorActivity)
-	adAssetBaseURL := defaultBackendBaseURL
-	if cfg, err := proxyService.LoadUserConfig(); err == nil {
-		adAssetBaseURL = browserReachableLoopbackBaseURL(cfg.BackendListenAddr)
-	}
 	metricsService := bridge.NewMetricsService()
 	windowService := bridge.NewWindowService()
 	petService := bridge.NewPetService()
-	adCore := ads.NewService(ads.Options{
-		StoreRoot:    appdata.AdsRootPath(),
-		HTTPClient:   netproxy.NewHTTPClient(30 * time.Second),
-		AppVersion:   buildinfo.CurrentVersion(),
-		AssetBaseURL: adAssetBaseURL + ads.RoutePrefix,
-		DeviceID:     cursor.GetDeviceID,
-		Metrics: func(context.Context) (ads.MetricsSnapshot, error) {
-			if err := appdata.EnsureAssistantHome(); err != nil {
-				return ads.MetricsSnapshot{}, err
-			}
-			summary, err := historymetrics.LoadUsageSummary(appdata.UsageFilePath())
-			if err != nil {
-				return ads.MetricsSnapshot{}, err
-			}
-			return ads.MetricsSnapshot{
-				TurnsTotal:         summary.TurnsTotal,
-				RequestTokensTotal: summary.RequestTokensTotal,
-				PromptTokensTotal:  summary.PromptTokensTotal,
-				CacheReadTokens:    summary.CacheReadTokens,
-				CacheWriteTokens:   summary.CacheWriteTokens,
-			}, nil
-		},
-		ProviderCount: func(context.Context) (int, error) {
-			cfg, err := proxyService.LoadUserConfig()
-			if err != nil {
-				return 0, err
-			}
-			return len(cfg.ModelAdapters), nil
-		},
-	})
-	adService := bridge.NewAdService(adCore)
 	var updateManager *updater.Manager
 
 	var mainWindow *application.WebviewWindow
-	adRefreshCtx, stopAdRefresh := context.WithCancel(context.Background())
+	appCtx := NewAppContext()
 
 	app := application.New(application.Options{
 		Name:        appName,
@@ -133,7 +91,6 @@ func Run(resources EmbeddedResources) error {
 			application.NewService(proxyService),
 			application.NewService(metricsService),
 			application.NewService(windowService),
-			application.NewService(adService),
 			application.NewService(petService),
 		},
 		Assets: application.AssetOptions{
@@ -152,7 +109,9 @@ func Run(resources EmbeddedResources) error {
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 		OnShutdown: func() {
-			stopAdRefresh()
+			// R16: AppContext cancellation propagates to every derived
+			// background goroutine first, then we shut down services.
+			appCtx.Cancel()
 			petService.Stop()
 			windowService.StopAllPets()
 			if updateManager != nil {
@@ -169,54 +128,6 @@ func Run(resources EmbeddedResources) error {
 		},
 	})
 
-	refreshAdAssetBaseURL := func() bool {
-		state := proxyService.GetState()
-		backendListenAddr := strings.TrimSpace(state.BackendListenAddr)
-		if backendListenAddr == "" {
-			backendListenAddr = serverconfig.DefaultBackendListenAddr
-		}
-		return adCore.SetAssetBaseURL(browserReachableLoopbackBaseURL(backendListenAddr) + ads.RoutePrefix)
-	}
-	refreshAdRuntime := func() {
-		runtimeState, err := adCore.GetRuntime(context.Background())
-		if err != nil {
-			return
-		}
-		app.Event.Emit(ads.EventUpdated, runtimeState)
-	}
-	refreshAd := func(ctx context.Context) {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		runtimeState, changed, err := adCore.Refresh(ctx)
-		if err != nil || !changed {
-			return
-		}
-		app.Event.Emit(ads.EventUpdated, runtimeState)
-	}
-	refreshAdAsync := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		go func() {
-			defer cancel()
-			refreshAd(ctx)
-		}()
-	}
-	startAdRefreshLoop := func(ctx context.Context) {
-		go func() {
-			refreshAd(ctx)
-			ticker := time.NewTicker(adRefreshInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					refreshAd(ctx)
-				}
-			}
-		}()
-	}
-
 	updateManager = updater.NewManager(app)
 
 	windowService.SetApp(app)
@@ -226,11 +137,16 @@ func Run(resources EmbeddedResources) error {
 	// PET_DEBUG=1 时自动开启桌宠，方便无头/自动化环境采集 Window 层调试日志
 	// （正常运行由前端 UI 触发 OpenPetWindow；此钩子仅用于调试，不影响正常流程）。
 	if os.Getenv("PET_DEBUG") == "1" {
-		go func() {
-			time.Sleep(2 * time.Second) // 等 app 事件循环与窗口线程就绪
+		// R17: tracked + recover-guarded lifecycle goroutine (was naked go func()).
+		LifecycleGo(appCtx, "petDebugAutoOpen", func(ctx context.Context) {
+			select {
+			case <-time.After(2 * time.Second): // 等 app 事件循环与窗口线程就绪
+			case <-ctx.Done():
+				return
+			}
 			log.Println("[Pet][DEBUG] PET_DEBUG=1: auto-opening pet window for diagnostics")
 			windowService.OpenPetWindow()
-		}()
+		})
 	}
 
 	// 连接 proxy 活动事件到 pet 状态
@@ -240,6 +156,14 @@ func Run(resources EmbeddedResources) error {
 			"path":   path,
 		})
 	})
+	// 桥接模型活动状态（thinking/working/idle/error）到桌宠 FSM。
+	// forwarder 在 stream 关键节点 emit；Host 仅转发，runner 负责把 Host 的
+	// 回调接到 WindowService.SetModelActivity → PetManager.SetActivity。
+	if backendHost := proxyService.BackendHost(); backendHost != nil {
+		backendHost.SetModelActivityCallback(func(state string) {
+			windowService.SetModelActivity(state)
+		})
+	}
 	mainWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               appName,
 		Width:               700,
@@ -281,9 +205,6 @@ func Run(resources EmbeddedResources) error {
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		window.Hide()
 		e.Cancel()
-	})
-	window.RegisterHook(events.Common.WindowFocus, func(e *application.WindowEvent) {
-		refreshAdAsync()
 	})
 
 	showMainWindow := func() {
@@ -333,36 +254,28 @@ func Run(resources EmbeddedResources) error {
 			startItem.SetEnabled(true)
 			stopItem.SetEnabled(false)
 		}
-		if refreshAdAssetBaseURL() {
-			refreshAdRuntime()
-		}
 	}
-	app.Event.On("proxy:state", func(event *application.CustomEvent) {
+	app.Event.On(EventProxyState, func(event *application.CustomEvent) {
 		refreshTray()
 	})
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(event *application.ApplicationEvent) {
 		logger.Infof("应用版本：v%s", buildinfo.CurrentVersion())
 		updateManager.Start()
-		startAdRefreshLoop(adRefreshCtx)
-		go func() {
+		// R17: tracked + recover-guarded lifecycle goroutine (was naked go func()).
+		LifecycleGo(appCtx, "autoStartProxy", func(ctx context.Context) {
 			logger.Infof("application started, begin auto start service in background")
 			if _, err := proxyService.StartProxy(); err != nil {
 				logger.Errorf("自动启动服务失败: %v", err)
 			} else {
 				state := proxyService.GetState()
-				if refreshAdAssetBaseURL() {
-					refreshAdRuntime()
-				}
 				logger.Infof("代理已自动启动: %s", state.ProxyListenAddr)
 			}
-		}()
+		})
 	})
 
 	startItem.OnClick(func(ctx *application.Context) {
 		if _, err := proxyService.StartProxy(); err != nil {
 			logger.Errorf("启动服务失败: %v", err)
-		} else if refreshAdAssetBaseURL() {
-			refreshAdRuntime()
 		}
 		refreshTray()
 	})

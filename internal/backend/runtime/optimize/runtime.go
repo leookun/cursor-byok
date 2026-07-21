@@ -4,6 +4,7 @@ package optimize
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,12 @@ type Runtime struct {
 	budget      *TokenBudget
 	costTracker *CostTracker
 	qualityTier QualityTier
+	// storePath 非空时，RecordCost 会 best-effort 落盘；NewRuntimeWithStore 会 hydrate。
+	storePath string
+	// spentMonth 当前累计所属 YYYY-MM（与落盘 yearMonth 对齐）。
+	spentMonth string
+	// closed 标记 Close 是否已调用（R14 lifecycle unification）。
+	closed bool
 }
 
 // TokenBudget Token 预算分配。
@@ -69,18 +76,18 @@ type ProviderCost struct {
 
 // 默认成本表（近似值，实际因模型而异）
 var defaultCosts = map[string]ProviderCost{
-	"claude-opus":    {Provider: "claude-opus", Input: 0.015, Output: 0.075},
-	"claude-sonnet":  {Provider: "claude-sonnet", Input: 0.003, Output: 0.015},
-	"claude-haiku":   {Provider: "claude-haiku", Input: 0.0008, Output: 0.004},
-	"gpt-4o":         {Provider: "gpt-4o", Input: 0.005, Output: 0.015},
-	"gpt-4o-mini":    {Provider: "gpt-4o-mini", Input: 0.00015, Output: 0.0006},
-	"deepseek":       {Provider: "deepseek", Input: 0.00014, Output: 0.00028},
-	"gemini-flash":   {Provider: "gemini-flash", Input: 0.000075, Output: 0.0003},
-	"gemini-pro":     {Provider: "gemini-pro", Input: 0.00125, Output: 0.005},
+	"claude-opus":   {Provider: "claude-opus", Input: 0.015, Output: 0.075},
+	"claude-sonnet": {Provider: "claude-sonnet", Input: 0.003, Output: 0.015},
+	"claude-haiku":  {Provider: "claude-haiku", Input: 0.0008, Output: 0.004},
+	"gpt-4o":        {Provider: "gpt-4o", Input: 0.005, Output: 0.015},
+	"gpt-4o-mini":   {Provider: "gpt-4o-mini", Input: 0.00015, Output: 0.0006},
+	"deepseek":      {Provider: "deepseek", Input: 0.00014, Output: 0.00028},
+	"gemini-flash":  {Provider: "gemini-flash", Input: 0.000075, Output: 0.0003},
+	"gemini-pro":    {Provider: "gemini-pro", Input: 0.00125, Output: 0.005},
 }
 
-// NewRuntime 创建 Optimization Runtime。
-func NewRuntime(monthlyBudgetUSD float64, qualityTier QualityTier) *Runtime {
+// newRuntime 创建纯内存 Optimization Runtime（不落盘）。
+func newRuntime(monthlyBudgetUSD float64, qualityTier QualityTier) *Runtime {
 	if qualityTier == "" {
 		qualityTier = TierBalanced
 	}
@@ -89,7 +96,67 @@ func NewRuntime(monthlyBudgetUSD float64, qualityTier QualityTier) *Runtime {
 		budget:      &TokenBudget{TotalTokens: 200000},
 		costTracker: &CostTracker{MonthlyBudgetUSD: monthlyBudgetUSD},
 		qualityTier: qualityTier,
+		spentMonth:  CurrentYearMonth(),
 	}
+}
+
+// NewRuntimeWithStore 创建 Runtime 并从 storePath hydrate 本月 spent/turns。
+// storePath 为空时等价于 newRuntime。加载失败 fail-open（从零开始）。
+func NewRuntimeWithStore(monthlyBudgetUSD float64, qualityTier QualityTier, storePath string) *Runtime {
+	rt := newRuntime(monthlyBudgetUSD, qualityTier)
+	rt.storePath = strings.TrimSpace(storePath)
+	if rt.storePath == "" {
+		return rt
+	}
+	rt.hydrateCostFromStore()
+	return rt
+}
+
+// Close persists the cost snapshot (best-effort) and marks the runtime closed.
+// Subsequent Close calls are no-ops. R14: lifecycle unification.
+func (rt *Runtime) Close(ctx context.Context) error {
+	if rt == nil {
+		return nil
+	}
+	rt.mu.Lock()
+	if rt.closed {
+		rt.mu.Unlock()
+		return nil
+	}
+	rt.closed = true
+	storePath := rt.storePath
+	tracker := rt.costTracker
+	ym := rt.spentMonth
+	rt.mu.Unlock()
+	if storePath != "" && tracker != nil {
+		_ = SaveCostSnapshot(storePath, SnapshotFromTracker(tracker, ym))
+	}
+	return nil
+}
+
+// IsClosed reports whether Close has been invoked on this runtime.
+func (rt *Runtime) IsClosed() bool {
+	if rt == nil {
+		return false
+	}
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.closed
+}
+
+func (rt *Runtime) hydrateCostFromStore() {
+	if rt == nil || rt.storePath == "" {
+		return
+	}
+	snap, err := LoadCostSnapshot(rt.storePath)
+	if err != nil {
+		return
+	}
+	ym := CurrentYearMonth()
+	rt.mu.Lock()
+	ApplySnapshotToTracker(rt.costTracker, snap, ym)
+	rt.spentMonth = ym
+	rt.mu.Unlock()
 }
 
 // SetEnabled 启用/禁用 Optimization 策略（成本仍可记录，便于 Dashboard）。
@@ -330,49 +397,33 @@ func (rt *Runtime) EstimateCost(providerName string, promptTokens int, outputTok
 	return float64(promptTokens)*cost.Input/1000 + float64(outputTokens)*cost.Output/1000
 }
 
-// SelectOptimalProvider 根据质量等级和预算选择最优 provider。
-func (rt *Runtime) SelectOptimalProvider(ctx context.Context, role string, availableProviders []string) string {
-	if rt == nil || len(availableProviders) == 0 {
-		return ""
-	}
-
-	rt.mu.RLock()
-	enabled := rt.enabled
-	tier := rt.qualityTier
-	budgetRemaining := rt.costTracker.MonthlyBudgetUSD - rt.costTracker.SpentThisMonthUSD
-	rt.mu.RUnlock()
-	if !enabled {
-		return availableProviders[0]
-	}
-
-	switch tier {
-	case TierFast:
-		return selectCheapest(availableProviders)
-	case TierUltra:
-		return selectBest(availableProviders)
-	case TierBalanced:
-		if budgetRemaining < 5.0 {
-			return selectCheapest(availableProviders)
-		}
-		return selectBestForRole(role, availableProviders)
-	case TierQuality:
-		return selectBestForRole(role, availableProviders)
-	default:
-		return availableProviders[0]
-	}
-}
-
-// RecordCost 记录一次请求的成本。
+// RecordCost 记录一次请求的成本，并在配置了 storePath 时 best-effort 落盘。
+// 内存更新与写盘必须在同一把 mu 临界区内完成，否则并发 RecordCost 会出现
+// last-writer-wins 用旧 snapshot 覆盖新 spent（内存 turns=N，磁盘 turns≪N）。
 func (rt *Runtime) RecordCost(providerName string, promptTokens int, outputTokens int) {
 	if rt == nil {
 		return
 	}
 
+	// EstimateCost 只读 defaultCosts，不碰 Runtime 可变状态，可在锁外调用。
 	cost := rt.EstimateCost(providerName, promptTokens, outputTokens)
 	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	ym := CurrentYearMonth()
+	if rt.spentMonth != "" && rt.spentMonth != ym {
+		rt.costTracker.SpentThisMonthUSD = 0
+		rt.costTracker.TurnsThisMonth = 0
+	}
+	rt.spentMonth = ym
 	rt.costTracker.SpentThisMonthUSD += cost
 	rt.costTracker.TurnsThisMonth++
-	rt.mu.Unlock()
+
+	if rt.storePath == "" {
+		return
+	}
+	// fail-open：磁盘错误不影响主链路内存状态；持锁写保证并发安全。
+	_ = SaveCostSnapshot(rt.storePath, SnapshotFromTracker(rt.costTracker, ym))
 }
 
 // GetCostSummary 获取成本摘要。
@@ -474,57 +525,6 @@ func MatchProviderCostKey(name string) string {
 	}
 }
 
-func selectCheapest(providers []string) string {
-	cheapest := ""
-	cheapestCost := 1e9
-	for _, p := range providers {
-		key := MatchProviderCostKey(p)
-		cost, ok := defaultCosts[key]
-		if ok && cost.Input < cheapestCost {
-			cheapestCost = cost.Input
-			cheapest = p
-		}
-	}
-	if cheapest == "" && len(providers) > 0 {
-		cheapest = providers[0]
-	}
-	return cheapest
-}
-
-func selectBest(providers []string) string {
-	// 按 output 质量选最贵的（近似 = 最准）
-	best := ""
-	bestCost := 0.0
-	for _, p := range providers {
-		key := MatchProviderCostKey(p)
-		cost, ok := defaultCosts[key]
-		if ok && cost.Output > bestCost {
-			bestCost = cost.Output
-			best = p
-		}
-	}
-	if best == "" && len(providers) > 0 {
-		best = providers[0]
-	}
-	return best
-}
-
-func selectBestForRole(role string, providers []string) string {
-	switch strings.ToLower(role) {
-	case "planner", "judge", "critic":
-		return selectBest(providers)
-	case "coding", "reasoning":
-		return selectBest(providers)
-	case "research":
-		return selectCheapest(providers)
-	default:
-		if len(providers) > 0 {
-			return providers[0]
-		}
-		return ""
-	}
-}
-
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -534,3 +534,12 @@ func min(a, b int) int {
 
 // 确保 time 包被使用
 var _ = time.Now
+
+// Summary returns a compact cost-efficiency line for evolution/benchmark evidence.
+func (t *CostTracker) Summary() string {
+	if t == nil {
+		return "optimize cost: n/a"
+	}
+	return fmt.Sprintf("optimize spent=%.4f budget=%.4f turns=%d remainingTurns=%d",
+		t.SpentThisMonthUSD, t.MonthlyBudgetUSD, t.TurnsThisMonth, t.EstimatedRemainingTurns)
+}

@@ -33,48 +33,10 @@ const (
 	configurableChannelAnthropicThinkingEffort = "xhigh"
 )
 
-// ModelAdapterConfig 定义了当前模块中的 ModelAdapterConfig 类型。
-type ModelAdapterConfig struct {
-	ID string `json:"id,omitempty"`
-	// DisplayName 表示当前声明中的 DisplayName。
-	DisplayName string `json:"displayName"`
-	// Type 表示当前声明中的 Type。
-	Type string `json:"type"`
-	// BaseURL 表示当前声明中的 BaseURL。
-	BaseURL string `json:"baseURL"`
-	// APIKey 表示当前声明中的 APIKey。
-	APIKey string `json:"apiKey"`
-	// TooltipData 表示当前声明中的 TooltipData。
-	TooltipData string `json:"tooltipData"`
-	// ModelID 表示当前声明中的 ModelID。
-	ModelID string `json:"modelID"`
-	// ReasoningEffort 表示当前声明中的 ReasoningEffort。
-	ReasoningEffort string `json:"reasoningEffort"`
-	// OpenAIEndpoint 表示 OpenAI 兼容适配器使用的 API 端点。
-	OpenAIEndpoint string `json:"openAIEndpoint"`
-	// OpenAIExtraParamsEnabled 表示是否启用 OpenAI 额外请求参数。
-	OpenAIExtraParamsEnabled bool `json:"openAIExtraParamsEnabled"`
-	// OpenAIExtraParamsJSON 表示 OpenAI 额外请求参数 JSON 对象。
-	OpenAIExtraParamsJSON string `json:"openAIExtraParamsJSON"`
-	// CustomHeadersEnabled 表示是否启用自定义请求头。
-	CustomHeadersEnabled bool `json:"customHeadersEnabled"`
-	// CustomHeadersJSON 表示自定义请求头 JSON 对象。
-	CustomHeadersJSON string `json:"customHeadersJSON"`
-	// AnthropicExtraParamsEnabled 表示是否启用 Anthropic 额外请求参数。
-	AnthropicExtraParamsEnabled bool `json:"anthropicExtraParamsEnabled"`
-	// AnthropicExtraParamsJSON 表示 Anthropic 额外请求参数 JSON 对象。
-	AnthropicExtraParamsJSON string `json:"anthropicExtraParamsJSON"`
-	// ContextWindowTokens 表示当前声明中的 ContextWindowTokens。
-	ContextWindowTokens int `json:"contextWindowTokens"`
-	// MaxCompletionTokens 表示当前声明中的 MaxCompletionTokens。
-	MaxCompletionTokens int `json:"maxCompletionTokens"`
-	// AnthropicMaxTokens 表示当前声明中的 AnthropicMaxTokens。
-	AnthropicMaxTokens int `json:"anthropicMaxTokens"`
-	// AnthropicThinkingEffort 表示 Anthropic adaptive thinking 的 output_config.effort。
-	AnthropicThinkingEffort string `json:"anthropicThinkingEffort,omitempty"`
-	// ThinkingBudgetTokens 表示当前声明中的 ThinkingBudgetTokens。
-	ThinkingBudgetTokens int `json:"thinkingBudgetTokens"`
-}
+// ModelAdapterConfig is a type alias for the canonical definition in modelchannel.
+// This avoids duplication with internal/backend/server/config/types.go.
+// Both runtime and config use the same canonical struct from modelchannel.
+type ModelAdapterConfig = modelchannel.ModelAdapterConfig
 
 // RuntimeConfigSnapshot 定义了当前模块中的 RuntimeConfigSnapshot 类型。
 type RuntimeConfigSnapshot struct {
@@ -89,7 +51,9 @@ type RuntimeConfigSnapshot struct {
 // RuntimeConfigProvider 定义了当前模块中的 RuntimeConfigProvider 类型。
 type RuntimeConfigProvider func(context.Context) (RuntimeConfigSnapshot, error)
 
-// NormalizeModelAdapterConfigs 用于处理与 NormalizeModelAdapterConfigs 相关的逻辑。
+// NormalizeModelAdapterConfigs normalizes and validates model adapter configs.
+// This mirrors internal/backend/server/config.NormalizeModelAdapterConfigs to
+// avoid an import cycle. Keep both in sync.
 func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterConfig, error) {
 	if len(input) == 0 {
 		return []ModelAdapterConfig{}, nil
@@ -102,9 +66,11 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		if err != nil {
 			return nil, err
 		}
+		nextType := normalizeModelAdapterType(item.Type)
 		next := ModelAdapterConfig{
+			Ref:                  strings.TrimSpace(item.Ref),
 			DisplayName:          strings.TrimSpace(item.DisplayName),
-			Type:                 normalizeModelAdapterType(item.Type),
+			Type:                 nextType,
 			BaseURL:              baseURL,
 			APIKey:               strings.TrimSpace(item.APIKey),
 			TooltipData:          strings.TrimSpace(item.TooltipData),
@@ -126,12 +92,13 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		}
 		next.CustomHeadersEnabled = item.CustomHeadersEnabled
 		next.CustomHeadersJSON = strings.TrimSpace(item.CustomHeadersJSON)
+		isVirtual := next.Type == "virtual"
 		switch {
 		case next.DisplayName == "":
 			return nil, errors.New("模型适配器 displayName 不能为空")
 		case next.Type == "":
-			return nil, errors.New("模型适配器 type 仅支持 openai 或 anthropic")
-		case next.APIKey == "":
+			return nil, errors.New("模型适配器 type 仅支持 openai、anthropic 或 virtual")
+		case !isVirtual && next.APIKey == "":
 			return nil, errors.New("模型适配器 apiKey 不能为空")
 		case next.TooltipData == "":
 			return nil, errors.New("模型适配器 tooltipData 不能为空")
@@ -140,12 +107,12 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		case next.Type == "openai" && next.ReasoningEffort == "":
 			return nil, errors.New("模型适配器 reasoningEffort 仅支持 low、medium、high、xhigh")
 		case next.Type == "openai" && next.OpenAIEndpoint == "":
-			return nil, errors.New("模型适配器 openAIEndpoint 仅支持 /v1/responses 或 /v1/chat/completions")
+			return nil, errors.New("模型适配器 openAIEndpoint 仅支持 /v1/responses、/v1/chat/completions 或 /custom（自定义路径）")
 		case next.Type == "openai" && next.OpenAIExtraParamsEnabled:
 			if err := validateJSONMap(next.OpenAIExtraParamsJSON, "openAIExtraParamsJSON"); err != nil {
 				return nil, err
 			}
-		case next.CustomHeadersEnabled:
+		case next.CustomHeadersEnabled && !isVirtual:
 			if err := validateHeadersJSON(next.CustomHeadersJSON); err != nil {
 				return nil, err
 			}
@@ -199,24 +166,27 @@ func validateHeadersJSON(value string) error {
 }
 
 func normalizeReasoningEffort(value string) string {
+	// Unrecognised values default to "medium" instead of triggering a validation
+	// error, matching frontend appState.js normalizeModelAdapter behaviour.
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "medium":
 		return "medium"
 	case "low", "high", "xhigh":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return ""
+		return "medium"
 	}
 }
 
 func normalizeAnthropicThinkingEffort(value string) string {
+	// Symmetric to normalizeReasoningEffort: unrecognised values default to "xhigh".
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "xhigh":
 		return "xhigh"
 	case "low", "medium", "high", "max":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return ""
+		return "xhigh"
 	}
 }
 
@@ -227,13 +197,15 @@ func normalizeMaxCompletionTokens(value int) int {
 	return value
 }
 
-// normalizeModelAdapterType 用于处理与 normalizeModelAdapterType 相关的逻辑。
+// normalizeModelAdapterType normalizes the adapter type string.
 func normalizeModelAdapterType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "openai":
 		return "openai"
 	case "anthropic":
 		return "anthropic"
+	case "virtual":
+		return "virtual"
 	default:
 		return ""
 	}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,6 +33,19 @@ const (
 	modelAdapterTestEmptyTextError    = "未收到文本输出，无法计算测速结果"
 	modelAdapterTestMaxErrorBodyBytes = 8192
 )
+
+var upstreamModelNotFoundErrorPatterns = []string{
+	`model\s+.*not\s+found`,
+	`unknown\s+model`,
+	`does\s+not\s+exist`,
+	`invalid\s+model`,
+	`model_not_found`,
+	`model\s+.*unavailable`,
+	`no\s+model\s+.*found`,
+	`不支持的模型`,
+	`模型不存在`,
+	`模型未找到`,
+}
 
 type ModelAdapterTestStatus string
 
@@ -131,6 +145,19 @@ func (s *ProxyService) TestModelAdapter(adapter serverconfig.ModelAdapterConfig)
 		return result, err
 	}
 
+	if !s.adapterExistsInConfig(normalized.ID, normalized.ModelID) {
+		result := ModelAdapterTestResult{
+			AdapterID:   normalized.ID,
+			RequestHash: requestHash,
+			Status:      string(ModelAdapterTestStatusError),
+			SummaryText: "模型适配器未在已保存配置中找到，请先保存配置",
+			Error:       "模型适配器未在已保存配置中找到，请先保存配置",
+			TestedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		s.storeAndEmitModelAdapterTestResult(result)
+		return result, nil
+	}
+
 	running := ModelAdapterTestResult{
 		AdapterID:   normalized.ID,
 		RequestHash: requestHash,
@@ -148,6 +175,47 @@ func (s *ProxyService) TestModelAdapter(adapter serverconfig.ModelAdapterConfig)
 	return result, nil
 }
 
+func (s *ProxyService) adapterExistsInConfig(adapterID string, modelID string) bool {
+	if s == nil || s.store == nil {
+		return true
+	}
+	cfg, err := s.store.Load(context.Background())
+	if err != nil {
+		return true
+	}
+	adapters, err := serverconfig.NormalizeModelAdapterConfigs(cfg.ModelAdapters)
+	if err != nil || len(adapters) == 0 {
+		return false
+	}
+	_, okByID := modelchannel.ResolveAdapterIndex(
+		adapters,
+		adapterID,
+		func(a serverconfig.ModelAdapterConfig) string { return a.ID },
+		func(a serverconfig.ModelAdapterConfig) string { return a.ModelID },
+		func(a serverconfig.ModelAdapterConfig) string {
+			return modelchannel.BuildLegacyChannelID(a.BaseURL, a.ModelID, a.APIKey, a.DisplayName)
+		},
+	)
+	if okByID {
+		return true
+	}
+	if strings.TrimSpace(modelID) != "" && strings.TrimSpace(modelID) != strings.TrimSpace(adapterID) {
+		_, okByModelID := modelchannel.ResolveAdapterIndex(
+			adapters,
+			modelID,
+			func(a serverconfig.ModelAdapterConfig) string { return a.ID },
+			func(a serverconfig.ModelAdapterConfig) string { return a.ModelID },
+			func(a serverconfig.ModelAdapterConfig) string {
+				return modelchannel.BuildLegacyChannelID(a.BaseURL, a.ModelID, a.APIKey, a.DisplayName)
+			},
+		)
+		if okByModelID {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeSingleModelAdapterConfig(adapter serverconfig.ModelAdapterConfig) (serverconfig.ModelAdapterConfig, error) {
 	normalized, err := serverconfig.NormalizeModelAdapterConfigs([]serverconfig.ModelAdapterConfig{adapter})
 	if err != nil {
@@ -157,6 +225,35 @@ func normalizeSingleModelAdapterConfig(adapter serverconfig.ModelAdapterConfig) 
 		return serverconfig.ModelAdapterConfig{}, errors.New("模型配置不能为空")
 	}
 	return normalized[0], nil
+}
+
+// detectUpstreamModelNotFoundError checks whether a "successful" test response
+// actually contains an error message from the upstream provider/gateway.
+// Only checks short responses (< 500 chars) to avoid false positives on
+// legitimate long outputs that happen to contain matching words.
+func detectUpstreamModelNotFoundError(rawResponse string) (string, bool) {
+	trimmed := strings.TrimSpace(rawResponse)
+	if len(trimmed) == 0 || len(trimmed) > 500 {
+		return "", false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, pattern := range upstreamModelNotFoundErrorPatterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			continue
+		}
+		if re.MatchString(lower) {
+			return fmt.Sprintf("上游返回了模型未找到的错误响应: %s", truncateString(trimmed, 200)), true
+		}
+	}
+	return "", false
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func (s *ProxyService) runModelAdapterTest(adapter serverconfig.ModelAdapterConfig, requestHash string) (ModelAdapterTestResult, error) {
@@ -177,6 +274,16 @@ func (s *ProxyService) runModelAdapterTest(adapter serverconfig.ModelAdapterConf
 		emptyTextErr := errors.New(modelAdapterTestEmptyTextError)
 		result := buildErroredModelAdapterTestResult(adapter.ID, requestHash, emptyTextErr)
 		return result, emptyTextErr
+	}
+
+	// Heuristic: check if upstream returned an error message disguised as success
+	rawResp := strings.TrimSpace(metrics.rawResponse)
+	if rawResp == "" {
+		rawResp = strings.TrimSpace(metrics.text.String())
+	}
+	if errMsg, isErr := detectUpstreamModelNotFoundError(rawResp); isErr {
+		result := buildErroredModelAdapterTestResult(adapter.ID, requestHash, errors.New(errMsg))
+		return result, nil
 	}
 
 	outputTokens := metrics.outputTokens

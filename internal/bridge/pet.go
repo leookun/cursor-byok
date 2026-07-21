@@ -57,6 +57,13 @@ func NewPetService() *PetService {
 	return &PetService{}
 }
 
+// newPetServiceWithDir is a test-only constructor that pins the pets directory
+// to an explicit path, so DeletePet / FS-mutating operations can be exercised
+// without touching the real user data directory.
+func newPetServiceWithDir(dir string) *PetService {
+	return &PetService{petsDir: dir}
+}
+
 func (s *PetService) SetApp(app *application.App) {
 	s.mu.Lock()
 	s.app = app
@@ -67,7 +74,7 @@ func (s *PetService) SetApp(app *application.App) {
 func PetsDir() string {
 	root := appdata.RootDir()
 	if strings.TrimSpace(root) == "" {
-		root = ".cursor-local-assistant-v2"
+		root = ".cursor-byok"
 	}
 	dir := filepath.Join(root, "pets")
 	_ = os.MkdirAll(dir, 0o755)
@@ -83,7 +90,15 @@ func (s *PetService) startWatching() {
 	s.stopWatch = make(chan struct{})
 	s.mu.Unlock()
 
+	// R17: lifecycle unification — guard against panic so a broken pet
+	// scanner does not crash the host. The select loop already observes
+	// s.stopWatch so petService.Stop() drains it deterministically.
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Pet] startWatching panicked: %v", r)
+			}
+		}()
 		ticker := time.NewTicker(watchInterval)
 		defer ticker.Stop()
 		s.refreshIfChanged()
@@ -140,10 +155,17 @@ func (s *PetService) OpenPetsDirectory() {
 }
 
 func (s *PetService) DeletePet(petID string) error {
-	dir := PetsDir()
-	petDir := filepath.Join(dir, petID)
+	clean, err := pet.ValidatePetID(petID)
+	if err != nil {
+		return err
+	}
+	dir := s.petsDir
+	if strings.TrimSpace(dir) == "" {
+		dir = PetsDir()
+	}
+	petDir := filepath.Join(dir, clean)
 	if _, err := os.Stat(petDir); os.IsNotExist(err) {
-		return fmt.Errorf("宠物 %s 不存在", petID)
+		return fmt.Errorf("宠物 %s 不存在", clean)
 	}
 	if err := os.RemoveAll(petDir); err != nil {
 		return err

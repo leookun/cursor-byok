@@ -11,11 +11,6 @@ import (
 	"cursor/gen/agentv1"
 )
 
-// BuildUserQueryReplayMessage 构造一条可直接回放给模型的用户消息。
-func BuildUserQueryReplayMessage(text string) (Message, bool) {
-	return buildUserReplayMessage(strings.TrimSpace(text), nil)
-}
-
 // BuildUserMessageReplayMessage 把包含 selected_context 的用户消息还原为 replay message。
 func BuildUserMessageReplayMessage(userMessage *agentv1.UserMessage) (Message, bool) {
 	if userMessage == nil {

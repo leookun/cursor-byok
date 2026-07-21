@@ -116,21 +116,39 @@ func (store *Store) Save(_ context.Context, cfg Config) (Config, error) {
 }
 
 func (store *Store) saveLocked(normalized Config) error {
-	if err := os.MkdirAll(filepath.Dir(store.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(store.path), 0o700); err != nil {
 		return fmt.Errorf("创建用户配置目录失败: %w", err)
 	}
+	if err := os.Chmod(filepath.Dir(store.path), 0o700); err != nil {
+		return fmt.Errorf("限制用户配置目录权限失败: %w", err)
+	}
 
-	data, err := yaml.Marshal(normalized)
+	// providers 是落盘真相源；modelAdapters 仅运行时派生，不写回 yaml
+	toWrite := normalized
+	if len(toWrite.Providers) > 0 {
+		toWrite.ModelAdapters = nil
+	}
+
+	data, err := yaml.Marshal(toWrite)
 	if err != nil {
 		return fmt.Errorf("序列化用户配置失败: %w", err)
 	}
 
+	// config.yaml 存储明文 provider apiKey，必须以 0600 落盘。
 	tempPath := store.path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
+	if err := os.WriteFile(tempPath, data, 0o600); err != nil {
 		return fmt.Errorf("写入临时配置失败: %w", err)
+	}
+	if err := os.Chmod(tempPath, 0o600); err != nil {
+		return fmt.Errorf("限制临时配置权限失败: %w", err)
 	}
 	if err := os.Rename(tempPath, store.path); err != nil {
 		return fmt.Errorf("保存用户配置失败: %w", err)
+	}
+	// rename 继承目标文件的旧权限，所以重命名后必须再次 chmod，
+	// 以防旧文件曾是 0644 等更宽松的权限。
+	if err := os.Chmod(store.path, 0o600); err != nil {
+		return fmt.Errorf("限制用户配置权限失败: %w", err)
 	}
 	return nil
 }

@@ -52,6 +52,19 @@ func (s *WindowService) StopAllPets() {
 	}
 }
 
+// SetModelActivity 接收模型活动状态并转发给所有已注册桌宠。
+// 由 runner 订阅 forwarder 事件后调用，是 pet 包与外部子系统的唯一桥接入口。
+// state 取值：thinking | working | idle | error
+func (s *WindowService) SetModelActivity(state string) {
+	s.mu.RLock()
+	m := s.petManager
+	s.mu.RUnlock()
+	if m == nil {
+		return
+	}
+	m.SetActivity(pet.ActivityState(state))
+}
+
 func (s *WindowService) SetApp(app *application.App) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,9 +160,14 @@ func (s *WindowService) OpenPetWindowIfClosed() bool {
 // SetActivePet 设置用户当前选择的宠物 ID。
 // 必须在 TogglePetWindow/OpenPetWindow 之前调用，或下次启动桌宠时生效。
 func (s *WindowService) SetActivePet(petID string) {
+	clean, err := pet.ValidatePetID(petID)
+	if err != nil {
+		logger.Warnf("rejecting SetActivePet(%q): %v", petID, err)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.activePetID = petID
+	s.activePetID = clean
 }
 
 // openPetWindowLocked 内部方法（调用者必须持有写锁）。
@@ -283,8 +301,13 @@ func (s *WindowService) stopActivePet(mgr *pet.PetManager, activeID string) {
 // SwitchPet 切换到指定宠物。先关闭当前桌宠，再用新宠物启动。
 // 如果新宠物加载失败，会回退到嵌入资源。
 func (s *WindowService) SwitchPet(petID string) error {
+	clean, err := pet.ValidatePetID(petID)
+	if err != nil {
+		logger.Warnf("rejecting SwitchPet(%q): %v", petID, err)
+		return err
+	}
 	s.mu.Lock()
-	s.activePetID = petID
+	s.activePetID = clean
 	s.mu.Unlock()
 
 	s.ClosePetWindow()

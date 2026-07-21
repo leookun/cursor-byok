@@ -19,15 +19,18 @@ import (
 	modeladapter "cursor/internal/backend/agent/model"
 	promptengine "cursor/internal/backend/agent/prompt"
 	promptassets "cursor/prompt"
+
+	"cursor/internal/backend/runtime/compress"
 )
 
 const (
-	compactionAutoReserveTokens      = 10000
+	// ADR-035: compaction thresholds derived from shared compress.Default* constants.
+	compactionAutoReserveTokens      = compress.DefaultReserveTokens
 	compactionTriggerRemainingTokens = 8192
-	compactionPreferredTailTurns     = 4
-	compactionMinimumTailTurns       = 1
+	compactionPreferredTailTurns     = compress.DefaultPreferredTailTurns
+	compactionMinimumTailTurns       = compress.DefaultMinimumTailTurns
 	compactionReserveFloorTokens     = 8192
-	compactionSummaryMaxChars        = 12000
+	compactionSummaryMaxChars        = compress.DefaultSummaryMaxChars
 	compactionSummaryOutputMaxTokens = 4096
 	compactionTurnSnippetMaxChars    = 900
 

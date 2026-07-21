@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"cursor/internal/appdata"
 	"cursor/internal/buildinfo"
 	"cursor/internal/logger"
 	"cursor/internal/netproxy"
@@ -243,7 +244,11 @@ func (m *Manager) downloadUpdate(ctx context.Context, info *UpdateInfo) (string,
 		return "", fmt.Errorf("download request failed: %s", resp.Status)
 	}
 
-	tempFile, err := os.CreateTemp("", "cursor-byok-update-*"+archiveSuffix(info.Asset.URL))
+	updateDir := appdata.UpdatesRootPath()
+	if err := os.MkdirAll(updateDir, 0o700); err != nil {
+		return "", fmt.Errorf("create updates dir: %w", err)
+	}
+	tempFile, err := os.CreateTemp(updateDir, "cursor-byok-update-*"+archiveSuffix(info.Asset.URL))
 	if err != nil {
 		return "", err
 	}
@@ -291,7 +296,7 @@ func (m *Manager) installReadyUpdate() error {
 
 	logger.Infof("开始安装更新：version=%s path=%s", info.Version, archivePath)
 
-	if err := m.spawnInstaller(archivePath); err != nil {
+	if err := m.spawnInstaller(archivePath, info.Asset.Checksum); err != nil {
 		m.setState(StateReady, info, archivePath)
 		m.emitState(StateReady, info, "", "", false, "")
 		m.emitError(info, err.Error(), true)
@@ -302,7 +307,18 @@ func (m *Manager) installReadyUpdate() error {
 	return nil
 }
 
-func (m *Manager) spawnInstaller(archivePath string) error {
+func (m *Manager) spawnInstaller(archivePath, expectedSHA256 string) error {
+	allowedDir := appdata.UpdatesRootPath()
+	if err := ensureArchiveWithinDir(archivePath, allowedDir); err != nil {
+		return fmt.Errorf("archive path containment: %w", err)
+	}
+	if err := verifyArchiveChecksum(archivePath, expectedSHA256); err != nil {
+		return fmt.Errorf("archive verification: %w", err)
+	}
+	if strings.TrimSpace(expectedSHA256) == "" {
+		logger.Warnf("更新包未提供校验和，跳过 checksum 验证：path=%s", archivePath)
+	}
+
 	switch runtime.GOOS {
 	case "darwin":
 		return m.spawnDarwinInstaller(archivePath)

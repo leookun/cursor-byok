@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	backend "cursor/internal/backend"
 	serverconfig "cursor/internal/backend/server/config"
 	"cursor/internal/certs"
 	"cursor/internal/client"
@@ -98,9 +99,68 @@ func (s *ProxyService) SaveUserConfig(cfg UserConfig) error {
 // OptimizationCostSummary 定义 Optimization Runtime 成本摘要 DTO。
 type OptimizationCostSummary = client.OptimizationCostSummary
 
+// AOSLastTraceSummary 最近一次 AOS 执行摘要 DTO。
+type AOSLastTraceSummary = client.AOSLastTraceSummary
+
+// AOSExecutionTreeNode 交互式执行树节点 DTO。
+type AOSExecutionTreeNode = client.AOSExecutionTreeNode
+
+// AOSExecutionTree 结构化执行树 DTO。
+type AOSExecutionTree = client.AOSExecutionTree
+
+// RecognizeAOSMembersResult Leader「认识组员」结果 DTO。
+type RecognizeAOSMembersResult = client.RecognizeAOSMembersResult
+
+// FetchModelsRequest 从上游 Provider 获取模型列表的请求 DTO。
+type FetchModelsRequest = client.FetchModelsRequest
+
+// FetchModelsResult 从上游 Provider 获取模型列表的响应 DTO。
+type FetchModelsResult = client.FetchModelsResult
+
+// RecognizedMemberDTO 单成员识别结果 DTO。
+type RecognizedMemberDTO = client.RecognizedMemberDTO
+
+// ToolEntryDTO 工具条目 DTO（供前端展示）。
+type ToolEntryDTO = client.ToolEntryDTO
+
+// ToolCacheStatsDTO 工具缓存统计 DTO。
+type ToolCacheStatsDTO = client.ToolCacheStatsDTO
+
 // GetOptimizationCostSummary 返回进程内 Optimization 成本与当前 Tier。
 func (s *ProxyService) GetOptimizationCostSummary() (OptimizationCostSummary, error) {
 	return s.core.GetOptimizationCostSummary()
+}
+
+// GetAOSLastTraceSummary 返回最近一次 AOS 执行轨迹摘要。
+func (s *ProxyService) GetAOSLastTraceSummary() (AOSLastTraceSummary, error) {
+	return s.core.GetAOSLastTraceSummary()
+}
+
+// GetAOSExecutionTree 按 session ID 返回结构化 AOS 执行树（Phase 9 切片）。
+func (s *ProxyService) GetAOSExecutionTree(sessionID string) (AOSExecutionTree, error) {
+	return s.core.GetAOSExecutionTree(sessionID)
+}
+
+// ReplayAOSTrace 以 trace 中保存的原始用户输入重新触发 AOS 执行（Phase 9 切片）。
+func (s *ProxyService) ReplayAOSTrace(sessionID string) (string, error) {
+	return s.core.ReplayAOSTrace(sessionID)
+}
+
+// ReplayAOSNode replays a single trace node by session ID and node index (Phase 9 slice).
+func (s *ProxyService) ReplayAOSNode(sessionID string, nodeIndex int) (string, error) {
+	return s.core.ReplayAOSNode(sessionID, nodeIndex)
+}
+
+// RecognizeAOSMembers 让 Leader 读取每位成员的 name+systemPrompt，推断路由 tags。
+// 供 AosConfig.vue「认识组员」按钮调用（Wails 绑定入口）。
+func (s *ProxyService) RecognizeAOSMembers() (RecognizeAOSMembersResult, error) {
+	return s.core.RecognizeAOSMembers()
+}
+
+// FetchModelsFromProvider 调用上游 /v1/models 接口，返回可用模型 ID 列表。
+// 供 ModelAdapterModal.vue「获取模型」按钮调用（Wails 绑定入口）。
+func (s *ProxyService) FetchModelsFromProvider(req FetchModelsRequest) (FetchModelsResult, error) {
+	return s.core.FetchModelsFromProvider(req)
 }
 
 // TestModelAdapter 用于处理与 TestModelAdapter 相关的逻辑。
@@ -153,6 +213,15 @@ func (s *ProxyService) ShutdownForQuit() {
 	s.core.ShutdownForQuit()
 }
 
+// BackendHost 返回底层 client.ProxyService 的 backend.Host（可能为 nil）。
+// 供 runner 注入跨包回调（如模型活动状态桥接到 pet），避免暴露 core 私有字段。
+func (s *ProxyService) BackendHost() *backend.Host {
+	if s == nil || s.core == nil {
+		return nil
+	}
+	return s.core.BackendHost()
+}
+
 // SetCursorActivityCallback 注册 Cursor 请求活动回调（供 PetService 使用）。
 func (s *ProxyService) SetCursorActivityCallback(fn func(method, path string)) {
 	s.onCursorActivityMu.Lock()
@@ -173,4 +242,74 @@ func (s *ProxyService) FireCursorActivity(method, path string) {
 // IsWindows 用于处理与 IsWindows 相关的逻辑。
 func (s *ProxyService) IsWindows() bool {
 	return runtime.GOOS == "windows"
+}
+
+// ListTools 列出所有已注册工具。
+func (s *ProxyService) ListTools() ([]ToolEntryDTO, error) {
+	if s == nil || s.core == nil {
+		return nil, nil
+	}
+	return s.core.ListTools()
+}
+
+// ToggleTool 启用/禁用指定工具。
+func (s *ProxyService) ToggleTool(name string, enabled bool) error {
+	if s == nil || s.core == nil {
+		return nil
+	}
+	return s.core.ToggleTool(name, enabled)
+}
+
+// GetToolCacheStats 返回工具缓存统计。
+func (s *ProxyService) GetToolCacheStats() (ToolCacheStatsDTO, error) {
+	if s == nil || s.core == nil {
+		return ToolCacheStatsDTO{}, nil
+	}
+	return s.core.GetToolCacheStats()
+}
+
+// CacheStatsDTO 缓存统计 DTO。
+type CacheStatsDTO = client.CacheStatsDTO
+
+// GetCacheStats 返回 Cache Runtime 统计（精确命中、语义命中、总命中、命中率、节省 token 等）。
+func (s *ProxyService) GetCacheStats() (CacheStatsDTO, error) {
+	if s == nil || s.core == nil {
+		return CacheStatsDTO{}, nil
+	}
+	return s.core.GetCacheStats()
+}
+
+// ClearCache 清空精确缓存与语义缓存。
+func (s *ProxyService) ClearCache() error {
+	if s == nil || s.core == nil {
+		return nil
+	}
+	return s.core.ClearCache()
+}
+
+// MCPServerInfoDTO MCP server 概要 DTO。
+type MCPServerInfoDTO = client.MCPServerInfoDTO
+
+// ListMCPServers 列出所有已知 MCP server。
+func (s *ProxyService) ListMCPServers() ([]MCPServerInfoDTO, error) {
+	if s == nil || s.core == nil {
+		return nil, nil
+	}
+	return s.core.ListMCPServers()
+}
+
+// ToggleMCPServer 启用/禁用指定 MCP server 的所有工具。
+func (s *ProxyService) ToggleMCPServer(server string, enabled bool) error {
+	if s == nil || s.core == nil {
+		return nil
+	}
+	return s.core.ToggleMCPServer(server, enabled)
+}
+
+// ClearToolCache 清空工具结果缓存。
+func (s *ProxyService) ClearToolCache() (client.ClearToolCacheResult, error) {
+	if s == nil || s.core == nil {
+		return client.ClearToolCacheResult{}, nil
+	}
+	return s.core.ClearToolCache()
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	modeladapter "cursor/internal/backend/agent/model"
+	virtualmodel "cursor/internal/backend/virtualmodel"
 	legacyruntime "cursor/internal/runtime"
 )
 
@@ -64,6 +65,9 @@ func (s *AdapterChannelService) ResolveChannel(ctx context.Context, adapterID st
 }
 
 // CallAdapter 通过已有 ModelAdapter Router 调用物理模型（非流式聚合）。
+// 它会从 ctx 中读取 ThinkingEffort / MaxTokens（由 WithThinkingEffort /
+// WithMaxTokens 注入），并将这些参数注入到 StreamRequest.RequestKnobs 中，
+// 使底层 ModelAdapter 真正应用用户在 Cursor 中选择的思考强度与最大 tokens。
 func (s *AdapterChannelService) CallAdapter(ctx context.Context, info *ChannelInfo, messages []Message, systemPrompt string) (*AdapterResult, error) {
 	if s == nil || s.router == nil {
 		return nil, fmt.Errorf("channel service router is not initialized")
@@ -91,13 +95,31 @@ func (s *AdapterChannelService) CallAdapter(ctx context.Context, info *ChannelIn
 		})
 	}
 
+	// 从 ctx 读取用户在 Cursor 中选择的思考强度 / 最大 tokens。
+	// 必须同时设置结构体字段（router.go + openai/anthropic 适配器都从
+	// req.ThinkingEffort / req.MaxTokens 读取，不读 RequestKnobs）。
+	// 不设结构体字段会导致 router.go 第 70 行 normalizeRuntimeThinkingEffort
+	// 返回空字符串，第 71-82 行传播块被跳过，物理模型收不到思考强度。
+	runtimeEffort := virtualmodel.ThinkingEffortFromContext(ctx)
+	runtimeMaxTokens := virtualmodel.MaxTokensFromContext(ctx)
+	reqKnobs := map[string]any{}
+	if runtimeEffort != "" {
+		reqKnobs["runtime_thinking_effort"] = runtimeEffort
+	}
+	if runtimeMaxTokens > 0 {
+		reqKnobs["max_tokens"] = runtimeMaxTokens
+	}
+
 	start := time.Now()
 	var text strings.Builder
 	var promptTokens, completionTokens int
 	err := s.router.Stream(ctx, modeladapter.StreamRequest{
-		ModelID:  modelKey,
-		Messages: adapterMsgs,
-		Stream:   true,
+		ModelID:       modelKey,
+		Messages:      adapterMsgs,
+		Stream:        true,
+		ThinkingEffort: runtimeEffort,
+		MaxTokens:     runtimeMaxTokens,
+		RequestKnobs:  reqKnobs,
 	}, func(ev modeladapter.ModelEvent) error {
 		if ev.Text != "" {
 			text.WriteString(ev.Text)

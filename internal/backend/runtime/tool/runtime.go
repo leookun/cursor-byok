@@ -19,6 +19,8 @@ package tool
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -34,6 +36,31 @@ type Runtime struct {
 	// 外部桥接（由 Forwarder 注入）
 	execBridge        ExecBridge
 	interactionBridge InteractionBridge
+
+	// 工具结果缓存（ADR-016）
+	cacheMu sync.RWMutex
+	cache   map[string]*cacheEntry
+	// cacheHits/cacheMisses track result-cache effectiveness (ADR-043).
+	cacheHits   int64
+	cacheMisses int64
+
+	// mcpServerMeta tracks per-server sync timestamps for health/status.
+	mcpMetaMu sync.RWMutex
+	mcpMeta   map[string]*mcpServerMeta
+
+	// closed 标记 Close 是否已调用（R14 lifecycle unification）。
+	closed bool
+}
+
+// mcpServerMeta tracks observable state for a single MCP server.
+type mcpServerMeta struct {
+	lastSyncAt time.Time
+	lastError  string
+}
+
+type cacheEntry struct {
+	result  *ToolResult
+	expires time.Time
 }
 
 // ToolEntry 工具条目。
@@ -47,6 +74,8 @@ type ToolEntry struct {
 	CacheTTL    time.Duration   `json:"cacheTTL"`
 	// InternalName 对应的 Cursor 内部工具名（如 "Read"、"WebSearch"）
 	InternalName string `json:"internalName,omitempty"`
+	// Server 仅对 CategoryMCP 有效，标识所属 MCP server（ADR-026）
+	Server string `json:"server,omitempty"`
 }
 
 // ToolCategory 工具类别。
@@ -67,6 +96,7 @@ type ToolResult struct {
 	Output  string `json:"output"`
 	Error   string `json:"error,omitempty"`
 	Tokens  int    `json:"tokens"`
+	Cached  bool   `json:"cached,omitempty"` // ADR-016: from cache
 }
 
 // ExecBridge 执行型工具桥接接口（由 forwarder 的 execbridge 实现）。
@@ -151,38 +181,6 @@ func (rt *Runtime) List() []*ToolEntry {
 	return result
 }
 
-// ListByCategory 按类别列出工具。
-func (rt *Runtime) ListByCategory(category ToolCategory) []*ToolEntry {
-	if rt == nil {
-		return nil
-	}
-	rt.mu.RLock()
-	defer rt.mu.RUnlock()
-	var result []*ToolEntry
-	for _, entry := range rt.entries {
-		if entry.Category == category {
-			result = append(result, entry)
-		}
-	}
-	return result
-}
-
-// ListEnabled 列出所有启用的工具。
-func (rt *Runtime) ListEnabled() []*ToolEntry {
-	if rt == nil {
-		return nil
-	}
-	rt.mu.RLock()
-	defer rt.mu.RUnlock()
-	var result []*ToolEntry
-	for _, entry := range rt.entries {
-		if entry.Enabled {
-			result = append(result, entry)
-		}
-	}
-	return result
-}
-
 // Enable 启用/禁用工具。
 func (rt *Runtime) Enable(name string, enabled bool) error {
 	if rt == nil {
@@ -196,24 +194,6 @@ func (rt *Runtime) Enable(name string, enabled bool) error {
 	}
 	entry.Enabled = enabled
 	return nil
-}
-
-// ToJSONSchemas 将所有启用的工具导出为 JSON Schema 列表。
-func (rt *Runtime) ToJSONSchemas(ctx context.Context, mode string) ([]json.RawMessage, error) {
-	if rt == nil {
-		return nil, nil
-	}
-	rt.mu.RLock()
-	defer rt.mu.RUnlock()
-
-	var schemas []json.RawMessage
-	for _, entry := range rt.entries {
-		if !entry.Enabled {
-			continue
-		}
-		schemas = append(schemas, entry.Schema)
-	}
-	return schemas, nil
 }
 
 // IsExecTool 判断工具是否为执行型（走 ExecBridge）。
@@ -262,18 +242,6 @@ func (rt *Runtime) GetCategory(internalName string) ToolCategory {
 	return entry.Category
 }
 
-// IsCacheable 判断工具结果是否可缓存。
-func (rt *Runtime) IsCacheable(internalName string) (bool, time.Duration) {
-	if rt == nil {
-		return false, 0
-	}
-	entry, ok := rt.GetByInternalName(internalName)
-	if !ok {
-		return false, 0
-	}
-	return entry.Cacheable, entry.CacheTTL
-}
-
 // SyncFromCatalog 从现有 tool catalog 同步工具注册信息。
 // 参数 tools 是已加载的 JSON Schema 列表。
 func (rt *Runtime) SyncFromCatalog(toolSchemas []json.RawMessage, toolNames []string) {
@@ -306,6 +274,124 @@ func (rt *Runtime) SyncFromCatalog(toolSchemas []json.RawMessage, toolNames []st
 		}
 		rt.entries[strings.ToLower(trimmed)] = entry
 	}
+}
+
+// MCPToolInfo contains metadata for a dynamically discovered MCP tool (ADR-026).
+type MCPToolInfo struct {
+	ToolName    string
+	Server      string
+	Description string
+	Schema      json.RawMessage
+}
+
+// SyncMCPTools registers dynamically discovered MCP tools into the Tool Runtime (ADR-026).
+// Each tool is registered as CategoryMCP with Cacheable=true and a 2-minute TTL.
+// Idempotent: already-registered tools are skipped.
+func (rt *Runtime) SyncMCPTools(tools []MCPToolInfo) {
+	if rt == nil || len(tools) == 0 {
+		return
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for _, info := range tools {
+		trimmedName := strings.TrimSpace(info.ToolName)
+		if trimmedName == "" {
+			continue
+		}
+		key := strings.ToLower(trimmedName)
+		if _, exists := rt.entries[key]; exists {
+			continue
+		}
+		desc := strings.TrimSpace(info.Description)
+		if desc == "" {
+			desc = "MCP tool: " + trimmedName
+		}
+		entry := &ToolEntry{
+			Name:         key,
+			Description:  desc,
+			Category:     CategoryMCP,
+			Enabled:      true,
+			Cacheable:    true,
+			CacheTTL:     2 * time.Minute,
+			InternalName: trimmedName,
+			Server:       strings.TrimSpace(info.Server),
+			Schema:       info.Schema,
+		}
+		rt.entries[key] = entry
+	}
+}
+
+// MCPServerInfo 描述一个 MCP server 的概要信息。
+type MCPServerInfo struct {
+	Name        string `json:"name"`
+	Enabled     bool   `json:"enabled"`
+	Status      string `json:"status"`       // "connected" | "disconnected" | "unknown"
+	ToolCount   int    `json:"toolCount"`
+	EnabledTool int    `json:"enabledTool"`
+	LastSyncAt  string `json:"lastSyncAt"`   // RFC3339 or empty
+}
+
+// ListMCPServers 列出所有已知 MCP server 及其统计。
+func (rt *Runtime) ListMCPServers() []MCPServerInfo {
+	if rt == nil {
+		return nil
+	}
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	// server → {enabled, total}
+	type acc struct{ total, enabled int }
+	servers := make(map[string]*acc)
+	for _, entry := range rt.entries {
+		if entry.Category != CategoryMCP || entry.Server == "" {
+			continue
+		}
+		a, ok := servers[entry.Server]
+		if !ok {
+			a = &acc{}
+			servers[entry.Server] = a
+		}
+		a.total++
+		if entry.Enabled {
+			a.enabled++
+		}
+	}
+
+	result := make([]MCPServerInfo, 0, len(servers))
+	for name, a := range servers {
+		result = append(result, MCPServerInfo{
+			Name:        name,
+			Enabled:     a.enabled > 0,
+			ToolCount:   a.total,
+			EnabledTool: a.enabled,
+		})
+	}
+	return result
+}
+
+// ToggleMCPServer 启用/禁用指定 MCP server 的所有工具。
+func (rt *Runtime) ToggleMCPServer(server string, enabled bool) error {
+	if rt == nil {
+		return fmt.Errorf("tool runtime is nil")
+	}
+	if strings.TrimSpace(server) == "" {
+		return fmt.Errorf("server name is required")
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	server = strings.TrimSpace(server)
+
+	found := false
+	for _, entry := range rt.entries {
+		if entry.Category == CategoryMCP && entry.Server == server {
+			entry.Enabled = enabled
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("MCP server %q not found", server)
+	}
+	return nil
 }
 
 // classifyCursorTool 将 Cursor 内部工具名映射到 Category。
@@ -373,6 +459,21 @@ func (rt *Runtime) Execute(ctx context.Context, toolName string, argsJSON []byte
 	if !entry.Enabled {
 		return &ToolResult{Success: false, Error: fmt.Sprintf("tool %q is disabled", entry.Name)}, fmt.Errorf("tool %q is disabled", entry.Name)
 	}
+	// ADR-016: Check tool result cache
+	if entry.Cacheable {
+		cacheKey := toolCacheKey(name, argsJSON)
+		if cached := rt.lookupCache(cacheKey); cached != nil {
+			rt.cacheMu.Lock()
+			rt.cacheHits++
+			rt.cacheMu.Unlock()
+			cached.Cached = true
+			return cached, nil
+		}
+		rt.cacheMu.Lock()
+		rt.cacheMisses++
+		rt.cacheMu.Unlock()
+	}
+
 	internal := strings.TrimSpace(entry.InternalName)
 	if internal == "" {
 		internal = name
@@ -392,7 +493,11 @@ func (rt *Runtime) Execute(ctx context.Context, toolName string, argsJSON []byte
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, err
 		}
-		return &ToolResult{Success: true, Output: string(payload) + "\nexecID=" + execID}, nil
+		result := &ToolResult{Success: true, Output: string(payload) + "\nexecID=" + execID}
+		if entry.Cacheable {
+			rt.storeCache(toolCacheKey(name, argsJSON), result, entry.CacheTTL)
+		}
+		return result, nil
 	case CategoryBrowser, CategorySearch:
 		if interaction == nil {
 			return &ToolResult{Success: false, Error: "interaction bridge not configured"}, fmt.Errorf("interaction bridge not configured")
@@ -401,7 +506,11 @@ func (rt *Runtime) Execute(ctx context.Context, toolName string, argsJSON []byte
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, err
 		}
-		return &ToolResult{Success: true, Output: string(payload) + "\nqueryID=" + queryID}, nil
+		result := &ToolResult{Success: true, Output: string(payload) + "\nqueryID=" + queryID}
+		if entry.Cacheable {
+			rt.storeCache(toolCacheKey(name, argsJSON), result, entry.CacheTTL)
+		}
+		return result, nil
 	default:
 		return &ToolResult{Success: false, Error: fmt.Sprintf("unsupported category %q", entry.Category)}, fmt.Errorf("unsupported category %q", entry.Category)
 	}
@@ -423,4 +532,100 @@ func (rt *Runtime) RegisterBuiltinTools() {
 	for _, entry := range builtins {
 		_ = rt.Register(entry)
 	}
+}
+
+// toolCacheKey generates a cache key from tool name and args (ADR-016).
+func toolCacheKey(toolName string, argsJSON []byte) string {
+	h := sha256.Sum256([]byte(toolName + "\n" + string(argsJSON)))
+	return hex.EncodeToString(h[:])
+}
+
+// lookupCache checks the tool result cache.
+func (rt *Runtime) lookupCache(key string) *ToolResult {
+	if rt == nil || rt.cache == nil {
+		return nil
+	}
+	rt.cacheMu.RLock()
+	defer rt.cacheMu.RUnlock()
+	entry, ok := rt.cache[key]
+	if !ok || time.Now().After(entry.expires) {
+		return nil
+	}
+	return entry.result
+}
+
+// storeCache writes a tool result to the cache with TTL.
+func (rt *Runtime) storeCache(key string, result *ToolResult, ttl time.Duration) {
+	if rt == nil || ttl <= 0 {
+		return
+	}
+	rt.cacheMu.Lock()
+	defer rt.cacheMu.Unlock()
+	if rt.cache == nil {
+		rt.cache = make(map[string]*cacheEntry)
+	}
+	rt.cache[key] = &cacheEntry{result: result, expires: time.Now().Add(ttl)}
+}
+
+// ToolCacheStats summarizes tool-result cache effectiveness.
+type ToolCacheStats struct {
+	Hits    int64   `json:"hits"`
+	Misses  int64   `json:"misses"`
+	Entries int     `json:"entries"`
+	HitRate float64 `json:"hitRate"`
+}
+
+// CacheStats returns a snapshot of tool-result cache counters.
+func (rt *Runtime) CacheStats() ToolCacheStats {
+	if rt == nil {
+		return ToolCacheStats{}
+	}
+	rt.cacheMu.RLock()
+	defer rt.cacheMu.RUnlock()
+	stats := ToolCacheStats{Hits: rt.cacheHits, Misses: rt.cacheMisses, Entries: len(rt.cache)}
+	total := stats.Hits + stats.Misses
+	if total > 0 {
+		stats.HitRate = float64(stats.Hits) / float64(total)
+	}
+	return stats
+}
+
+// ClearCache 清空工具结果缓存（保留命中/未命中计数，仅清空条目）。
+func (rt *Runtime) ClearCache() {
+	if rt == nil {
+		return
+	}
+	rt.cacheMu.Lock()
+	defer rt.cacheMu.Unlock()
+	rt.cache = make(map[string]*cacheEntry)
+}
+
+// Close marks the runtime closed and drops in-memory tool entries/cache.
+// Subsequent Close calls are no-ops. R14: lifecycle unification.
+// Tool Runtime has no persistent handles, so Close is mostly a lifecycle
+// marker that also releases transient state for test determinism.
+func (rt *Runtime) Close(ctx context.Context) error {
+	if rt == nil {
+		return nil
+	}
+	rt.mu.Lock()
+	if rt.closed {
+		rt.mu.Unlock()
+		return nil
+	}
+	rt.closed = true
+	rt.entries = make(map[string]*ToolEntry)
+	rt.mu.Unlock()
+	rt.ClearCache()
+	return nil
+}
+
+// IsClosed reports whether Close has been invoked on this runtime.
+func (rt *Runtime) IsClosed() bool {
+	if rt == nil {
+		return false
+	}
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.closed
 }

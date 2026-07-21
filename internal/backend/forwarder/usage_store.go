@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"cursor/internal/usagefile"
 )
 
 const (
@@ -24,52 +26,13 @@ type UsageFileStore struct {
 	path string
 }
 
-type usageFileDocument struct {
-	SchemaVersion int                       `json:"schema_version"`
-	UpdatedAt     time.Time                 `json:"updated_at"`
-	Totals        usageFileTotals           `json:"totals"`
-	Daily         []usageFileDaily          `json:"daily"`
-	RecentEvents  []usageFileEvent          `json:"recent_events"`
-	EventIndex    map[string]usageFileEvent `json:"event_index,omitempty"`
-}
-
-type usageFileTotals struct {
-	ProviderCalls     int64 `json:"provider_calls"`
-	TurnsTotal        int64 `json:"turns_total"`
-	ValidTurnsTotal   int64 `json:"valid_turns_total"`
-	InvalidTurnsTotal int64 `json:"invalid_turns_total"`
-	InputTokens       int64 `json:"input_tokens"`
-	OutputTokens      int64 `json:"output_tokens"`
-	CacheReadTokens   int64 `json:"cache_read_tokens"`
-	CacheWriteTokens  int64 `json:"cache_write_tokens"`
-	TotalTokens       int64 `json:"total_tokens"`
-}
-
-type usageFileDaily struct {
-	Date              string `json:"date"`
-	ProviderCalls     int64  `json:"provider_calls"`
-	TurnsTotal        int64  `json:"turns_total"`
-	ValidTurnsTotal   int64  `json:"valid_turns_total"`
-	InvalidTurnsTotal int64  `json:"invalid_turns_total"`
-	InputTokens       int64  `json:"input_tokens"`
-	OutputTokens      int64  `json:"output_tokens"`
-	CacheReadTokens   int64  `json:"cache_read_tokens"`
-	CacheWriteTokens  int64  `json:"cache_write_tokens"`
-	TotalTokens       int64  `json:"total_tokens"`
-}
-
-type usageFileEvent struct {
-	EventID          string    `json:"event_id"`
-	Kind             string    `json:"kind,omitempty"`
-	Status           string    `json:"status,omitempty"`
-	At               time.Time `json:"at"`
-	InputTokens      int64     `json:"input_tokens"`
-	OutputTokens     int64     `json:"output_tokens"`
-	CacheReadTokens  int64     `json:"cache_read_tokens"`
-	CacheWriteTokens int64     `json:"cache_write_tokens"`
-	TotalTokens      int64     `json:"total_tokens"`
-	UsagePresent     bool      `json:"usage_present"`
-}
+// usageFileDocument / usageFileTotals / usageFileDaily / usageFileEvent are
+// type aliases to the shared internal/usagefile schema. The reader side
+// (historymetrics) imports the same shared types, eliminating schema drift.
+type usageFileDocument = usagefile.Document
+type usageFileTotals = usagefile.Totals
+type usageFileDaily = usagefile.Daily
+type usageFileEvent = usagefile.Event
 
 type usageFileDelta struct {
 	providerCalls     int64
@@ -135,6 +98,31 @@ func (store *UsageFileStore) UpsertEvent(event usageFileEvent) error {
 	doc.SchemaVersion = usageFileSchemaVersion
 	doc.UpdatedAt = time.Now().UTC()
 	return writeJSONFileAtomic(store.path, doc)
+}
+
+// Reset 在与 UpsertEvent 相同的锁下将 usage.json 写成空文档。
+// 不能无锁直接 os.Remove：Windows 上文件占用会静默失败，且并发写入会把旧 totals 写回。
+func (store *UsageFileStore) Reset() error {
+	if store == nil || strings.TrimSpace(store.path) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(store.path), 0o755); err != nil {
+		return fmt.Errorf("create usage directory: %w", err)
+	}
+	release, err := acquireConversationLock(store.path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	empty := usageFileDocument{
+		SchemaVersion: usageFileSchemaVersion,
+		UpdatedAt:     time.Now().UTC(),
+		Daily:         make([]usageFileDaily, 0),
+		RecentEvents:  make([]usageFileEvent, 0),
+		EventIndex:    make(map[string]usageFileEvent),
+	}
+	return writeJSONFileAtomic(store.path, empty)
 }
 
 func (store *UsageFileStore) LookupEvent(needle string) (usageFileEvent, bool, error) {

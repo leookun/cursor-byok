@@ -7,6 +7,7 @@ import (
 	"fmt"
 	stdlog "log"
 	"log/slog"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,10 @@ func Init() {
 		}
 		slog.SetDefault(slog.New(handler))
 		stdlog.SetFlags(0)
+		// Route stdlib log.* through the slog facade so all diagnostic
+		// output (e.g. log.Printf("[Pet] foo") in pet/bridge packages)
+		// appears as structured INFO entries with the same file output.
+		RedirectStdLog()
 		if logFilePath != "" {
 			slog.Info("应用日志已写入文件", "path", logFilePath, "pid", os.Getpid())
 		}
@@ -341,18 +346,79 @@ func LogFilePath() string {
 	return logFilePath
 }
 
-// RedirectStdLog 把标准库 log（log.Printf 等）的输出重定向到与 slog 相同的
-// 文件（app.log）。GUI 程序没有控制台，stderr 会被丢弃，必须把诊断日志落盘
-// 才能被检查。调用 LogFilePath 确保文件已创建。
+// stdlogWriter is an io.Writer that forwards every Write to slog via Info.
+// Each Write produces one INFO slog record per line (multi-line payloads are
+// split so each line becomes its own log entry, matching typical log.Printf
+// semantics). Trailing partial lines are flushed as their own record.
+type stdlogWriter struct{}
+
+func (stdlogWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	total := len(p)
+	// slog already adds a timestamp; strip the stdlib log prefix timestamp
+	// (if any) so we don't duplicate. We keep the rest of the line verbatim
+	// because callers embed structured prefixes like "[Pet]".
+	rest := p
+	for len(rest) > 0 {
+		nl := bytes.IndexByte(rest, '\n')
+		var line []byte
+		if nl < 0 {
+			line = rest
+			rest = nil
+		} else {
+			line = rest[:nl]
+			rest = rest[nl+1:]
+		}
+		msg := strings.TrimRight(string(line), "\r")
+		if strings.TrimSpace(msg) != "" {
+			slog.Info(msg)
+		}
+	}
+	return total, nil
+}
+
+// origStdLogOutput holds the stdlib log output captured before RedirectStdLog
+// swaps it, so RestoreStdLog can revert. It is read once on first redirect.
+var (
+	origStdLogOutput io.Writer
+	origStdLogFlags  int
+	stdLogMu         sync.Mutex
+)
+
+// RedirectStdLog 把标准库 log（log.Printf 等）的输出重定向到 slog facade，
+// 使其作为 INFO 级结构化日志条目落盘。所有诊断日志（pet/bridge 等包中
+// 仍使用 log.Printf 的位置）会自动经 slog 处理器输出。
+//
+// 与原始实现不同：不再直接写文件，而是经 slog，确保所有日志走同一通道
+// （控制台 + 文件 + 未来的 hook），并具备级别/字段扩展能力。
 func RedirectStdLog() {
-	path := LogFilePath()
-	if path == "" {
+	stdLogMu.Lock()
+	defer stdLogMu.Unlock()
+	// NOTE: do not call Init() here — Init() itself calls RedirectStdLog()
+	// during its sync.Once critical section, which would deadlock. The
+	// standalone (pre-Init) path simply routes stdlib log through whatever
+	// the current slog.Default() is.
+	if origStdLogOutput == nil {
+		origStdLogOutput = stdlog.Default().Writer()
+		origStdLogFlags = stdlog.Default().Flags()
+	}
+	stdlog.SetOutput(stdlogWriter{})
+	stdlog.SetFlags(0)
+}
+
+// RestoreStdLog 撤销 RedirectStdLog 的影响，把标准库 log 输出恢复到原始
+// 目标（通常是 stderr）。主要用于测试和受控关闭场景。
+func RestoreStdLog() {
+	stdLogMu.Lock()
+	defer stdLogMu.Unlock()
+	if origStdLogOutput == nil {
+		// Nothing to restore; reset to stderr as a safe default.
+		stdlog.SetOutput(os.Stderr)
+		stdlog.SetFlags(stdlog.LstdFlags)
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	stdlog.SetOutput(f)
-	stdlog.SetFlags(stdlog.LstdFlags)
+	stdlog.SetOutput(origStdLogOutput)
+	stdlog.SetFlags(origStdLogFlags)
 }

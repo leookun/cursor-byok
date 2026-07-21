@@ -741,13 +741,29 @@ func normalizeLoadedConversation(conversationID string, conversation *Conversati
 	deriveConversationLoopState(conversation)
 }
 
+// validateConversationID rejects any conversation ID that could escape the
+// history root via path traversal or contains unsafe characters.
+// Safe IDs match ^[A-Za-z0-9_-]{1,128}$ (covers UUIDs, Cursor session IDs).
 func validateConversationID(conversationID string) (string, error) {
 	normalized := strings.TrimSpace(conversationID)
 	if normalized == "" {
 		return "", fmt.Errorf("conversation_id is required")
 	}
-	if strings.Contains(normalized, "/") || strings.Contains(normalized, string(os.PathSeparator)) {
+	if len(normalized) > 128 {
+		return "", fmt.Errorf("conversation_id too long (max 128)")
+	}
+	// Deny any path separator or traversal token.
+	if strings.ContainsAny(normalized, `/\`) {
 		return "", fmt.Errorf("conversation_id must not contain path separators")
+	}
+	if normalized == "." || normalized == ".." || strings.Contains(normalized, "..") {
+		return "", fmt.Errorf("conversation_id must not contain traversal sequences")
+	}
+	// Restrict to safe charset (deny-by-default).
+	for _, r := range normalized {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return "", fmt.Errorf("conversation_id must be [A-Za-z0-9_-]")
+		}
 	}
 	return normalized, nil
 }
