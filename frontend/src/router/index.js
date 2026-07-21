@@ -4,6 +4,11 @@ import Config from "@/views/Config.vue";
 import ModelConfig from "@/views/ModelConfig.vue";
 import ModelEditor from "@/views/ModelEditor.vue";
 import VirtualModels from "@/views/VirtualModels.vue";
+import ToolManagement from "@/views/ToolManagement.vue";
+import CacheDashboard from "@/views/CacheDashboard.vue";
+import TelemetryDashboard from "@/views/TelemetryDashboard.vue";
+import Plugins from "@/views/Plugins.vue";
+import WorkflowEditor from "@/views/WorkflowEditor.vue";
 import NotFound from "@/views/NotFound.vue";
 
 const router = createRouter({
@@ -38,6 +43,36 @@ const router = createRouter({
       name: "virtualModels",
       component: VirtualModels,
       meta: { showIcon: false, title: "虚拟模型" },
+    },
+    {
+      path: "/tool-management",
+      name: "toolManagement",
+      component: ToolManagement,
+      meta: { showIcon: false, title: "工具管理" },
+    },
+    {
+      path: "/cache-dashboard",
+      name: "cacheDashboard",
+      component: CacheDashboard,
+      meta: { showIcon: false, title: "缓存 Dashboard" },
+    },
+    {
+      path: "/telemetry-dashboard",
+      name: "telemetryDashboard",
+      component: TelemetryDashboard,
+      meta: { showIcon: false, title: "Telemetry Dashboard" },
+    },
+    {
+      path: "/plugins",
+      name: "plugins",
+      component: Plugins,
+      meta: { showIcon: false, title: "插件" },
+    },
+    {
+      path: "/workflows",
+      name: "workflows",
+      component: WorkflowEditor,
+      meta: { showIcon: false, title: "工作流编辑器" },
     },
     {
       path: "/:pathMatch(.*)*",

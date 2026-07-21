@@ -6,7 +6,6 @@ import HomeMetricsCard from "@/components/HomeMetricsCard.vue";
 import { useMessage } from "@/composables/useMessage";
 import { showModal } from "@/composables/useModal";
 import {
-  getAdRuntime,
   resetHomeMetrics,
   togglePetWindow,
   isPetWindowVisible,
@@ -29,59 +28,24 @@ import {
 import { Events } from "@wailsio/runtime";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { asString, asBoolean } from "@/utils/typeCast";
 
 const router = useRouter();
 const directModeEnabled = computed(() => appState.routingMode === "upstream");
 const message = useMessage();
 
-const AD_UPDATED_EVENT = "ad:updated";
+// ─── AOS shortcut (moved from ModelConfig) ───────────────────────────────────
+const aosMemberCount = computed(() => appState.aosConfig?.members?.length || 0);
+const aosEnabled = computed(() => Boolean(appState.aosConfig?.enabled));
+function openAOSConfig() {
+  router.push("/config?tab=aos");
+}
+
+function handleNavigateShortcut(path) {
+  router.push(path);
+}
+
 const PET_LIST_CHANGED_EVENT = "pet:list-changed";
-const OPEN_AD_EVENT = "cursor:open-ad";
 
-const adRuntime = ref(null);
-let unsubscribeAdUpdated = null;
-
-const homeAds = computed(() => {
-  const runtime = adRuntime.value && typeof adRuntime.value === "object" ? adRuntime.value : {};
-  const slots = Array.isArray(runtime.slots) && runtime.slots.length > 0 ? runtime.slots : [runtime];
-  return slots
-    .map((slot, index) => {
-      const item = slot && typeof slot === "object" ? slot : {};
-      const home = item.home && typeof item.home === "object" ? item.home : {};
-      const title = asString(home.title);
-      if (
-        !title ||
-        !asBoolean(item.available) ||
-        !asBoolean(item.enabled) ||
-        !asString(item.packageHash)
-      ) {
-        return null;
-      }
-      return {
-        id: asString(item.id) || String(index + 1),
-        title,
-        subtitle: asString(home.subtitle),
-      };
-    })
-    .filter(Boolean);
-});
-
-async function syncAdRuntimeQuietly() {
-  try {
-    adRuntime.value = await getAdRuntime();
-  } catch (_error) {
-    adRuntime.value = null;
-  }
-}
-
-function handleAdUpdated() {
-  void syncAdRuntimeQuietly();
-}
-
-function handleOpenHomeAd(slotId) {
-  window.dispatchEvent(new CustomEvent(OPEN_AD_EVENT, { detail: { slotId: asString(slotId) } }));
-}
 
 async function showActionError(title, error) {
   await showModal({
@@ -108,8 +72,26 @@ async function handleRefreshState() {
 }
 
 async function handleResetMetrics() {
-  await resetHomeMetrics();
-  await syncHomeMetrics();
+  const confirmed = await showModal({
+    title: "重置会话统计",
+    content: "确定清空首页会话统计（对话轮次 / Token 消耗）？此操作不可撤销。",
+    confirmText: "清空",
+    cancelText: "取消",
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await resetHomeMetrics();
+    const result = await syncHomeMetrics();
+    if (!result?.ok) {
+      await showActionError("重置失败", result?.error || "刷新统计失败");
+      return;
+    }
+    message.success("会话统计已清空");
+  } catch (error) {
+    await showActionError("重置失败", toUserError(error));
+  }
 }
 
 async function handleOpenConfig() {
@@ -142,19 +124,36 @@ const petEnabled = computed({
   set: async (val) => {
     try {
       // 直接调用 toggle，信任后端返回的真实状态。
-      // 不再先查 isPetWindowVisible（避免异步竞态导致连点错乱）。
       const opened = await togglePetWindow();
       // 根据 toggle 的真实结果同步本地开关。
-      // 若 toggle 返回的状态与 val 不一致，以后端为准（用户可能快速连点）。
       petSettings.enabled = opened;
-    } catch (_) {
-      // 桌宠窗口操作失败静默忽略
+    } catch (err) {
+      // 桌宠窗口操作失败：显式提示，避免静默吞错导致开关状态与实际不符。
+      await showActionError("桌宠操作失败", toUserError(err));
+      // 回退到后端真实状态（避免开关显示与实际不符）。
+      try {
+        const visible = await isPetWindowVisible();
+        petSettings.enabled = visible;
+      } catch (_) {
+        petSettings.enabled = false;
+      }
     }
   },
 });
 
 async function handleTogglePet(enabled) {
   petEnabled.value = enabled;
+}
+
+// 启动时同步桌宠开关的真实状态，避免 localStorage 与后端不一致
+// （后端进程重启后桌宠必然关闭，但 localStorage 可能仍是 enabled=true）。
+async function syncPetEnabledState() {
+  try {
+    const visible = await isPetWindowVisible();
+    petSettings.enabled = visible;
+  } catch (_) {
+    petSettings.enabled = false;
+  }
 }
 
 function handleOpenPetsFolder() {
@@ -192,12 +191,11 @@ async function refreshPetList() {
 let homeMetricsTimer = null;
 
 onMounted(() => {
-  unsubscribeAdUpdated = Events.On(AD_UPDATED_EVENT, handleAdUpdated);
   unsubscribePetListChanged = Events.On(PET_LIST_CHANGED_EVENT, (pets) => {
     petList.value = Array.isArray(pets) ? pets : [];
   });
-  void syncAdRuntimeQuietly();
   void syncHomeMetrics();
+  void syncPetEnabledState();
   homeMetricsTimer = setInterval(() => {
     void syncHomeMetrics();
   }, 3000);
@@ -205,10 +203,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  if (unsubscribeAdUpdated) {
-    unsubscribeAdUpdated();
-    unsubscribeAdUpdated = null;
-  }
   if (unsubscribePetListChanged) {
     unsubscribePetListChanged();
     unsubscribePetListChanged = null;
@@ -250,14 +244,31 @@ function statusColor(pet) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 pt-0 text-[#e5e5e5]">
+  <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 text-[#e5e5e5]">
+    <!-- ── Top action bar: AOS shortcut (right) ─────────────────── -->
+    <div class="flex shrink-0 items-center justify-end gap-2">
+      <button
+        type="button"
+        class="center-row gap-2 rounded-[8px] border px-3 py-2 text-sm transition-colors duration-150"
+        :class="aosEnabled
+          ? 'border-[#7c3aed] bg-[#1f1532] text-white'
+          : 'border-[#343434] bg-[#252525] text-[#a3a3a3] hover:border-[#7c3aed] hover:text-[#e5e5e5]'"
+        :title="aosEnabled ? `AOS 已启用 · ${aosMemberCount} 个成员` : 'AOS 未启用'"
+        @click="openAOSConfig"
+      >
+        <span class="icon-[tabler--robot] text-[16px]" />
+        <span>AOS</span>
+        <span v-if="aosMemberCount > 0" class="rounded-full bg-[#7c3aed] px-1.5 text-[11px] text-white">
+          {{ aosMemberCount }}
+        </span>
+      </button>
+    </div>
     <HomeMetricsCard
       :metrics="appState.homeMetrics"
       :loading="appState.homeMetricsLoading"
       :error="appState.homeMetricsError"
-      :home-ads="homeAds"
+      @navigate="handleNavigateShortcut"
       @reset="handleResetMetrics"
-      @open-ad="handleOpenHomeAd"
     />
 
     <Card>
