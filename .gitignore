@@ -31,6 +31,20 @@ cursor-tab-server/cursor-tab-server-linux-amd64.tar
 *.local
 credentials*
 secrets*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
+*.keystore
+*.jks
+
+# 用户运行时配置（含 API Key，绝不入库）
+config.local.yaml
+config.local.yml
+*.secret.yaml
+*.secret.yml
 
 # Cursor Tab Server 个人 token（含敏感凭据，禁止提交）
 cursor-tab-server/config.yaml
@@ -43,3 +57,23 @@ cursor-tab-server/config.yaml
 
 # 统一使用 yarn，排除 npm lockfile
 frontend/package-lock.json
+
+# 编译产物
+*.exe
+cursor
+cursor-byok
+
+# CA 私钥绝不入库；每安装独立生成（cagen.go EnsureCA）
+internal/certs/ca.key
+internal/certs/ca.crt
+
+# 根目录临时报告（归档至 docs/reports/）
+optimization_phase*.md
+
+# 各 Agent 工具链的工作区/临时产物（与 .omo/ 同类，不入库）
+.planning/
+.playwright-cli/
+.atomic-fs/
+.cursor/
+_dom.html
+_layout_check.png
