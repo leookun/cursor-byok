@@ -1,6 +1,5 @@
 <script setup>
 import Button from "@/components/ui/Button.vue";
-import Card from "@/components/ui/Card.vue";
 import Switch from "@/components/ui/Switch.vue";
 import HomeMetricsCard from "@/components/HomeMetricsCard.vue";
 import { useMessage } from "@/composables/useMessage";
@@ -17,8 +16,6 @@ import { petSettings } from "@/pet/petSettings";
 import {
   appState,
   appViewState,
-  openConfigWindow,
-  openModelConfigWindow,
   saveRoutingMode,
   syncHomeMetrics,
   syncServiceState,
@@ -27,22 +24,9 @@ import {
 } from "@/state/appState";
 import { Events } from "@wailsio/runtime";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
 
-const router = useRouter();
 const directModeEnabled = computed(() => appState.routingMode === "upstream");
 const message = useMessage();
-
-// ─── AOS shortcut (moved from ModelConfig) ───────────────────────────────────
-const aosMemberCount = computed(() => appState.aosConfig?.members?.length || 0);
-const aosEnabled = computed(() => Boolean(appState.aosConfig?.enabled));
-function openAOSConfig() {
-  router.push("/config?tab=aos");
-}
-
-function handleNavigateShortcut(path) {
-  router.push(path);
-}
 
 const PET_LIST_CHANGED_EVENT = "pet:list-changed";
 
@@ -91,22 +75,6 @@ async function handleResetMetrics() {
     message.success("会话统计已清空");
   } catch (error) {
     await showActionError("重置失败", toUserError(error));
-  }
-}
-
-async function handleOpenConfig() {
-  try {
-    await openConfigWindow();
-  } catch (error) {
-    await showActionError("打开失败", toUserError(error));
-  }
-}
-
-async function handleOpenModelConfig() {
-  try {
-    router.push("/model-config");
-  } catch (error) {
-    await showActionError("打开失败", toUserError(error));
   }
 }
 
@@ -244,132 +212,103 @@ function statusColor(pet) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 text-[#e5e5e5]">
-    <!-- ── Top action bar: AOS shortcut (right) ─────────────────── -->
-    <div class="flex shrink-0 items-center justify-end gap-2">
-      <button
-        type="button"
-        class="center-row gap-2 rounded-[8px] border px-3 py-2 text-sm transition-colors duration-150"
-        :class="aosEnabled
-          ? 'border-[#7c3aed] bg-[#1f1532] text-white'
-          : 'border-[#343434] bg-[#252525] text-[#a3a3a3] hover:border-[#7c3aed] hover:text-[#e5e5e5]'"
-        :title="aosEnabled ? `AOS 已启用 · ${aosMemberCount} 个成员` : 'AOS 未启用'"
-        @click="openAOSConfig"
-      >
-        <span class="icon-[tabler--robot] text-[16px]" />
-        <span>AOS</span>
-        <span v-if="aosMemberCount > 0" class="rounded-full bg-[#7c3aed] px-1.5 text-[11px] text-white">
-          {{ aosMemberCount }}
-        </span>
-      </button>
-    </div>
+  <div class="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 pb-8 text-[#e5e5e5]">
     <HomeMetricsCard
       :metrics="appState.homeMetrics"
       :loading="appState.homeMetricsLoading"
       :error="appState.homeMetricsError"
-      @navigate="handleNavigateShortcut"
       @reset="handleResetMetrics"
     />
 
-    <Card>
-      <div class="flex flex-col gap-4">
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex flex-col gap-1">
-            <div class="text-sm" :class="appViewState.serviceStatusClass">
-              {{ appViewState.serviceStatusText }}
-            </div>
-          </div>
-          <div class="center-row gap-2">
-            <Button variant="primary" :disabled="appState.serviceBusy" @click="handleToggleService">
-              <span class="icon-[mdi--pause] text-[16px]" v-if="appState.serviceRunning"></span>
-              <span class="icon-[mdi--play] text-[16px]" v-else></span>
-              <span> {{ appViewState.serviceButtonText }}</span>
-            </Button>
+    <div class="rounded-[8px] bg-[#1e1e1e] p-4 flex flex-col gap-4">
+      <!-- Section 1: 服务状态 -->
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex flex-col gap-1">
+          <div class="text-sm" :class="appViewState.serviceStatusClass">
+            {{ appViewState.serviceStatusText }}
           </div>
         </div>
-
-        <div v-if="appState.serviceLastError"
-          class="rounded-[8px] border border-[#4b1d1d] bg-[#2a1313] px-3 py-2 text-sm text-[#fca5a5]">
-          {{ appState.serviceLastError }}
+        <div class="center-row gap-2">
+          <Button variant="primary" :disabled="appState.serviceBusy" @click="handleToggleService">
+            <span class="icon-[mdi--pause] text-[16px]" v-if="appState.serviceRunning"></span>
+            <span class="icon-[mdi--play] text-[16px]" v-else></span>
+            <span> {{ appViewState.serviceButtonText }}</span>
+          </Button>
         </div>
+      </div>
 
+      <div v-if="appState.serviceLastError"
+        class="rounded-[8px] border border-[#4b1d1d] bg-[#2a1313] px-3 py-2 text-sm text-[#fca5a5]">
+        {{ appState.serviceLastError }}
+      </div>
+
+      <!-- Divider 1 -->
+      <div class="border-b border-[rgba(255,255,255,0.06)] mx-2"></div>
+
+      <!-- Section 2: 直连模式 -->
+      <Switch
+        label="直连模式"
+        description="开启后，Cursor将直接接通官方，请勿开启"
+        enabled-text="当前为直连模式"
+        disabled-text="当前为本地服务模式"
+        :enabled="directModeEnabled"
+        :busy="appState.configSaving"
+        :disabled="appState.configSaving"
+        @change="handleDirectModeChange"
+      />
+
+      <!-- Divider 2 -->
+      <div class="border-b border-[rgba(255,255,255,0.06)] mx-2"></div>
+
+      <!-- Section 3: 桌面宠物 -->
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-medium text-white">桌面宠物</h2>
+          <div class="text-sm text-[#a3a3a3]">在桌面上显示可爱的动画角色</div>
+        </div>
         <Switch
-          label="直连模式"
-          description="开启后，Cursor将直接接通官方，请勿开启"
-          enabled-text="当前为直连模式"
-          disabled-text="当前为本地服务模式"
-          :enabled="directModeEnabled"
-          :busy="appState.configSaving"
-          :disabled="appState.configSaving"
-          @change="handleDirectModeChange"
+          :enabled="petSettings.enabled !== false"
+          :busy="false"
+          @change="handleTogglePet"
         />
       </div>
-    </Card>
 
-    <Card>
-      <div class="flex flex-col gap-3">
-        <!-- 桌面宠物：标题+开关 -->
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <h2 class="text-base font-medium text-white">桌面宠物</h2>
-            <div class="text-sm text-[#a3a3a3]">在桌面上显示可爱的动画角色</div>
-          </div>
-          <Switch
-            :enabled="petSettings.enabled !== false"
-            :busy="false"
-            @change="handleTogglePet"
-          />
+      <!-- 宠物列表：每个宠物一个按钮 -->
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-[#a3a3a3]">点击切换桌宠（{{ petList.length }} 个可用）</span>
+          <Button variant="secondary" @click="handleOpenPetsFolder">
+            📂 打开文件夹
+          </Button>
         </div>
-
-        <!-- 宠物列表：每个宠物一个按钮 -->
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-[#a3a3a3]">点击切换桌宠（{{ petList.length }} 个可用）</span>
-            <Button variant="secondary" @click="handleOpenPetsFolder">
-              📂 打开文件夹
-            </Button>
-          </div>
-          <div v-if="petLoadError" class="text-xs text-[#ff6b6b] py-1">
-            ⚠️ 加载失败：{{ petLoadError }}
-          </div>
-          <div v-if="petList.length === 0" class="text-xs text-[#6f6f6f] py-2">
-            暂无可用宠物 — 复制宠物文件夹到 pets 目录即可自动发现
-          </div>
-          <div v-else class="flex flex-col gap-1.5">
-            <button
-              v-for="pet in petList"
-              :key="pet.id"
-              class="pet-select-btn"
-              :class="{ active: petSettings.activePetId === pet.id }"
-              @click="handleSelectPet(pet.id)"
-            >
-              <span class="pet-icon">🐾</span>
-              <div class="flex-1 flex flex-col items-start min-w-0">
-                <span class="pet-label">{{ pet.name }}</span>
-                <span class="text-[10px] text-[#7a7a7a] truncate w-full">
-                  {{ pet.id }}{{ pet.version ? " · v" + pet.version : "" }}
-                </span>
-              </div>
-              <span class="text-[10px] shrink-0" :class="statusColor(pet)">
-                {{ statusLabel(pet) }}
+        <div v-if="petLoadError" class="text-xs text-[#ff6b6b] py-1">
+          ⚠️ 加载失败：{{ petLoadError }}
+        </div>
+        <div v-if="petList.length === 0" class="text-xs text-[#6f6f6f] py-2">
+          暂无可用宠物 — 复制宠物文件夹到 pets 目录即可自动发现
+        </div>
+        <div v-else class="flex flex-col gap-1.5">
+          <button
+            v-for="pet in petList"
+            :key="pet.id"
+            class="pet-select-btn"
+            :class="{ active: petSettings.activePetId === pet.id }"
+            @click="handleSelectPet(pet.id)"
+          >
+            <span class="pet-icon">🐾</span>
+            <div class="flex-1 flex flex-col items-start min-w-0">
+              <span class="pet-label">{{ pet.name }}</span>
+              <span class="text-[10px] text-[#7a7a7a] truncate w-full">
+                {{ pet.id }}{{ pet.version ? " · v" + pet.version : "" }}
               </span>
-            </button>
-          </div>
-        </div>
-
-        <!-- 本地配置 -->
-        <div class="pt-3 mt-1 border-t border-[#2a2a2a] flex items-center justify-between gap-4">
-          <div>
-            <h2 class="text-base font-medium text-white">本地配置</h2>
-            <div class="text-sm text-[#a3a3a3]">打开设置目录，或单独管理模型配置</div>
-          </div>
-          <div class="center-row gap-2 shrink-0">
-            <Button variant="default" @click="handleOpenConfig">设置文件夹</Button>
-            <Button variant="primary" @click="handleOpenModelConfig">模型配置</Button>
-          </div>
+            </div>
+            <span class="text-[10px] shrink-0" :class="statusColor(pet)">
+              {{ statusLabel(pet) }}
+            </span>
+          </button>
         </div>
       </div>
-    </Card>
+    </div>
   </div>
 </template>
 
