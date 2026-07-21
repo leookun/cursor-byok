@@ -16,7 +16,7 @@ const optimizationCostLabel = computed(() => {
   return `${enabled} · 本月 ${spent} / ${budget}`;
 });
 
-const emit = defineEmits(["reset", "navigate"]);
+const emit = defineEmits(["reset"]);
 
 const TOKEN_PRICE_PER_MILLION = {
   input: 5,
@@ -212,49 +212,11 @@ async function toggleIncludeCacheWriteInHitRate(value) {
   }
 }
 
-const SHORTCUT_CARDS = [
-  { id: "model", path: "/model-config", icon: "icon-[mdi--tune-variant]", title: "模型配置", subtitle: "管理 AI 提供方与模型适配器" },
-  { id: "cache", path: "/cache-dashboard", icon: "icon-[mdi--database-cog-outline]", title: "缓存面板", subtitle: "查看 Prompt 缓存命中与节省" },
-  { id: "telemetry", path: "/telemetry-dashboard", icon: "icon-[mdi--chart-bar]", title: "遥测面板", subtitle: "AOS 执行追踪与回放重跑" },
-  { id: "vm", path: "/virtual-models", icon: "icon-[mdi--account-group-outline]", title: "虚拟模型", subtitle: "MOA / AOS 多模型编排配置" },
-];
-
-function handleNavigateShortcut(path) {
-  emit("navigate", path);
-}
 </script>
 
 <template>
   <div>
     <div class="flex flex-col gap-4">
-      <div class="flex items-center gap-4 h-[42px]">
-        <div class="flex flex-wrap gap-2 min-w-0 flex-1">
-          <button
-            v-for="card in SHORTCUT_CARDS"
-            :key="card.id"
-            type="button"
-            class="center-row h-[42px] min-w-0 cursor-pointer gap-[8px] rounded-[6px] border border-[#343434] bg-[#242424] px-[8px] pr-[10px] text-left transition-colors duration-150 hover:border-[#4a4a4a] hover:bg-[#2a2a2a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
-            :title="card.subtitle ? `${card.title}\n${card.subtitle}` : card.title"
-            role="button"
-            tabindex="0"
-            @click="handleNavigateShortcut(card.path)"
-            @keydown.enter.prevent="handleNavigateShortcut(card.path)"
-            @keydown.space.prevent="handleNavigateShortcut(card.path)"
-          >
-            <div class="center-row h-[20px] w-[20px] shrink-0 justify-center text-[20px] text-amber-400">
-              <span :class="card.icon"></span>
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-[13px] font-medium leading-[16px] text-white">
-                {{ card.title }}
-              </div>
-              <div v-if="card.subtitle" class="mt-[2px] center-row min-w-0 gap-[2px] text-[11px] leading-[12px] text-[#8A8A8A]">
-                <span class="truncate">{{ card.subtitle }}</span>
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
       <div
         class="relative mt-[-4px] grid grid-cols-4 gap-0 overflow-hidden rounded-[8px] border border-[#343434] bg-[#242424] h-[130px]"
       >
