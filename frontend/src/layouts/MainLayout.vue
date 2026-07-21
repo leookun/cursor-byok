@@ -24,6 +24,16 @@ const message = useMessage();
 const showIcon = computed(() => route.meta.showIcon !== false);
 const title = computed(() => route.meta.title ?? "Cursor助手｜永久免费｜自定义API");
 const directlyClose = computed(() => route.meta.directlyClose === true);
+
+// ─── AOS shortcut (moved from Home.vue) ───────────────────────────────────
+const aosMemberCount = computed(
+  () => appState.aosConfig?.members?.length || 0,
+);
+const aosEnabled = computed(() => Boolean(appState.aosConfig?.enabled));
+function openAOSConfig() {
+  router.push("/config?tab=aos");
+}
+
 const showFooter = computed(() => route.path === "/");
 const footerAuthorInfo = ref(null);
 const usageDocsURL = "https://docs.leokun.cn";
@@ -179,6 +189,30 @@ onUnmounted(() => {
         v-if="isWindows"
         class="absolute right-[10px] top-[8px] z-99999 center-row gap-[1px]"
       >
+        <button
+          v-if="route.path === '/'"
+          type="button"
+          class="center-row mr-[8px] gap-2 rounded-[6px] border px-3 py-1.5 text-sm transition-colors duration-150"
+          :class="
+            aosEnabled
+              ? 'border-[#7c3aed] bg-[#1f1532] text-white'
+              : 'border-[#343434] bg-[#252525] text-[#a3a3a3] hover:border-[#7c3aed] hover:text-[#e5e5e5]'
+          "
+          :title="
+            aosEnabled ? `AOS 已启用 · ${aosMemberCount} 个成员` : 'AOS 未启用'
+          "
+          style="--wails-draggable: no-drag;"
+          @click="openAOSConfig"
+        >
+          <span class="icon-[tabler--robot] text-[16px]" />
+          <span>AOS</span>
+          <span
+            v-if="aosMemberCount > 0"
+            class="rounded-full bg-[#7c3aed] px-1.5 text-[11px] text-white"
+          >
+            {{ aosMemberCount }}
+          </span>
+        </button>
         <button
           class="text-[20px] center-row justify-center w-[30px] h-[23px] rounded-[4px] text-[#777] hover:bg-[#333] hover:text-[#ddd] cursor-pointer"
           @click="minimizeWindow"
