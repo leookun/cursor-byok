@@ -275,7 +275,7 @@ type CacheKey struct {
 ### 4.4 存储
 
 ```
-~/.cursor-local-assistant-v2/cache/
+~/.cursor-byok/cache/
 ├── exact/
 │   └── <sha256>.json           // 精确缓存条目
 ├── semantic/
@@ -477,7 +477,7 @@ type TurnTelemetry struct {
 ### 8.2 存储与 Dashboard
 
 ```
-~/.cursor-local-assistant-v2/telemetry/
+~/.cursor-byok/telemetry/
 ├── turns/
 │   └── <date>/
 │       └── <turnID>.json

@@ -1,0 +1,40 @@
+name: AOS Benchmark CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    name: Benchmark & Runtime Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+
+      - name: Run benchmark suite
+        run: go test ./internal/benchmark/... -count=1 -v
+
+      - name: Run runtime tests
+        run: go test ./internal/backend/runtime/... -count=1
+
+      - name: Run docguard
+        run: go test ./internal/docguard/... -count=1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build

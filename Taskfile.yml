@@ -183,6 +183,26 @@ tasks:
     cmds:
       - go run ./scripts/historymetrics
 
+  evolver:
+    summary: 运行 Self-Evolution 闭环（Diagnose → Sediment → Propose → Persist）
+    cmds:
+      - go run ./cmd/evolver/
+
+  evolver:writeback:
+    summary: 运行闭环并安全自动修复 24/27/28 索引/目录漂移（ADR-030/031）
+    cmds:
+      - go run ./cmd/evolver/ -writeback
+
+  evolver:test:
+    summary: 运行 Evolver / docguard 单元测试
+    cmds:
+      - go test ./internal/backend/runtime/evolver/ ./internal/docguard/ -count=1
+
+  evolver:ci:
+    summary: CI 门禁（Test 阶段 + 诊断错误失败退出，ADR-031）
+    cmds:
+      - go run ./cmd/evolver/ -ci
+
   ads:install:
     summary: 安装广告页依赖
     dir: '{{.TASKFILE_DIR}}/ads-page'

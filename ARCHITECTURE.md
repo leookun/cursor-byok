@@ -1,6 +1,8 @@
 # Cursor BYOK — Architecture Document
 
-> 本文档描述 Cursor BYOK 的完整系统架构。配合 `PROJECT_ANALYSIS.md`（速读手册）和 `AGENTS.md`（AI 研发协议）使用。
+> 本文档描述 Cursor BYOK 的完整系统架构。配合 `PROJECT_ANALYSIS.md`（速读手册）、`AGENTS.md`（AI 研发协议）与 **`docs/handbook/`**（AOS Engineering Handbook：按需加载，宪法 00–02 + Runtime/标准/路线图）使用。
+>
+> 长期定位：**AI Organization System (AOS)**。Virtual Model 对 Cursor 透明；专家绑定已有 ModelAdapter；ChannelService 生产路径必须非 nil；不改 MITM / `proto/` / Forwarder 公共接口。索引一致性守卫：`internal/docguard`。
 
 ---
 
@@ -36,7 +38,7 @@
 │                                    │                          │
 │  ┌─────────────────────────────────┴────────────────────────┐│
 │  │                    Runtime 层 (NEW)                       ││
-│  │  MOA Runtime / Context / Cache / Optimize / Tool / Telemetry│
+│  │  AOS / MOA / Context / Cache / Optimize / Tool / Telemetry / Evolver ││
 │  └──────────────────────────────────────────────────────────┘│
 ├──────────────────────────────────────────────────────────────┤
 │                      基础设施层                                │
@@ -69,11 +71,14 @@
 | Runtime Config | `internal/runtime/` | 模型适配器配置解析 | modelchannel |
 | **VMR** | `internal/backend/virtualmodel/` | 虚拟模型注册/解析 | runtime |
 | **MOA** | `internal/backend/virtualmodel/moa/` | Planner → Experts → Critic → Judge → Aggregator | VMR |
-| **Context Runtime** | `internal/backend/runtime/context/` | 上下文全生命周期 | forwarder |
-| **Cache Runtime** | `internal/backend/runtime/cache/` | 精确 + 语义缓存 | — |
-| **Optimize Runtime** | `internal/backend/runtime/optimize/` | Token Budget + Cost | — |
-| **Tool Runtime** | `internal/backend/runtime/tool/` | 统一工具注册 | — |
-| **Telemetry Runtime** | `internal/backend/runtime/telemetry/` | 全链路可观测 | — |
+| **AOS** | internal/backend/virtualmodel/aos/ | Leader -> Members -> Sprint -> Review -> Merge (ADR-013) | VMR |
+| **Context Runtime** | `internal/backend/runtime/context/` | `BuildContext` + `PostProcess` 已接入 Forwarder 主链路 (ADR-014) | Phase 4 进行中 |
+| **Memory Runtime** | `internal/backend/runtime/memory/` | 五层全部生产写入 (ADR-023)；APIEmbedder + FallbackEmbedder (ADR-025) | Phase 4 进行中 |
+| **Cache Runtime** | `internal/backend/runtime/cache/` | 精确 + 语义缓存 + FallbackEmbedder (ADR-025)；P0 延迟修复 (23x) | Phase 5 进行中 |
+| **Optimize Runtime** | `internal/backend/runtime/optimize/` | Token Budget + Cost + **spent 持久化** (`data/optimize/cost_tracker.json`, ADR-010) | Phase 3 完成 |
+| **Tool Runtime** | `internal/backend/runtime/tool/` | Bridge 接线 + Catalog 同步 + 缓存 + MCP 动态注册 (ADR-024/026) | Phase 6 进行中 |
+| **Telemetry Runtime** | `internal/backend/runtime/telemetry/` | 框架就绪 (Turn 级遥测) | Phase 9 进行中 |
+| **Evolver Runtime** | `internal/backend/runtime/evolver/` | Diagnose/Sediment/Test/Memory/Propose/Persist/AutoWriteback + Runtime Catalog + Foundation Tables；Host 启动后台 Evolve+Persist；`task evolver` / `task evolver:writeback` / `task evolver:ci` (ADR-028..034) | Phase 14 完成 |
 | PET Engine | `internal/pet/` | 桌面宠物动画/状态机 | Wails |
 | App Runner | `internal/app/runner.go` | Wails 装配 + 生命周期 | bridge, mitm |
 
@@ -111,6 +116,7 @@ MITM Proxy ──→ Backend Server (PolicyMiddleware: local/upstream)
     │               ├── ProviderGateway.StartStream()
     │               │     ├── [NEW] VirtualModel? → VMR.Execute()
     │               │     │     └── MOA: Planner → Experts → Judge → Aggregator
+    │               │     │     └── AOS: Leader → Members (parallel) → Review → Merge (ADR-013)
     │               │     └── Physical? → Router → Adapter
     │               │
     │               └── [NEW] TelemetryRuntime.RecordTurn()
@@ -120,10 +126,44 @@ MITM Proxy ──→ Backend Server (PolicyMiddleware: local/upstream)
 
 ---
 
+### 3.1 AOS Cursor-native Task dispatch contract (ADR-046)
+
+When an AOS team uses `cursor_task` execution, the parent conversation remains
+in the normal Agent mode. AOS does not rewrite the parent into an undocumented
+multitask mode. Instead, it compiles each member request into the existing
+Cursor-native `Task` protocol and sends its `TaskArgs` through the normal
+Forwarder stream; the Exec Bridge then opens the internal `SubagentArgs`
+execution.
+
+1. **Current model binding**: each member's configured physical adapter ID is
+   written explicitly to `TaskArgs.Model`. That explicit value is preserved by
+   Forwarder display/rewrite paths and takes precedence over a parent subagent
+   model override. A registered virtual-model ID is rejected as a member target
+   to prevent AOS re-entry.
+2. **Batch lifecycle**: the scheduler validates the complete workspace graph,
+   registers the generated `Task.ToolCallId` as its deterministic result key,
+   starts eligible member Tasks, and resolves results with bounded parallelism.
+   `AOSResultRegistry` correlates returned Task results by that key, not by
+   `ExecServerMessage.exec_id`; timeout, cancellation, and spawn-error cleanup
+   remove unresolved expectations before dependent work advances.
+3. **Live configuration**: a successful config save normalizes the execution
+   mode and, while the Host is running, replaces the registered AOS model or
+   unregisters it when disabled. Future turns therefore use the latest
+   leader/member adapter bindings without rebuilding the HTTP Host.
+
+This contract is intentionally limited to repository-backed protocol and
+runtime behavior. It does not use `.cursor/agents` files. It also does not
+claim worktree isolation, process sandboxing, or fork semantics because this
+repository has no executable evidence for those Cursor-client behaviors. A real
+Cursor client E2E run remains the release gate for client-side dispatch and
+completion behavior.
+
+---
+
 ## 4. 配置模型
 
 ```yaml
-# ~/.cursor-local-assistant-v2/config.yaml
+# ~/.cursor-byok/config.yaml
 routing:
   mode: local  # local | upstream
 
@@ -138,23 +178,26 @@ modelAdapters:
 virtualModels:
   moa:
     enabled: true
-    planner:
-      adapterID: "a1b2c3d4e5f6a7b8"  # SHA-256 hash of Claude adapter
-    nodes:
-      coding:
+  aos:
+    enabled: true
+    executionMode: cursor_task
+    leader:
+      adapterID: "a1b2c3d4e5f6a7b8"
+    members:
+      - id: frontend
+        name: "Frontend Engineer"
         adapterID: "b2c3d4e5f6a7b8c9"
-      research:
-        adapterID: ""
-      aggregator:
-        adapterID: "a1b2c3d4e5f6a7b8"
+        systemPrompt: "You are a senior React developer..."
 ```
+
+AOS member tags are runtime-derived after the Leader recognizes the team and are not persisted in user configuration.
 
 ---
 
 ## 5. 持久化布局
 
 ```
-~/.cursor-local-assistant-v2/
+~/.cursor-byok/
 ├── config.yaml              # 用户配置
 ├── data/
 │   ├── ca.crt               # CA 证书（注入给宿主）
@@ -182,6 +225,8 @@ virtualModels:
 | 扩展点 | 接口 | 位置 |
 |---|---|---|
 | Virtual Model | `VirtualModel` interface | `internal/backend/virtualmodel/manager.go` |
+| AOS Team | `TeamProfile` / `MemberConfig` | `internal/backend/virtualmodel/aos/types.go` |
+| AOS Workflow | `WorkflowScheduler` | `internal/backend/virtualmodel/aos/workflow.go` |
 | Workflow | `WorkflowConfig` | `internal/backend/virtualmodel/config/types.go` |
 | Compression Strategy | `CompressionEngine` | `internal/backend/runtime/context/runtime.go` |
 | Cache Strategy | `Runtime.Lookup/Store` | `internal/backend/runtime/cache/runtime.go` |

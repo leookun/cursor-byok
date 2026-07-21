@@ -11,7 +11,7 @@
 
 你的身份是：Chief AI Architect、Principal Software Engineer、AI Research Engineer、Distributed Systems Architect、Performance Engineer、Tech Lead、Code Reviewer、QA Engineer、Documentation Engineer。
 
-你的最终目标不是完成某一个功能，而是持续将 Cursor BYOK 打造成世界领先的 **Agent Operating System**。
+你的最终目标不是完成某一个功能，而是持续将 Cursor BYOK 打造成世界领先的 **AI Organization System (AOS)**（演进自 Agent Operating System / Virtual Model 路线；宪法见 `docs/handbook/00_Project_Constitution.md`）。
 
 你的职责包括：Research → Architecture → Planning → Implementation → Benchmark → Review → Optimization → Documentation → Continuous Evolution。
 
@@ -62,10 +62,11 @@
 | **Context Runtime** | `internal/backend/runtime/context/` | 🆕 框架就绪 |
 | **Cache Runtime** | `internal/backend/runtime/cache/` | 🆕 精确缓存可用 |
 | **Optimization Runtime** | `internal/backend/runtime/optimize/` | 🆕 主链路 + 配置落盘 + Cost 摘要 |
-| **Memory Runtime** | `internal/backend/runtime/memory/` | 🆕 五层骨架就绪 |
-| **Embedding** | `internal/backend/runtime/embedding/` | 🆕 语义缓存/Long Memory 底座 |
-| **Tool Runtime** | `internal/backend/runtime/tool/` | 🆕 框架就绪 |
+| **Memory Runtime** | `internal/backend/runtime/memory/` | 🟡 五层全部生产写入（ADR-011/012/023）；Long Memory SQLite 待升级 |
+| **Embedding** | `internal/backend/runtime/embedding/` | ✅ Embedder 接口 + APIEmbedder + FallbackEmbedder (ADR-025) |
+| **Tool Runtime** | `internal/backend/runtime/tool/` | 🟡 Bridge 已接线 + 缓存已接入主路径 + MCP 动态注册（ADR-024/026）；前端管理页待做 |
 | **Telemetry Runtime** | `internal/backend/runtime/telemetry/` | 🆕 框架就绪 |
+| **Evolver Runtime** | `internal/backend/runtime/evolver/` | ✅ Phase 14：Diagnose/Sediment/Test/Memory/Propose/Persist/AutoWriteback + Runtime Catalog + Foundation Tables；`cmd/evolver [-test|-ci|-writeback]` + Host 启动后台诊断 |
 
 ### 关键架构约束
 
@@ -73,7 +74,7 @@
 2. **双模式路由**：local（本地处理）/ upstream（直连官方），由 `routing.mode` 配置决定。
 3. **协议是私有/逆向的**：`proto/` 下的 proto 来自 Cursor 私有协议近似定义，随版本可能变动。
 4. **Virtual Model 对 Cursor 透明**：MOA 作为普通 channel ID 出现在 `AvailableModels` 中；Cursor 永远只看到普通模型（如 `moa`），看不到内部专家编排。
-5. **配置落盘**：`~/.cursor-local-assistant-v2/config.yaml`。
+5. **配置落盘**：`~/.cursor-byok/config.yaml`。
 
 ### Virtual Model 硬性规则（MOA / 未来 VM）
 
@@ -85,23 +86,26 @@
 
 ---
 
-## 长期目标：Agent Operating System
+## 长期目标：AI Organization System (AOS)
 
-最终定位不是 "Cursor Proxy"，而是 **Agent Operating System**。
+最终定位不是 "Cursor Proxy"，而是 **AI Organization System (AOS)**（组织级 Virtual Model：Leader / Members / Workspace / Sprint）。MOA 为历史第一款 Virtual Model 实现；`internal/backend/virtualmodel/moa/` 为历史包名。
 
-MOA 只是第一款 Virtual Model。未来持续建设：
+研发手册：`docs/handbook/`（进入项目先读 README + 00–02，其后按索引按需加载）。每个任务完整循环与 writeback 规则见 handbook README / Chapter 00 §0.8。
+
+MOA/AOS 之后持续建设 Runtime：
 
 | Runtime | 职责 | 当前状态 |
 |---|---|---|
 | Virtual Model Runtime | MOA、Reflection、Best-of-N、Debate | ✅ Phase 1 |
 | Context Runtime | 上下文构建、压缩、排序、窗口管理 | 🟡 框架就绪 |
-| Memory Runtime | 五层记忆（Working/Session/Long/Project/User） | 🟡 骨架就绪（`runtime/memory`），主链路未注入 |
+| Memory Runtime | 五层记忆（Working/Session/Long/Project/User） | ✅ 五层全部生产写入；Long Memory SQLite 升级待做 |
 | Cache Runtime | 精确缓存、语义缓存 | 🟡 精确+语义框架已接 Provider |
 | Optimization Runtime | Token Budget、Cost Optimizer | 🟡 已接 Forwarder/MOA；配置化/前端待补 |
 | Streaming Runtime | 多模型流式聚合 | 🔴 待建设 |
-| Tool Runtime | 统一 Tool Registry、MCP | 🟡 框架就绪 |
+| Tool Runtime | 统一 Tool Registry、MCP | 🟡 Bridge + 缓存 + MCP 动态注册全部完成；前端管理页待做 |
 | Telemetry Runtime | 全链路可观测 | 🟡 框架就绪 |
-| Plugin Runtime | 第三方插件 SDK | 🔴 待建设 |
+ | Plugin Runtime | 第三方插件 SDK | 🟡 核心 SDK 可用（死锁已修复）；Marketplace/沙箱待做 |
+| Evolver Runtime | 自进化闭环：Diagnose/Sediment/Test/Memory/Propose/Persist/AutoWriteback + Catalog + Foundations | ✅ Phase 14：章节现有基础自愈 + 跨报告记忆 + CLI `-ci` + Host 启动后台诊断 |
 
 ---
 
@@ -180,7 +184,7 @@ Research → Architecture Design → Compare Existing Solutions
 9. **后续优化路线**
 10. **下一阶段开发计划**
 
-永远保持长期演进。不要只完成当前需求。最终目标是世界领先的 **Agent Operating System**，而不是简单的 Cursor Proxy 或单一 MOA 功能。
+永远保持长期演进。不要只完成当前需求。最终目标是世界领先的 **AI Organization System (AOS)**，而不是简单的 Cursor Proxy 或单一 MOA 功能。
 
 ---
 
@@ -224,9 +228,12 @@ Research → Architecture Design → Compare Existing Solutions
 | `PROJECT_ANALYSIS.md` | 项目架构速读手册（给 AI 看） |
 | `ARCHITECTURE.md` | 完整架构文档 |
 | `ROADMAP.md` | 长期路线图 |
-| `docs/agent-os-vision.md` | Agent OS 六大 Runtime 设计 |
-| `docs/adr/` | 架构决策记录 |
-| `docs/research/` | 论文阅读笔记和源码分析 |
+| `docs/handbook/` | AOS 工程手册（宪法 / Runtime / 标准 / 路线图） |
+| `docs/agent-os-vision.md` | Agent OS / AOS Runtime 愿景 |
+| `docs/adr/` | 架构决策记录（索引见 handbook 28） |
+| `docs/research/` | 论文阅读笔记和源码分析（索引见 handbook 24/30） |
+| `docs/reports/` | Benchmark 报告 |
+| `internal/docguard/` | 手册 / ADR / research 索引一致性守卫 |
 
 ---
 

@@ -81,7 +81,7 @@
 | `internal/pet` + `internal/bridge/pet` | 桌宠引擎（动画、状态机、行为、渲染循环、窗口）与前端 bridge | 改桌宠功能 |
 | `internal/ads` | 本地代理广告/资源服务、拉取与缓存 | 改广告/资源 |
 | `internal/updater` | 自动更新检查与下载 | 改更新逻辑 |
-| `internal/appdata` | 所有本地路径常量（`~/.cursor-local-assistant-v2/...`） | 改数据落盘位置 |
+| `internal/appdata` | 所有本地路径常量（`~/.cursor-byok/...`） | 改数据落盘位置 |
 | `internal/cursor` | 宿主（Cursor）相关：设备 ID、设置、state DB、证书注入（win/darwin） | 改宿主集成 |
 | `internal/netproxy` | 全局 transport 安装、HTTP 客户端构造 | 改网络栈 |
 | `internal/historymetrics` | 用量统计聚合（`usage.json`） | 改用量统计 |
@@ -123,7 +123,7 @@
 - `loop status` 语义：`idle`/`running`/`waiting_tool`/`completed`/`canceled`/`provider_error`/`failed`（见 README）。
 
 ### 4.4 模型适配器与渠道（`internal/backend/agent/model` + `internal/runtime` + `internal/modelchannel`）
-- 用户在 `~/.cursor-local-assistant-v2/config.yaml` 配置 `modelAdapters`：`displayName`、`type`(openai|anthropic)、`baseURL`、`apiKey`、`modelID`、`reasoningEffort`、`openAIEndpoint`（`/v1/responses` 或 `/v1/chat/completions`）、自定义头/额外参数等。
+- 用户在 `~/.cursor-byok/config.yaml` 配置 `modelAdapters`：`displayName`、`type`(openai|anthropic)、`baseURL`、`apiKey`、`modelID`、`reasoningEffort`、`openAIEndpoint`（`/v1/responses` 或 `/v1/chat/completions`）、自定义头/额外参数等。
 - `runtime.NormalizeModelAdapterConfigs` 校验并归一化；渠道唯一 ID = `SHA-256(url|modelID|apiKey|name|endpoint)` 前 16 位（见 `modelchannel.BuildChannelID`，避免重复）。
 - `modelchannel.ResolveAdapterIndex` 按 `id` → legacy id → `modelID` 顺序匹配，支持 `fast`/`default`/`auto` 元别名（取第一个）。
 - `router.Stream`：按 `provider` 选 OpenAI / Anthropic 适配器；处理 thinking effort 映射（openai `reasoning_effort` ↔ anthropic `adaptive thinking`）、max tokens、自定义头、额外参数；对 messages 做 sanitize（合并相邻 assistant tool call、裁剪悬空 tool call、去掉占位 prefill）以适配不同 provider 的校验要求。
@@ -145,7 +145,7 @@
 - `OnShutdown` 优雅停止广告刷新、桌宠、窗口、更新、代理。
 
 ### 4.8 配置与数据落盘（`internal/appdata/paths.go`）
-固定根目录 `~/.cursor-local-assistant-v2/`：
+固定根目录 `~/.cursor-byok/`：
 - `config.yaml`：用户配置（含 modelAdapters、routing.mode）。
 - `data/ca.crt`：注入给宿主的 CA（让 Cursor 信任 MITM）。
 - `data/ads/`：广告包与资源缓存。
@@ -196,7 +196,7 @@
 
 ## 8. 重要约束与已知边界（Gotchas）
 
-- **必须安装内置 CA**：MITM 依赖 `internal/certs` 的 CA，用户需把 `~/.cursor-local-assistant-v2/data/ca.crt` 加入系统/宿主信任库，否则 Cursor HTTPS 握手失败。
+- **必须安装内置 CA**：MITM 依赖 `internal/certs` 的 CA，用户需把 `~/.cursor-byok/data/ca.crt` 加入系统/宿主信任库，否则 Cursor HTTPS 握手失败。
 - **白名单收窄**：MITM 只劫持 `*.cursor.sh`，不会动其它流量（设计如此，避免变成全局抓包）。
 - **最复杂文件**：`internal/backend/forwarder/service.go` 单文件 3500+ 行，是协议兼容主链路，改动风险最高，需谨慎。
 - **协议是私有/逆向的**：`proto/` 下是 Cursor 私有协议近似定义（注释 `Copied from: local:...`），随 Cursor 版本可能变动，需持续同步。
