@@ -5,10 +5,6 @@ import {
   StartProxy,
   StopProxy,
 } from "@bindings/cursor/internal/bridge/proxyservice.js";
-import {
-  GetAdRuntime,
-  OpenExternalURL as OpenAdExternalURL,
-} from "@bindings/cursor/internal/bridge/adservice.js";
 import { GetHomeMetricsSummary, ResetHomeMetrics } from "@bindings/cursor/internal/bridge/metricsservice.js";
 import {
   CheckForUpdates,
@@ -21,6 +17,11 @@ import {
   OpenHistoryWindow,
   OpenModelConfigWindow,
   OpenModelEditorWindow,
+  TogglePetWindow,
+  IsPetWindowVisible,
+  OpenPetWindowIfClosed,
+  SwitchPet,
+  SetActivePet,
 } from "@bindings/cursor/internal/bridge/windowservice.js";
 import { Call } from "@wailsio/runtime";
 
@@ -80,16 +81,47 @@ export function getOptimizationCostSummary() {
   );
 }
 
+export function getAOSLastTraceSummary() {
+  return withApiLogging("GetAOSLastTraceSummary", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.GetAOSLastTraceSummary`),
+  );
+}
+export function getAOSExecutionTree(sessionID) {
+  return withApiLogging("GetAOSExecutionTree", { sessionID }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.GetAOSExecutionTree`, sessionID),
+  );
+}
+export function replayAOSTrace(sessionID) {
+  return withApiLogging("ReplayAOSTrace", { sessionID }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ReplayAOSTrace`, sessionID),
+  );
+}
+
+export function replayAOSNode(sessionID, nodeIndex) {
+  return withApiLogging("ReplayAOSNode", { sessionID, nodeIndex }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ReplayAOSNode`, sessionID, nodeIndex),
+  );
+}
+
+// recognizeAOSMembers asks the AOS Leader to read each member's name + prompt
+// and infer routing tags. Tags are written back into the in-memory team
+// profile; subsequent Leader planning reads only the short tags.
+export function recognizeAOSMembers() {
+  return withApiLogging("RecognizeAOSMembers", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.RecognizeAOSMembers`),
+  );
+}
+
+// fetchModelsFromProvider calls the upstream /v1/models endpoint for the
+// given provider config and returns { models: string[], error?: string }.
+export function fetchModelsFromProvider(baseURL, apiKey, type) {
+  return withApiLogging("FetchModelsFromProvider", { baseURL, type }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.FetchModelsFromProvider`, { baseURL, apiKey, type }),
+  );
+}
+
 export function resetHomeMetrics() {
   return withApiLogging("ResetHomeMetrics", undefined, () => ResetHomeMetrics());
-}
-
-export function getAdRuntime() {
-  return withApiLogging("GetAdRuntime", undefined, () => GetAdRuntime());
-}
-
-export function openAdExternalURL(url) {
-  return withApiLogging("OpenAdExternalURL", { url }, () => OpenAdExternalURL(url));
 }
 
 export function startProxyService() {
@@ -154,33 +186,76 @@ export function getModelAdapterTestResults() {
   );
 }
 
+// === Tool Runtime API ===
+
+export function listTools() {
+  return withApiLogging("ListTools", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ListTools`),
+  );
+}
+
+export function toggleTool(name, enabled) {
+  return withApiLogging("ToggleTool", { name, enabled }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ToggleTool`, name, enabled),
+  );
+}
+
+export function getToolCacheStats() {
+  return withApiLogging("GetToolCacheStats", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.GetToolCacheStats`),
+  );
+}
+export function getCacheStats() {
+  return withApiLogging("GetCacheStats", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.GetCacheStats`),
+  );
+}
+export function clearCache() {
+  return withApiLogging("ClearCache", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ClearCache`),
+  );
+}
+
+export function listMCPServers() {
+  return withApiLogging("ListMCPServers", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ListMCPServers`),
+  );
+}
+
+export function toggleMCPServer(server, enabled) {
+  return withApiLogging("ToggleMCPServer", { server, enabled }, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ToggleMCPServer`, server, enabled),
+  );
+}
+export function clearToolCache() {
+  return withApiLogging("ClearToolCache", undefined, () =>
+    Call.ByName(`${PROXY_SERVICE_NAME}.ClearToolCache`),
+  );
+}
 
 
 // === Pet Window API ===
-const WINDOW_SERVICE_TARGET = "cursor/internal/bridge.WindowService";
+// R1: 改用 windowservice.js 的强类型 ByID binding，原 Call.ByName 在
+// Wails v3 下因服务名映射缺失会静默 reject，导致桌宠开关完全无响应。
 
 export function togglePetWindow() {
-  return withApiLogging("TogglePetWindow", undefined, () =>
-    Call.ByName(`${WINDOW_SERVICE_TARGET}.TogglePetWindow`),
-  );
+  return withApiLogging("TogglePetWindow", undefined, () => TogglePetWindow());
 }
 
 export function isPetWindowVisible() {
-  return withApiLogging("IsPetWindowVisible", undefined, () =>
-    Call.ByName(`${WINDOW_SERVICE_TARGET}.IsPetWindowVisible`),
-  );
+  return withApiLogging("IsPetWindowVisible", undefined, () => IsPetWindowVisible());
+}
+
+export function openPetWindowIfClosed() {
+  return withApiLogging("OpenPetWindowIfClosed", undefined, () => OpenPetWindowIfClosed());
 }
 
 export function switchPet(petId) {
-  return withApiLogging("SwitchPet", { petId }, () =>
-    Call.ByName(`${WINDOW_SERVICE_TARGET}.SwitchPet`, petId),
-  );
+  return withApiLogging("SwitchPet", { petId }, () => SwitchPet(petId));
 }
 
 export function setActivePet(petId) {
-  return withApiLogging("SetActivePet", { petId }, () =>
-    Call.ByName(`${WINDOW_SERVICE_TARGET}.SetActivePet`, petId),
-  );
+  return withApiLogging("SetActivePet", { petId }, () => SetActivePet(petId));
 }
 
 // === Pet Service API ===

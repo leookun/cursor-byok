@@ -11,7 +11,8 @@ import {
   OPENAI_ENDPOINT_RESPONSES,
   OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
 } from "@/state/appState";
-import { computed, reactive, watch } from "vue";
+import { fetchModelsFromProvider } from "@/services/clientApi";
+import { computed, reactive, ref, watch } from "vue";
 
 const modelTypeOptions = [
   { label: "openai", value: "openai", icon: "icon-[bxl--openai]" },
@@ -90,6 +91,10 @@ function syncDraft() {
   if (!draft.type) {
     draft.type = "openai";
   }
+  // reset fetch state on each open
+  fetchedModels.value = [];
+  showModelPicker.value = false;
+  fetchModelsError.value = "";
 }
 
 watch(() => props.visible, (visible) => {
@@ -120,10 +125,55 @@ watch(() => draft.openAIExtraParamsEnabled, (enabled) => {
 
 function handleCancel() {
   emit("cancel");
+  fetchedModels.value = [];
+  showModelPicker.value = false;
 }
 
 function handleSave() {
   emit("save", normalizeModelAdapter(draft));
+}
+
+// === 获取模型 ===
+const fetchingModels = ref(false);
+const fetchedModels = ref([]);
+const showModelPicker = ref(false);
+const fetchModelsError = ref("");
+
+async function handleFetchModels() {
+  const baseURL = String(draft.baseURL || "").trim();
+  const apiKey = String(draft.apiKey || "").trim();
+  if (!baseURL || !apiKey) {
+    fetchModelsError.value = "请先填写 baseURL 和 apiKey";
+    return;
+  }
+  fetchingModels.value = true;
+  fetchModelsError.value = "";
+  fetchedModels.value = [];
+  showModelPicker.value = false;
+  try {
+    const res = await fetchModelsFromProvider(baseURL, apiKey, draft.type || "openai");
+    if (res.error) {
+      fetchModelsError.value = res.error;
+    } else {
+      fetchedModels.value = res.models || [];
+      showModelPicker.value = fetchedModels.value.length > 0;
+      if (fetchedModels.value.length === 0) {
+        fetchModelsError.value = "未获取到任何模型";
+      }
+    }
+  } catch (e) {
+    fetchModelsError.value = String(e?.message || e || "未知错误");
+  } finally {
+    fetchingModels.value = false;
+  }
+}
+
+function selectFetchedModel(modelID) {
+  draft.modelID = modelID;
+  if (!String(draft.displayName || "").trim()) {
+    draft.displayName = modelID;
+  }
+  showModelPicker.value = false;
 }
 </script>
 
@@ -155,14 +205,47 @@ function handleSave() {
                   />
                 </label>
 
-                <label class="flex flex-col gap-1">
-                  <span class="text-sm text-[#d4d4d4]">ModelID</span>
+                <!-- ModelID + 获取模型 -->
+                <div class="flex flex-col gap-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-[#d4d4d4]">ModelID</span>
+                    <button
+                      type="button"
+                      :disabled="fetchingModels"
+                      class="flex items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs text-[#10AD5D] transition hover:bg-[#10AD5D]/10 disabled:opacity-50"
+                      @click="handleFetchModels"
+                    >
+                      <span
+                        class="size-3"
+                        :class="fetchingModels ? 'icon-[mdi--loading] animate-spin' : 'icon-[mdi--cloud-download-outline]'"
+                      />
+                      {{ fetchingModels ? "获取中…" : "获取模型" }}
+                    </button>
+                  </div>
                   <input
                     v-model="draft.modelID"
                     type="text"
                     class="h-9 rounded-[6px] border border-[#3f3f3f] bg-[#232323] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
                   />
-                </label>
+                  <!-- 错误提示 -->
+                  <p v-if="fetchModelsError" class="text-xs text-[#f87171]">{{ fetchModelsError }}</p>
+                  <!-- 模型选择器 -->
+                  <div
+                    v-if="showModelPicker && fetchedModels.length > 0"
+                    class="max-h-48 overflow-y-auto rounded-[6px] border border-[#3f3f3f] bg-[#1e1e1e]"
+                  >
+                    <button
+                      v-for="m in fetchedModels"
+                      :key="m"
+                      type="button"
+                      class="flex w-full items-center gap-2 truncate px-3 py-1.5 text-left text-xs text-[#d4d4d4] transition hover:bg-[#10AD5D]/15 hover:text-white"
+                      @click="selectFetchedModel(m)"
+                    >
+                      <span class="icon-[mdi--cube-outline] size-3 shrink-0 text-[#10AD5D]" />
+                      {{ m }}
+                    </button>
+                  </div>
+                </div>
 
                 <label class="flex flex-col gap-1">
                   <span class="text-sm text-[#d4d4d4]">类型</span>

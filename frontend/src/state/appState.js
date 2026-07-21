@@ -1,868 +1,72 @@
 /**
- * appState.js — 应用全局状态管理 (1388 行)
+ * appState.js — Core reactive state definition, event wiring, and re-exports
  *
- * === 模块化 TODO ===
- * 理想结构是拆分为 6 个子模块（normalizers / configStore / modelAdapterOps /
- * serviceState / updateManager / appState），但因函数间交错依赖（如 persistConfigPayload
- * 同时引用 config 和 model normalizers）且缺少自动化测试覆盖，物理拆分风险较高。
- * 当前以注释头 + 分区标记组织，待有完整测试后再做物理拆分。
+ * This is the barrel file for the state module. It defines the reactive
+ * appState object, sets up event listeners and localStorage persistence,
+ * and re-exports everything from sub-modules for backward compatibility.
  *
- * === 文件结构 ===
- *
- *  [L23-54]   常量 & 事件名
- *  [L56-196]  §1 基础类型归一化 (as* / format* / normalize*）
- *  [L198-260] §2 模型测试结果归一化
- *  [L262-288] §3 模型适配器模板
- *  [L290-341] §4 模型端点 & JSON 校验
- *  [L343-481] §5 模型适配器归一化 & 批量校验
- *  [L483-611] §6 配置持久化辅助
- *  [L612-683] §7 配置保存核心流程
- *  [L684-699] §8 模型测试结果事件处理
- *  [L701-813] §9 更新状态归一化 & 事件处理
- *  [L815-822] §10 错误提取
- *  [L823-872] §11 顶层状态 appState
- *  [L873-972] §12 localStorage 持久化 & 事件监听
- *  [L973-1036]§13 视图计算状态 (appViewState / updateViewState)
- *  [L1041-1219]§14 模型适配器 CRUD + 测试
- *  [L1248-1339]§15 服务状态同步 & 控制
- *  [L1341-1372]§16 更新管理 & 启动入口
+ * Sub-modules:
+ *   utils.js              — Pure utility functions and constants
+ *   modelAdapter.js       — Model adapter normalization, validation, CRUD
+ *   modelAdapterTest.js   — Test result management
+ *   configPersistence.js  — Config normalization and persistence
+ *   serviceState.js       — Service state sync, update management, bootstrap
  */
-
 import { computed, reactive, watchSyncEffect } from "vue";
 import { Events } from "@wailsio/runtime";
-import { obfuscate, deobfuscate } from "@/utils/storageObfuscate";
-import { asString, asBoolean, asNumber, asArray, asPositiveInteger, asPositiveIntegerString, asNullableRate } from "@/utils/typeCast";
-import dayjs from "dayjs";
+import { obfuscate } from "@/utils/storageObfuscate";
+import { asBoolean, asString } from "@/utils/typeCast";
 import {
-  checkForUpdates,
-  getAppVersion,
-  getHomeMetricsSummary,
-  getModelAdapterTestResults,
-  getOptimizationCostSummary,
-  installReadyUpdate,
-  getProxyState,
-  openConfigWindow as openConfig,
-  loadUserConfig,
-  openLogsDirectory,
-  openModelConfig,
-  openModelEditor,
-  saveUserConfig,
-  startProxyService,
-  stopProxyService,
-  testModelAdapter,
-} from "@/services/clientApi";
+  APP_STATE_STORAGE_KEY,
+  createEmptyHomeMetrics,
+  canUseLocalStorage,
+  PROXY_STATE_EVENT,
+  USER_CONFIG_CHANGED_EVENT,
+  MODEL_ADAPTER_TEST_UPDATED_EVENT,
+  UPDATE_STATE_EVENT,
+  UPDATE_PROGRESS_EVENT,
+  UPDATE_READY_EVENT,
+  UPDATE_ERROR_EVENT,
+} from "./utils";
+import { formatReleaseDate } from "./utils";
+import { loadCachedState, normalizeConfig, buildConfigPayload, normalizeAOSConfig } from "./configPersistence";
+import {
+  handleProxyStateEvent,
+  handleUserConfigChangedEvent,
+  handleUpdateStateEvent,
+  handleUpdateProgressEvent,
+  handleUpdateReadyEvent,
+  handleUpdateErrorEvent,
+} from "./serviceState";
+import { handleModelAdapterTestUpdatedEvent } from "./modelAdapterTest";
 
-const APP_STATE_STORAGE_KEY = "cursor-client:runtime-state:v2";
-const GENERIC_SERVICE_ERROR = "服务错误";
-const SUPPORTED_MODEL_ADAPTER_TYPES = new Set(["openai", "anthropic"]);
-const SUPPORTED_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
-const SUPPORTED_ANTHROPIC_THINKING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
-export const ANTHROPIC_THINKING_EFFORT_DEFAULT = "xhigh";
-export const OPENAI_ENDPOINT_RESPONSES = "/v1/responses";
-export const OPENAI_ENDPOINT_CHAT_COMPLETIONS = "/v1/chat/completions";
-export const OPENAI_ENDPOINT_CUSTOM = "/custom";
-export const OPENAI_EXTRA_PARAMS_DEFAULT_JSON = `{
-  "service_tier": "priority"
-}`;
-export const EXTRA_PARAMS_DEFAULT_JSON = `{
-}`;
-export const CUSTOM_HEADERS_DEFAULT_JSON = `{
-}`;
-const SUPPORTED_OPENAI_ENDPOINTS = new Set([OPENAI_ENDPOINT_RESPONSES, OPENAI_ENDPOINT_CHAT_COMPLETIONS, OPENAI_ENDPOINT_CUSTOM]);
-const SUPPORTED_ROUTE_MODES = new Set(["local", "upstream"]);
-const SUPPORTED_QUALITY_TIERS = new Set(["fast", "balanced", "quality", "ultra"]);
-export const QUALITY_TIER_OPTIONS = [
-  { value: "fast", label: "Fast（低成本/低延迟）" },
-  { value: "balanced", label: "Balanced（默认）" },
-  { value: "quality", label: "Quality（偏质量）" },
-  { value: "ultra", label: "Ultra（最高质量）" },
-];
-const DEFAULT_OPTIMIZATION = {
-  enabled: true,
-  qualityTier: "balanced",
-  monthlyBudgetUSD: 50,
-};
-const PROXY_STATE_EVENT = "proxy:state";
-const USER_CONFIG_CHANGED_EVENT = "user-config:changed";
-const UPDATE_STATE_EVENT = "update:state";
-const UPDATE_PROGRESS_EVENT = "update:progress";
-const UPDATE_READY_EVENT = "update:ready";
-const UPDATE_ERROR_EVENT = "update:error";
-const MODEL_ADAPTER_TEST_UPDATED_EVENT = "model-adapter-test:updated";
-const SUPPORTED_MODEL_ADAPTER_TEST_STATUSES = new Set(["idle", "running", "success", "error"]);
-const HOME_METRICS_MIN_LOADING_MS = 600;
-
-export const ROUTE_MODE_OPTIONS = [
-  { label: "本地服务模式", value: "local" },
-  { label: "直连 Cursor 模式", value: "upstream" },
-];
-
-function formatReleaseDate(value) {
-  const text = asString(value);
-  if (!text) {
-    return "未知";
-  }
-  const parsed = dayjs(text);
-  if (!parsed.isValid()) {
-    return text;
-  }
-  return parsed.format("YYYY-MM-DD HH:mm");
-}
-
-function normalizeRouteMode(value, fallback = "local") {
-  const text = asString(value).toLowerCase();
-  if (SUPPORTED_ROUTE_MODES.has(text)) {
-    return text;
-  }
-  return fallback;
-}
-
-function normalizeBaseURL(value) {
-  const text = asString(value);
-  if (!text) {
-    return "";
-  }
-  try {
-    const parsed = new URL(text);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return "";
-    }
-    parsed.protocol = parsed.protocol.toLowerCase();
-    parsed.hostname = parsed.hostname.toLowerCase();
-    const normalized = parsed.toString().replace(/\/+$/, "");
-    return normalized || parsed.toString();
-  } catch (_error) {
-    return text;
-  }
-}
-
-function buildModelAdapterIdentityKey(adapter) {
-  return [
-    normalizeBaseURL(adapter.baseURL),
-    asString(adapter.modelID),
-    asString(adapter.apiKey),
-    asString(adapter.displayName),
-    adapter.type === "openai" ? normalizeOpenAIEndpoint(adapter.openAIEndpoint) : "",
-  ].join("\n");
-}
-
-function hashStringFNV32a(value) {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
-}
-
-export function buildModelAdapterTestRequestHash(source) {
-  const adapter = normalizeModelAdapter(source);
-  return hashStringFNV32a([
-    asString(adapter.type),
-    normalizeBaseURL(adapter.baseURL),
-    asString(adapter.apiKey),
-    asString(adapter.modelID),
-    adapter.type === "openai" ? asString(adapter.reasoningEffort || "medium") : "",
-    adapter.type === "openai" ? normalizeOpenAIEndpoint(adapter.openAIEndpoint) : "",
-    adapter.type === "openai" ? String(Boolean(adapter.openAIExtraParamsEnabled)) : "false",
-    adapter.type === "openai" && adapter.openAIExtraParamsEnabled ? asString(adapter.openAIExtraParamsJSON) : "",
-    String(Boolean(adapter.customHeadersEnabled)),
-    adapter.customHeadersEnabled ? asString(adapter.customHeadersJSON) : "",
-    adapter.type === "anthropic" ? String(Boolean(adapter.anthropicExtraParamsEnabled)) : "false",
-    adapter.type === "anthropic" && adapter.anthropicExtraParamsEnabled ? asString(adapter.anthropicExtraParamsJSON) : "",
-    String(asPositiveInteger(adapter.contextWindowTokens)),
-    String(asPositiveInteger(adapter.maxCompletionTokens)),
-    String(asPositiveInteger(adapter.anthropicMaxTokens)),
-    adapter.type === "anthropic" ? asString(adapter.anthropicThinkingEffort || ANTHROPIC_THINKING_EFFORT_DEFAULT) : "",
-  ].join("\n"));
-}
-
-export function formatDuration(value) {
-  const durationMS = Math.max(0, Math.round(asNumber(value)));
-  if (durationMS < 1000) {
-    return `${durationMS} ms`;
-  }
-  return `${(durationMS / 1000).toFixed(1)} s`;
-}
-
-function normalizeModelAdapterTestStatus(value) {
-  const text = asString(value).toLowerCase();
-  return SUPPORTED_MODEL_ADAPTER_TEST_STATUSES.has(text) ? text : "idle";
-}
-
-export function formatModelAdapterTestSummary(source) {
-  const result = source && typeof source === "object" ? source : {};
-  const status = normalizeModelAdapterTestStatus(result.status);
-  if (status === "running") {
-    return "测试中...";
-  }
-  if (status === "error") {
-    return asString(result.error) || "模型测试失败";
-  }
-  if (status !== "success") {
-    return "";
-  }
-  const roundedTPS = Math.max(0, Math.round(asNumber(result.tokensPerSecond)));
-  return `${roundedTPS} t/s | 首字 ${formatDuration(result.firstTextTokenMS)}`;
-}
-
-function normalizeModelAdapterTestResult(source) {
-  const raw = source && typeof source === "object" ? source : {};
-  const status = normalizeModelAdapterTestStatus(raw.status);
-  const normalized = {
-    adapterID: asString(raw.adapterID),
-    requestHash: asString(raw.requestHash),
-    status,
-    tokensPerSecond: Math.max(0, asNumber(raw.tokensPerSecond)),
-    firstTextTokenMS: Math.max(0, Math.round(asNumber(raw.firstTextTokenMS))),
-    totalDurationMS: Math.max(0, Math.round(asNumber(raw.totalDurationMS))),
-    outputTokens: Math.max(0, Math.round(asNumber(raw.outputTokens))),
-    tokensEstimated: asBoolean(raw.tokensEstimated),
-    summaryText: asString(raw.summaryText),
-    error: asString(raw.error),
-    rawResponse: asString(raw.rawResponse),
-    testedAt: asString(raw.testedAt),
-  };
-  if (!normalized.summaryText) {
-    normalized.summaryText = formatModelAdapterTestSummary(normalized);
-  }
-  if (status === "error" && !normalized.summaryText) {
-    normalized.summaryText = normalized.error || "模型测试失败";
-  }
-  return normalized;
-}
-
-function normalizeModelAdapterTestResults(source) {
-  const raw = source && typeof source === "object" && !Array.isArray(source)
-    ? source.results
-    : source;
-  return asArray(raw)
-    .map((item) => normalizeModelAdapterTestResult(item))
-    .filter((item) => item.adapterID);
-}
-
-export function createEmptyModelAdapter() {
-  return {
-    id: "",
-    displayName: "",
-    type: "openai",
-    baseURL: "",
-    apiKey: "",
-    tooltipData: "备注",
-    modelID: "",
-    reasoningEffort: "medium",
-    openAIEndpoint: OPENAI_ENDPOINT_RESPONSES,
-    openAIExtraParamsEnabled: false,
-    openAIExtraParamsJSON: OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
-    customHeadersEnabled: false,
-    customHeadersJSON: CUSTOM_HEADERS_DEFAULT_JSON,
-    anthropicExtraParamsEnabled: false,
-    anthropicExtraParamsJSON: EXTRA_PARAMS_DEFAULT_JSON,
-    contextWindowTokens: 0,
-    maxCompletionTokens: 0,
-    anthropicMaxTokens: 0,
-    anthropicThinkingEffort: ANTHROPIC_THINKING_EFFORT_DEFAULT,
-    thinkingBudgetTokens: 0,
-  };
-}
-
-// normalizeOpenAIEndpoint 归一化 endpoint 路径。
-// 支持三个预设值：/v1/responses、/v1/chat/completions、/custom（自定义路径）。
-// 选 /custom 时，用户需在接口地址栏填写完整请求 URL。
-function normalizeOpenAIEndpoint(value) {
-  const text = asString(value).toLowerCase();
-  if (!text) {
-    return OPENAI_ENDPOINT_RESPONSES;
-  }
-  return SUPPORTED_OPENAI_ENDPOINTS.has(text) ? text : "";
-}
-
-function isValidOpenAIEndpoint(value) {
-  return normalizeOpenAIEndpoint(value) !== "";
-}
-
-function validateJSONObject(value, label) {
-  const text = asString(value);
-  if (!text) {
-    return `${label}不能为空`;
-  }
-  try {
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return `${label}必须是 JSON 对象`;
-    }
-  } catch (_error) {
-    return `${label}必须是合法 JSON 对象`;
-  }
-  return "";
-}
-
-function validateHeadersJSON(value) {
-  const objectError = validateJSONObject(value, "自定义请求头 JSON");
-  if (objectError) {
-    return objectError;
-  }
-  const parsed = JSON.parse(asString(value));
-  for (const [key, item] of Object.entries(parsed)) {
-    if (!asString(key)) {
-      return "自定义请求头名称不能为空";
-    }
-    if (typeof item !== "string") {
-      return `自定义请求头 ${key} 的值必须是字符串`;
-    }
-  }
-  return "";
-}
-
-function validateOpenAIExtraParamsJSON(value) {
-  return validateJSONObject(value, "额外参数 JSON");
-}
-
-function validateAnthropicExtraParamsJSON(value) {
-  return validateJSONObject(value, "Anthropic 额外参数 JSON");
-}
-
-export function normalizeModelAdapter(source) {
-  const raw = source && typeof source === "object" ? source : {};
-  const normalizedType = asString(raw.type).toLowerCase();
-  const normalizedReasoningEffort = asString(raw.reasoningEffort || raw.reasoning_effort).toLowerCase();
-  const normalizedAnthropicThinkingEffort = asString(
-    raw.anthropicThinkingEffort
-      ?? raw.anthropic_thinking_effort
-      ?? raw.outputConfigEffort
-      ?? raw.output_config_effort,
-  ).toLowerCase();
-  const normalizedOpenAIEndpoint = normalizeOpenAIEndpoint(
-    raw.openAIEndpoint ?? raw.openaiEndpoint ?? raw.open_ai_endpoint ?? raw.endpoint,
-  );
-  const openAIExtraParamsEnabled = normalizedType === "openai"
-    ? asBoolean(raw.openAIExtraParamsEnabled ?? raw.openaiExtraParamsEnabled ?? raw.open_ai_extra_params_enabled)
-    : false;
-  const openAIExtraParamsJSON = normalizedType === "openai"
-    ? asString(raw.openAIExtraParamsJSON ?? raw.openaiExtraParamsJSON ?? raw.open_ai_extra_params_json) || OPENAI_EXTRA_PARAMS_DEFAULT_JSON
-    : "";
-  const customHeadersEnabled = asBoolean(raw.customHeadersEnabled ?? raw.custom_headers_enabled);
-  const customHeadersJSON = asString(raw.customHeadersJSON ?? raw.custom_headers_json) || CUSTOM_HEADERS_DEFAULT_JSON;
-  const anthropicExtraParamsEnabled = normalizedType === "anthropic"
-    ? asBoolean(raw.anthropicExtraParamsEnabled ?? raw.anthropic_extra_params_enabled)
-    : false;
-  const anthropicExtraParamsJSON = normalizedType === "anthropic"
-    ? asString(raw.anthropicExtraParamsJSON ?? raw.anthropic_extra_params_json) || EXTRA_PARAMS_DEFAULT_JSON
-    : "";
-  return {
-    id: asString(raw.id),
-    displayName: asString(raw.displayName || raw.name),
-    type: SUPPORTED_MODEL_ADAPTER_TYPES.has(normalizedType) ? normalizedType : "",
-    baseURL: normalizeBaseURL(raw.baseURL || raw.url),
-    apiKey: asString(raw.apiKey || raw.key),
-    tooltipData: asString(raw.tooltipData),
-    modelID: asString(raw.modelID),
-    reasoningEffort: SUPPORTED_REASONING_EFFORTS.has(normalizedReasoningEffort)
-      ? normalizedReasoningEffort
-      : "medium",
-    openAIEndpoint: normalizedType === "openai" ? normalizedOpenAIEndpoint : "",
-    openAIExtraParamsEnabled,
-    openAIExtraParamsJSON,
-    customHeadersEnabled,
-    customHeadersJSON,
-    anthropicExtraParamsEnabled,
-    anthropicExtraParamsJSON,
-    contextWindowTokens: asPositiveInteger(
-      raw.contextWindowTokens ?? raw.context_window_tokens ?? raw.maxInputTokens ?? raw.max_input_tokens,
-    ),
-    maxCompletionTokens: asPositiveInteger(
-      raw.maxCompletionTokens ?? raw.max_completion_tokens ?? raw.max_tokens ?? raw.max_token,
-    ),
-    anthropicMaxTokens: asPositiveInteger(
-      raw.anthropicMaxTokens ?? raw.anthropic_max_tokens ?? raw.max_tokens,
-    ),
-    anthropicThinkingEffort: normalizedType === "anthropic"
-      ? (SUPPORTED_ANTHROPIC_THINKING_EFFORTS.has(normalizedAnthropicThinkingEffort)
-        ? normalizedAnthropicThinkingEffort
-        : ANTHROPIC_THINKING_EFFORT_DEFAULT)
-      : "",
-    thinkingBudgetTokens: asPositiveInteger(
-      raw.thinkingBudgetTokens ?? raw.thinking_budget_tokens,
-    ),
-  };
-}
-
-export function normalizeModelAdapters(source) {
-  return asArray(source).map((item) => normalizeModelAdapter(item));
-}
-
-export function validateModelAdapters(source) {
-  const adapters = normalizeModelAdapters(source);
-  const seenIdentityKeys = new Set();
-  for (const [index, adapter] of adapters.entries()) {
-    const prefix = `模型 ${index + 1}`;
-    if (!adapter.displayName) {
-      return `${prefix} 的显示名称不能为空`;
-    }
-    if (!SUPPORTED_MODEL_ADAPTER_TYPES.has(adapter.type)) {
-      return `${prefix} 的类型仅支持 OpenAI 或 Anthropic`;
-    }
-    if (!adapter.baseURL) {
-      return `${prefix} 的接口地址不能为空`;
-    }
-    if (!adapter.apiKey) {
-      return `${prefix} 的访问密钥不能为空`;
-    }
-    if (!adapter.tooltipData) {
-      return `${prefix} 的悬停提示不能为空`;
-    }
-    if (!adapter.modelID) {
-      return `${prefix} 的模型标识不能为空`;
-    }
-    if (adapter.type === "openai" && !SUPPORTED_REASONING_EFFORTS.has(adapter.reasoningEffort)) {
-      return `${prefix} 的推理强度仅支持 low、medium、high、xhigh`;
-    }
-    if (adapter.type === "openai" && !isValidOpenAIEndpoint(adapter.openAIEndpoint)) {
-      return `${prefix} 的 OpenAI 端点仅支持 /v1/responses、/v1/chat/completions 或以 / 开头的自定义路径`;
-    }
-    if (adapter.type === "openai" && adapter.openAIExtraParamsEnabled) {
-      const extraParamsError = validateOpenAIExtraParamsJSON(adapter.openAIExtraParamsJSON);
-      if (extraParamsError) {
-        return `${prefix} 的 ${extraParamsError}`;
-      }
-    }
-    if (adapter.customHeadersEnabled) {
-      const customHeadersError = validateHeadersJSON(adapter.customHeadersJSON);
-      if (customHeadersError) {
-        return `${prefix} 的 ${customHeadersError}`;
-      }
-    }
-    if (adapter.type === "anthropic" && adapter.anthropicExtraParamsEnabled) {
-      const extraParamsError = validateAnthropicExtraParamsJSON(adapter.anthropicExtraParamsJSON);
-      if (extraParamsError) {
-        return `${prefix} 的 ${extraParamsError}`;
-      }
-    }
-    if (adapter.type === "anthropic" && !SUPPORTED_ANTHROPIC_THINKING_EFFORTS.has(adapter.anthropicThinkingEffort)) {
-      return `${prefix} 的 Anthropic 思考强度仅支持 low、medium、high、xhigh、max`;
-    }
-    if (adapter.contextWindowTokens && (!Number.isInteger(adapter.contextWindowTokens) || adapter.contextWindowTokens <= 0)) {
-      return `${prefix} 的上下文窗口必须为正整数`;
-    }
-    if (adapter.maxCompletionTokens && (!Number.isInteger(adapter.maxCompletionTokens) || adapter.maxCompletionTokens <= 0)) {
-      return `${prefix} 的最大输出 Token 必须为正整数`;
-    }
-    if (adapter.anthropicMaxTokens && (!Number.isInteger(adapter.anthropicMaxTokens) || adapter.anthropicMaxTokens <= 0)) {
-      return `${prefix} 的最大输出 Token 必须为正整数`;
-    }
-    if (adapter.thinkingBudgetTokens && (!Number.isInteger(adapter.thinkingBudgetTokens) || adapter.thinkingBudgetTokens <= 0)) {
-      return `${prefix} 的思考预算 Token 必须为正整数`;
-    }
-    const dedupeKey = buildModelAdapterIdentityKey(adapter);
-    if (seenIdentityKeys.has(dedupeKey)) {
-      return `模型渠道重复，请检查 url、modelID、apiKey、displayName、endpoint 组合`;
-    }
-    seenIdentityKeys.add(dedupeKey);
-  }
-  return "";
-}
-
-function validateConfigPayload(payload) {
-  if (!SUPPORTED_ROUTE_MODES.has(normalizeRouteMode(payload?.routing?.mode, ""))) {
-    return "运行模式仅支持 local 或 upstream";
-  }
-  return "";
-}
-
-function canUseLocalStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
-
-function delay(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, Math.max(0, ms));
-  });
-}
-
-function createEmptyHomeMetrics() {
-  return {
-    turnsTotal: 0,
-    validTurnsTotal: 0,
-    invalidTurnsTotal: 0,
-    requestTokensTotal: 0,
-    promptTokensTotal: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    cacheHitRate: null,
-  };
-}
-
-function loadCachedState() {
-  if (!canUseLocalStorage()) {
-    return {};
-  }
-
-  try {
-    const raw = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(deobfuscate(raw));
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return parsed;
-  } catch (_error) {
-    return {};
-  }
-}
-
-function normalizeQualityTier(value) {
-  const tier = asString(value).toLowerCase();
-  if (SUPPORTED_QUALITY_TIERS.has(tier)) {
-    return tier;
-  }
-  return DEFAULT_OPTIMIZATION.qualityTier;
-}
-
-function normalizeOptimization(source) {
-  const raw = source && typeof source === "object" ? source : {};
-  const budget = asNumber(raw.monthlyBudgetUSD);
-  return {
-    enabled: raw.enabled === undefined ? DEFAULT_OPTIMIZATION.enabled : asBoolean(raw.enabled),
-    qualityTier: normalizeQualityTier(raw.qualityTier),
-    monthlyBudgetUSD:
-      Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
-  };
-}
-
-function normalizeConfig(source) {
-  const raw = source && typeof source === "object" ? source : {};
-  const routing = raw.routing && typeof raw.routing === "object" ? raw.routing : {};
-  const homeMetrics = raw.homeMetrics && typeof raw.homeMetrics === "object" ? raw.homeMetrics : {};
-  const virtualModels =
-    raw.virtualModels && typeof raw.virtualModels === "object" ? raw.virtualModels : {};
-  return {
-    log: asBoolean(raw.log),
-    providerStreamIdleTimeout: asPositiveInteger(raw.providerStreamIdleTimeout),
-    backendListenAddr: asString(raw.configBackendListenAddr) || asString(raw.backendListenAddr),
-    proxyListenAddr: asString(raw.configProxyListenAddr) || asString(raw.proxyListenAddr),
-    modelAdapters: normalizeModelAdapters(raw.modelAdapters),
-    routing: {
-      mode: normalizeRouteMode(routing.mode),
-    },
-    homeMetrics: {
-      includeCacheWriteInHitRate: asBoolean(homeMetrics.includeCacheWriteInHitRate),
-    },
-    optimization: normalizeOptimization(raw.optimization),
-    virtualModels,
-    lastAgentModelHash: asString(raw.lastAgentModelHash),
-  };
-}
-
-function normalizeHomeMetrics(source) {
-  const raw = source && typeof source === "object" ? source : {};
-  const providerCallsTotal = asPositiveInteger(raw.providerCallsTotal ?? raw.turnsTotal);
-  return {
-    turnsTotal: providerCallsTotal,
-    validTurnsTotal: providerCallsTotal,
-    invalidTurnsTotal: 0,
-    requestTokensTotal: asPositiveInteger(raw.requestTokensTotal),
-    promptTokensTotal: asPositiveInteger(raw.promptTokensTotal),
-    cacheReadTokens: asPositiveInteger(raw.cacheReadTokens),
-    cacheWriteTokens: asPositiveInteger(raw.cacheWriteTokens),
-    cacheHitRate: asNullableRate(raw.cacheHitRate),
-  };
-}
-
-function applyHomeMetrics(raw) {
-  appState.homeMetrics = normalizeHomeMetrics(raw);
-  appState.homeMetricsError = "";
-}
-
-function buildConfigPayload(source = appState) {
-  const normalized = normalizeConfig({
-    ...source,
-    routing: { mode: source.routingMode ?? source.routing?.mode },
-    homeMetrics: {
-      includeCacheWriteInHitRate:
-        source.includeCacheWriteInHitRate ?? source.homeMetrics?.includeCacheWriteInHitRate,
-    },
-    optimization: {
-      enabled: source.optimizationEnabled ?? source.optimization?.enabled,
-      qualityTier: source.optimizationQualityTier ?? source.optimization?.qualityTier,
-      monthlyBudgetUSD: source.optimizationMonthlyBudgetUSD ?? source.optimization?.monthlyBudgetUSD,
-    },
-    virtualModels: source.virtualModels,
-    backendListenAddr: source.configBackendListenAddr || source.backendListenAddr,
-    proxyListenAddr: source.configProxyListenAddr || source.proxyListenAddr,
-  });
-  return {
-    log: normalized.log,
-    providerStreamIdleTimeout: normalized.providerStreamIdleTimeout,
-    backendListenAddr: normalized.backendListenAddr,
-    proxyListenAddr: normalized.proxyListenAddr,
-    modelAdapters: normalized.modelAdapters.map(({ id, ...adapter }) => adapter),
-    routing: normalized.routing,
-    homeMetrics: normalized.homeMetrics,
-    optimization: normalized.optimization,
-    virtualModels: normalized.virtualModels,
-    lastAgentModelHash: normalized.lastAgentModelHash,
-  };
-}
-
-function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
-  const normalized = normalizeConfig(config);
-  if (modelAdaptersOnly) {
-    appState.modelAdapters = normalized.modelAdapters;
-    return normalized;
-  }
-  appState.modelAdapters = normalized.modelAdapters;
-  appState.configBackendListenAddr = normalized.backendListenAddr;
-  appState.configProxyListenAddr = normalized.proxyListenAddr;
-  appState.routingMode = normalized.routing.mode;
-  appState.includeCacheWriteInHitRate = normalized.homeMetrics.includeCacheWriteInHitRate;
-  appState.optimizationEnabled = normalized.optimization.enabled;
-  appState.optimizationQualityTier = normalized.optimization.qualityTier;
-  appState.optimizationMonthlyBudgetUSD = normalized.optimization.monthlyBudgetUSD;
-  if (normalized.virtualModels) {
-    appState.virtualModels = normalized.virtualModels;
-  }
-  return normalized;
-}
-
-async function loadPersistedUserConfig() {
-  return normalizeConfig(await loadUserConfig());
-}
-
-async function persistConfigPayload(config, { modelAdaptersOnly = false } = {}) {
-  const payload = buildConfigPayload(config);
-  const configValidationError = validateConfigPayload(payload);
-  if (configValidationError) {
-    return {
-      ok: false,
-      error: configValidationError,
-    };
-  }
-  const validationError = validateModelAdapters(payload.modelAdapters);
-  if (validationError) {
-    return {
-      ok: false,
-      error: validationError,
-    };
-  }
-
-  appState.configSaving = true;
-  try {
-    await saveUserConfig(payload);
-    const persisted = await loadPersistedUserConfig();
-    applyConfigToState(persisted, { modelAdaptersOnly });
-    return {
-      ok: true,
-      error: "",
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: toUserError(error),
-    };
-  } finally {
-    appState.configSaving = false;
-  }
-}
-
-function applyProxyState(raw) {
-  const state = raw && typeof raw === "object" ? raw : {};
-  appState.backendRunning = asBoolean(state.backendRunning);
-  appState.proxyRunning = asBoolean(state.proxyRunning ?? state.running);
-  appState.serviceRunning = appState.proxyRunning;
-  appState.serviceLastError = asString(state.lastError);
-  appState.backendListenAddr = asString(state.backendListenAddr);
-  appState.proxyListenAddr = asString(state.proxyListenAddr || state.listenAddr);
-  appState.serviceListenAddr = appState.proxyListenAddr;
-  appState.cursorSettingsApplied = asBoolean(state.cursorSettingsApplied);
-  appState.netProxySource = asString(state.netProxySource);
-  appState.netProxyActive = asBoolean(state.netProxyActive);
-  appState.netProxyUsingSystem = asBoolean(state.netProxyUsingSystem);
-  appState.netProxyUsingEnv = asBoolean(state.netProxyUsingEnv);
-  appState.netProxyHttp = asString(state.netProxyHttp);
-  appState.netProxyHttps = asString(state.netProxyHttps);
-  appState.netProxyPacIgnored = asBoolean(state.netProxyPacIgnored);
-  appState.netProxyDescription = asString(state.netProxyDescription);
-}
-
-function handleProxyStateEvent(event) {
-  if (event?.data && typeof event.data === "object") {
-    applyProxyState(event.data);
-    return;
-  }
-  void syncServiceState().catch(() => {});
-}
-
-function handleUserConfigChangedEvent(event) {
-  if (event?.data && typeof event.data === "object") {
-    applyConfigToState(event.data);
-    return;
-  }
-  void reloadUserConfig().catch(() => {});
-}
-
-function applyModelAdapterTestResults(source) {
-  const next = {};
-  for (const result of normalizeModelAdapterTestResults(source)) {
-    next[result.adapterID] = result;
-  }
-  appState.modelAdapterTestResults = next;
-  return next;
-}
-
-function handleModelAdapterTestUpdatedEvent(event) {
-  if (event?.data) {
-    applyModelAdapterTestResults(event.data);
-    return;
-  }
-  void refreshModelAdapterTestResults().catch(() => {});
-}
-
-function normalizeUpdateState(value) {
-  const text = asString(value).toLowerCase();
-  if (["idle", "checking", "downloading", "ready", "installing", "error"].includes(text)) {
-    return text;
-  }
-  return "idle";
-}
-
-function applyUpdateSnapshot(raw) {
-  const data = raw && typeof raw === "object" ? raw : {};
-  const nextState = normalizeUpdateState(data.state ?? appState.updateState);
-  appState.updateState = nextState;
-
-  const version = asString(data.version);
-  if (version) {
-    appState.updateVersion = version;
-  } else if (nextState === "idle") {
-    appState.updateVersion = "";
-  }
-
-  const releaseDate = asString(data.releaseDate);
-  if (releaseDate) {
-    appState.updateReleaseDate = releaseDate;
-  } else if (nextState === "idle") {
-    appState.updateReleaseDate = "";
-  }
-
-  if (typeof data.releaseNotes === "string") {
-    appState.updateReleaseNotes = data.releaseNotes.replace(/\r\n/g, "\n");
-  } else if (nextState === "idle") {
-    appState.updateReleaseNotes = "";
-  }
-
-  if (typeof data.error === "string") {
-    appState.updateError = data.error.trim();
-  } else if (nextState !== "error") {
-    appState.updateError = "";
-  }
-
-  if (typeof data.message === "string") {
-    appState.updateMessage = data.message.trim();
-  } else if (!data.prompt) {
-    appState.updateMessage = "";
-  }
-
-  if (typeof data.downloaded === "number") {
-    appState.updateProgressDownloaded = data.downloaded;
-  } else if (nextState !== "downloading") {
-    appState.updateProgressDownloaded = 0;
-  }
-
-  if (typeof data.total === "number") {
-    appState.updateProgressTotal = data.total;
-  } else if (nextState !== "downloading") {
-    appState.updateProgressTotal = 0;
-  }
-
-  if (typeof data.percentage === "number") {
-    appState.updateProgressPercent = Math.max(0, Math.min(100, data.percentage));
-  } else if (nextState !== "downloading") {
-    appState.updateProgressPercent = 0;
-  }
-}
-
-function openUpdatePrompt(kind, payload = {}) {
-  appState.updatePromptKind = asString(kind) || "idle";
-  appState.updatePromptVisible = true;
-  appState.updatePromptBusy = false;
-  if (typeof payload.message === "string") {
-    appState.updateMessage = payload.message.trim();
-  }
-  if (typeof payload.error === "string") {
-    appState.updateError = payload.error.trim();
-  }
-}
-
-function handleUpdateStateEvent(event) {
-  const data = event?.data && typeof event.data === "object" ? event.data : {};
-  applyUpdateSnapshot(data);
-  if (asBoolean(data.prompt)) {
-    openUpdatePrompt(asString(data.promptKind) || "idle", data);
-  }
-}
-
-function handleUpdateProgressEvent(event) {
-  const data = event?.data && typeof event.data === "object" ? event.data : {};
-  applyUpdateSnapshot({
-    ...data,
-    state: "downloading",
-  });
-}
-
-function handleUpdateReadyEvent(event) {
-  const data = event?.data && typeof event.data === "object" ? event.data : {};
-  applyUpdateSnapshot({
-    ...data,
-    state: "ready",
-  });
-  if (data.prompt !== false) {
-    openUpdatePrompt("ready", data);
-  }
-}
-
-function handleUpdateErrorEvent(event) {
-  const data = event?.data && typeof event.data === "object" ? event.data : {};
-  applyUpdateSnapshot({
-    ...data,
-    state: "error",
-  });
-  if (asBoolean(data.prompt)) {
-    openUpdatePrompt("error", data);
-  }
-}
-
-function extractErrorMessage(error) {
-  if (typeof error === "string") {
-    return error.trim();
-  }
-  if (error && typeof error === "object") {
-    return asString(error.message) || asString(error.error);
-  }
-  return "";
-}
+// ===== Initialize from cached state =====
 
 const cachedState = loadCachedState();
 const cachedConfig = normalizeConfig(cachedState);
 
+// ===== Core Reactive State =====
+
 export const appState = reactive({
   appVersion: "",
   modelAdapters: cachedConfig.modelAdapters,
+  providers: cachedConfig.providers || [],
   modelAdapterTestResults: {},
   configBackendListenAddr: cachedConfig.backendListenAddr,
   configProxyListenAddr: cachedConfig.proxyListenAddr,
   routingMode: cachedConfig.routing.mode,
   includeCacheWriteInHitRate: cachedConfig.homeMetrics.includeCacheWriteInHitRate,
-  optimizationEnabled: cachedConfig.optimization?.enabled ?? DEFAULT_OPTIMIZATION.enabled,
-  optimizationQualityTier: cachedConfig.optimization?.qualityTier ?? DEFAULT_OPTIMIZATION.qualityTier,
+  optimizationEnabled: cachedConfig.optimization?.enabled ?? true,
+  optimizationQualityTier: cachedConfig.optimization?.qualityTier ?? "balanced",
   optimizationMonthlyBudgetUSD:
-    cachedConfig.optimization?.monthlyBudgetUSD ?? DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
+    cachedConfig.optimization?.monthlyBudgetUSD ?? 50,
   virtualModels: cachedConfig.virtualModels || {},
+  aosConfig: normalizeAOSConfig(cachedConfig.virtualModels?.aos),
+  aosRecognition: { members: [], error: "" },
   optimizationCost: {
-    enabled: DEFAULT_OPTIMIZATION.enabled,
-    qualityTier: DEFAULT_OPTIMIZATION.qualityTier,
-    monthlyBudgetUSD: DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
+    enabled: true,
+    qualityTier: "balanced",
+    monthlyBudgetUSD: 50,
     spentThisMonthUSD: 0,
     turnsThisMonth: 0,
     estimatedRemainingTurns: 0,
@@ -905,6 +109,8 @@ export const appState = reactive({
   updatePromptBusy: false,
 });
 
+// ===== localStorage Persistence =====
+
 watchSyncEffect(() => {
   if (!canUseLocalStorage()) {
     return;
@@ -938,6 +144,8 @@ watchSyncEffect(() => {
     // ignore local persistence failures
   }
 });
+
+// ===== Event Listeners =====
 
 watchSyncEffect((onCleanup) => {
   if (typeof window === "undefined") {
@@ -1009,6 +217,8 @@ watchSyncEffect((onCleanup) => {
   });
 });
 
+// ===== View Computed State =====
+
 export const appViewState = reactive({
   serviceStatusText: computed(() => {
     if (appState.proxyRunning && appState.backendRunning) {
@@ -1058,7 +268,7 @@ export const updateViewState = reactive({
           appState.updateReleaseNotes || "无更新说明",
         ].join("\n");
       case "error":
-        return appState.updateError || appState.updateMessage || GENERIC_SERVICE_ERROR;
+        return appState.updateError || appState.updateMessage || "服务错误";
       default:
         return appState.updateMessage || `当前已是最新版本（v${appState.appVersion || "..."}）。`;
     }
@@ -1072,362 +282,69 @@ export const updateViewState = reactive({
   promptShowCancel: computed(() => appState.updatePromptKind === "ready"),
 });
 
-export function getModelAdapterTestResultByID(adapterID) {
-  const id = asString(adapterID);
-  if (!id) {
-    return null;
-  }
-  return appState.modelAdapterTestResults[id] ?? null;
-}
+// ===== Re-exports =====
 
-export function getModelAdapterTestResult(adapter) {
-  const normalized = normalizeModelAdapter(adapter);
-  if (normalized.id && appState.modelAdapterTestResults[normalized.id]) {
-    return appState.modelAdapterTestResults[normalized.id];
-  }
-  const requestHash = buildModelAdapterTestRequestHash(normalized);
-  return Object.values(appState.modelAdapterTestResults).find((result) => result.requestHash === requestHash) ?? null;
-}
+// utils.js
+export {
+  ANTHROPIC_THINKING_EFFORT_DEFAULT,
+  OPENAI_ENDPOINT_RESPONSES,
+  OPENAI_ENDPOINT_CHAT_COMPLETIONS,
+  OPENAI_ENDPOINT_CUSTOM,
+  OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
+  EXTRA_PARAMS_DEFAULT_JSON,
+  CUSTOM_HEADERS_DEFAULT_JSON,
+  QUALITY_TIER_OPTIONS,
+  ROUTE_MODE_OPTIONS,
+  formatDuration,
+  toUserError,
+} from "./utils";
 
-export function isModelAdapterTestResultRunning(adapter) {
-  return getModelAdapterTestResult(adapter)?.status === "running";
-}
+// modelAdapter.js
+export {
+  buildModelAdapterTestRequestHash,
+  createEmptyModelAdapter,
+  normalizeModelAdapter,
+  normalizeModelAdapters,
+  validateModelAdapters,
+  saveModelAdapterAt,
+  deleteModelAdapterAt,
+  duplicateModelAdapterAt,
+} from "./modelAdapter";
 
-export function isModelAdapterTestResultStale(adapter, result) {
-  if (!result || !result.requestHash) {
-    return false;
-  }
-  return result.requestHash !== buildModelAdapterTestRequestHash(adapter);
-}
+// modelAdapterTest.js
+export {
+  formatModelAdapterTestSummary,
+  getModelAdapterTestResultByID,
+  getModelAdapterTestResult,
+  isModelAdapterTestResultRunning,
+  isModelAdapterTestResultStale,
+  refreshModelAdapterTestResults,
+  startModelAdapterTest,
+} from "./modelAdapterTest";
 
-export async function refreshModelAdapterTestResults() {
-  const results = await getModelAdapterTestResults();
-  applyModelAdapterTestResults(results);
-  return Object.values(appState.modelAdapterTestResults);
-}
+// configPersistence.js
+export {
+  persistUserConfig,
+  saveIncludeCacheWriteInHitRate,
+  saveRoutingMode,
+  reloadUserConfig,
+  saveAOSConfig,
+  recognizeAOSMembers,
+} from "./configPersistence";
 
-export function startModelAdapterTest(adapter) {
-  const normalized = normalizeModelAdapter(adapter);
-  return testModelAdapter(normalized).then((rawResult) => {
-    const result = normalizeModelAdapterTestResult(rawResult);
-    if (result.adapterID) {
-      appState.modelAdapterTestResults = {
-        ...appState.modelAdapterTestResults,
-        [result.adapterID]: result,
-      };
-    }
-    return result;
-  });
-}
-
-export async function persistUserConfig() {
-  const currentConfig = await loadPersistedUserConfig();
-  return persistConfigPayload({
-    ...currentConfig,
-    modelAdapters: normalizeModelAdapters(appState.modelAdapters),
-    routing: {
-      mode: appState.routingMode,
-    },
-    homeMetrics: {
-      ...currentConfig.homeMetrics,
-      includeCacheWriteInHitRate: appState.includeCacheWriteInHitRate,
-    },
-  });
-}
-
-export async function saveIncludeCacheWriteInHitRate(value) {
-  const currentConfig = await loadPersistedUserConfig();
-  const previousValue = appState.includeCacheWriteInHitRate;
-  const nextValue = asBoolean(value);
-  appState.includeCacheWriteInHitRate = nextValue;
-  const result = await persistConfigPayload({
-    ...currentConfig,
-    homeMetrics: {
-      ...currentConfig.homeMetrics,
-      includeCacheWriteInHitRate: nextValue,
-    },
-  });
-  if (!result.ok) {
-    appState.includeCacheWriteInHitRate = previousValue;
-  }
-  return result;
-}
-
-export async function saveRoutingMode(mode) {
-  const currentConfig = await loadPersistedUserConfig();
-  return persistConfigPayload({
-    ...currentConfig,
-    routing: {
-      mode: normalizeRouteMode(mode),
-    },
-  });
-}
-
-export async function reloadUserConfig(options = {}) {
-  const config = await loadPersistedUserConfig();
-  applyConfigToState(config, options);
-  return config;
-}
-
-export async function saveModelAdapterAt(index, adapter) {
-  const currentConfig = await loadPersistedUserConfig();
-  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters);
-  const nextAdapter = normalizeModelAdapter(adapter);
-  const targetIndex = index >= 0 && index < nextAdapters.length ? index : nextAdapters.length;
-
-  if (index >= 0 && index < nextAdapters.length) {
-    nextAdapters.splice(index, 1, nextAdapter);
-  } else {
-    nextAdapters.push(nextAdapter);
-  }
-
-  const result = await persistConfigPayload(
-    {
-      ...currentConfig,
-      modelAdapters: nextAdapters,
-    },
-    { modelAdaptersOnly: true },
-  );
-  if (!result.ok) {
-    return result;
-  }
-  return {
-    ...result,
-    index: targetIndex,
-    adapter: appState.modelAdapters[targetIndex] ?? null,
-  };
-}
-
-export async function deleteModelAdapterAt(index) {
-  const currentConfig = await loadPersistedUserConfig();
-  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters);
-
-  if (index < 0 || index >= nextAdapters.length) {
-    return {
-      ok: false,
-      error: "模型配置不存在，无法删除",
-    };
-  }
-
-  nextAdapters.splice(index, 1);
-
-  return persistConfigPayload(
-    {
-      ...currentConfig,
-      modelAdapters: nextAdapters,
-    },
-    { modelAdaptersOnly: true },
-  );
-}
-
-function splitDisplayNameSeed(value) {
-  const text = asString(value);
-  const match = text.match(/^(.*?)(?:\s*[-+](\d+))?$/);
-  if (!match) {
-    return { base: text || "模型", number: 0 };
-  }
-  const base = asString(match[1]) || "模型";
-  const number = match[2] ? Number(match[2]) : 0;
-  return { base, number: Number.isFinite(number) ? number : 0 };
-}
-
-function buildNextDisplayName(existingAdapters, sourceName) {
-  const { base } = splitDisplayNameSeed(sourceName);
-  let next = 1;
-  const taken = new Set(
-    normalizeModelAdapters(existingAdapters)
-      .map((adapter) => adapter.displayName)
-      .filter(Boolean),
-  );
-
-  while (taken.has(`${base}-${next}`)) {
-    next += 1;
-  }
-  return `${base}-${next}`;
-}
-
-export async function duplicateModelAdapterAt(index) {
-  const currentConfig = await loadPersistedUserConfig();
-  const nextAdapters = normalizeModelAdapters(currentConfig.modelAdapters);
-
-  if (index < 0 || index >= nextAdapters.length) {
-    return {
-      ok: false,
-      error: "模型配置不存在，无法复制",
-    };
-  }
-
-  const source = normalizeModelAdapter(nextAdapters[index]);
-  const duplicate = {
-    ...source,
-    id: "",
-    displayName: buildNextDisplayName(nextAdapters, source.displayName || source.modelID || "模型"),
-  };
-
-  nextAdapters.splice(index + 1, 0, duplicate);
-
-  return persistConfigPayload(
-    {
-      ...currentConfig,
-      modelAdapters: nextAdapters,
-    },
-    { modelAdaptersOnly: true },
-  );
-}
-
-export async function syncServiceState() {
-  const state = await getProxyState();
-  applyProxyState(state);
-  return state;
-}
-
-export async function syncHomeMetrics() {
-  const startedAt = Date.now();
-  appState.homeMetricsLoading = true;
-  try {
-    const summary = await getHomeMetricsSummary();
-    applyHomeMetrics(summary);
-    try {
-      const cost = await getOptimizationCostSummary();
-      if (cost && typeof cost === "object") {
-        appState.optimizationCost = {
-          enabled: asBoolean(cost.enabled),
-          qualityTier: normalizeQualityTier(cost.qualityTier),
-          monthlyBudgetUSD: asNumber(cost.monthlyBudgetUSD) || DEFAULT_OPTIMIZATION.monthlyBudgetUSD,
-          spentThisMonthUSD: Math.max(0, asNumber(cost.spentThisMonthUSD) || 0),
-          turnsThisMonth: Math.max(0, asPositiveInteger(cost.turnsThisMonth) || 0),
-          estimatedRemainingTurns: Math.max(0, asPositiveInteger(cost.estimatedRemainingTurns) || 0),
-        };
-      }
-    } catch (_costError) {
-      // Optimization 摘要为增强项，失败不影响主 metrics
-    }
-    return {
-      ok: true,
-      error: "",
-    };
-  } catch (error) {
-    appState.homeMetricsError = toUserError(error);
-    return {
-      ok: false,
-      error: appState.homeMetricsError,
-    };
-  } finally {
-    const elapsed = Date.now() - startedAt;
-    if (elapsed < HOME_METRICS_MIN_LOADING_MS) {
-      await delay(HOME_METRICS_MIN_LOADING_MS - elapsed);
-    }
-    appState.homeMetricsLoading = false;
-  }
-}
-
-export async function startService() {
-  if (appState.serviceBusy) {
-    return { ok: false, error: "服务状态更新中，请稍后再试" };
-  }
-  appState.serviceBusy = true;
-  try {
-    const saved = await persistUserConfig();
-    if (!saved.ok) {
-      return saved;
-    }
-    const state = await startProxyService();
-    applyProxyState(state);
-    return { ok: true, error: "" };
-  } catch (error) {
-    await syncServiceState().catch(() => {});
-    return { ok: false, error: toUserError(error) };
-  } finally {
-    appState.serviceBusy = false;
-  }
-}
-
-export async function stopService() {
-  if (appState.serviceBusy) {
-    return { ok: false, error: "服务状态更新中，请稍后再试" };
-  }
-  appState.serviceBusy = true;
-  try {
-    const state = await stopProxyService();
-    applyProxyState(state);
-    return { ok: true, error: "" };
-  } catch (error) {
-    await syncServiceState().catch(() => {});
-    return { ok: false, error: toUserError(error) };
-  } finally {
-    appState.serviceBusy = false;
-  }
-}
-
-export async function toggleService() {
-  if (appState.serviceRunning) {
-    return stopService();
-  }
-  return startService();
-}
-
-export async function openLocalLogsDirectory() {
-  await openLogsDirectory();
-}
-
-export async function openConfigWindow() {
-  await openConfig();
-}
-
-export async function openModelConfigWindow() {
-  await openModelConfig();
-}
-
-export async function openModelEditorWindow(index, adapter) {
-  const adapterJSON = JSON.stringify(normalizeModelAdapter(adapter));
-  await openModelEditor(index, adapterJSON);
-}
-
-export async function checkForAppUpdates() {
-  await checkForUpdates();
-}
-
-export function dismissUpdatePrompt() {
-  appState.updatePromptVisible = false;
-  appState.updatePromptBusy = false;
-}
-
-export async function confirmUpdatePrompt() {
-  if (appState.updatePromptKind !== "ready") {
-    dismissUpdatePrompt();
-    return;
-  }
-  if (appState.updatePromptBusy) {
-    return;
-  }
-  appState.updatePromptBusy = true;
-  try {
-    await installReadyUpdate();
-  } catch (error) {
-    appState.updatePromptBusy = false;
-    const message = toUserError(error);
-    appState.updateError = message;
-    openUpdatePrompt("error", { error: message });
-  }
-}
-
-export function toUserError(error) {
-  const message = extractErrorMessage(error);
-  return message || GENERIC_SERVICE_ERROR;
-}
-
-export async function bootstrapAppState() {
-  try {
-    await reloadUserConfig();
-  } catch (_error) {
-    // keep cached config if loading fails
-  }
-  await refreshModelAdapterTestResults().catch(() => {});
-  try {
-    appState.appVersion = await getAppVersion();
-  } catch (_error) {
-    appState.appVersion = "";
-  }
-  await syncServiceState().catch(() => {});
-  await syncHomeMetrics().catch(() => {});
-}
+// serviceState.js
+export {
+  syncServiceState,
+  syncHomeMetrics,
+  startService,
+  stopService,
+  toggleService,
+  openLocalLogsDirectory,
+  openConfigWindow,
+  openModelConfigWindow,
+  openModelEditorWindow,
+  checkForAppUpdates,
+  dismissUpdatePrompt,
+  confirmUpdatePrompt,
+  bootstrapAppState,
+} from "./serviceState";

@@ -3,7 +3,7 @@ import { reactive, watch } from "vue";
 const STORAGE_KEY = "cursor-pet:settings";
 
 const defaults = {
-  enabled: true,
+  enabled: false,
   scale: 0.3,
   opacity: 1.0,
   activePetId: "nezukocoder",
