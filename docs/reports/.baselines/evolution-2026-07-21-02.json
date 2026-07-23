@@ -1,0 +1,1012 @@
+{
+  "timestamp": "2026-07-21T22:09:35.4677598+08:00",
+  "durationMS": 423,
+  "diagnosis": {
+    "ok": false,
+    "findings": [
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: README.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 00_Project_Constitution.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 01_Project_Vision.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 02_Core_Principles.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 03_System_Architecture.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 04_Runtime_Architecture.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 05_Organization_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 06_Leader_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 07_Member_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 08_Workspace_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 09_Workflow_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 10_Context_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 11_Memory_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 12_Cache_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 13_Optimization_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 14_Tool_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 15_Streaming_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 16_Telemetry_Runtime.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 17_Frontend_Architecture.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 18_Backend_Architecture.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 19_Config_System.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 20_Virtual_Model.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 21_Team_Protocol.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 22_Prompt_Engineering.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 23_Context_Engineering.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 24_Research_Charter.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 25_Engineering_Standards.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 26_Testing_Standards.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 27_Benchmark.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 28_ADR_Guide.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 29_Roadmap.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "missing handbook chapter: 30_References.md"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 00_Project_Constitution.md: open E:\\cursor-byok-main\\docs\\handbook\\00_Project_Constitution.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 25_Engineering_Standards.md: open E:\\cursor-byok-main\\docs\\handbook\\25_Engineering_Standards.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "hard constraint markers missing from 00+25: ChannelService, non-nil, ModelAdapter, MITM"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "ChannelService production non-nil rule missing from 00+25"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read README.md: open E:\\cursor-byok-main\\docs\\handbook\\README.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 00_Project_Constitution.md: open E:\\cursor-byok-main\\docs\\handbook\\00_Project_Constitution.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 24_Research_Charter.md: open E:\\cursor-byok-main\\docs\\handbook\\24_Research_Charter.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 27_Benchmark.md: open E:\\cursor-byok-main\\docs\\handbook\\27_Benchmark.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 28_ADR_Guide.md: open E:\\cursor-byok-main\\docs\\handbook\\28_ADR_Guide.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 29_Roadmap.md: open E:\\cursor-byok-main\\docs\\handbook\\29_Roadmap.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "cannot read 30_References.md: open E:\\cursor-byok-main\\docs\\handbook\\30_References.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "writeback markers missing from process chapters: docs/research/, docs/adr/, docs/reports/, writeback"
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "read 28_ADR_Guide.md: open E:\\cursor-byok-main\\docs\\handbook\\28_ADR_Guide.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "docguard",
+        "message": "read 24_Research_Charter.md: open E:\\cursor-byok-main\\docs\\handbook\\24_Research_Charter.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "error",
+        "category": "code-path",
+        "message": "cannot read handbook dir: open E:\\cursor-byok-main\\docs\\handbook: The system cannot find the file specified."
+      },
+      {
+        "severity": "info",
+        "category": "roadmap",
+        "message": "cannot read 29_Roadmap.md: open E:\\cursor-byok-main\\docs\\handbook\\29_Roadmap.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "info",
+        "category": "report-index",
+        "message": "cannot read 27_Benchmark.md: open E:\\cursor-byok-main\\docs\\handbook\\27_Benchmark.md: The system cannot find the path specified."
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Organization Runtime: missing-from-matrix (path=internal/backend/virtualmodel/aos inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Context Runtime: missing-from-matrix (path=internal/backend/runtime/context inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Memory Runtime: missing-from-matrix (path=internal/backend/runtime/memory inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Cache Runtime: missing-from-matrix (path=internal/backend/runtime/cache inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Optimization Runtime: missing-from-matrix (path=internal/backend/runtime/optimize inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Tool Runtime: missing-from-matrix (path=internal/backend/runtime/tool inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Streaming Runtime: missing-from-matrix (path=internal/backend/runtime/streaming inferred=待建设 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Telemetry Runtime: missing-from-matrix (path=internal/backend/runtime/telemetry inferred=骨架就绪 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Workflow Runtime: missing-from-matrix (path=internal/backend/runtime/workflow inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Plugin Runtime: missing-from-matrix (path=internal/plugin inferred=框架就绪 handbook=\"\")"
+      },
+      {
+        "severity": "warning",
+        "category": "runtime-catalog",
+        "message": "Evolver Runtime: missing-from-matrix (path=internal/backend/runtime/evolver inferred=生产可用 handbook=\"\")"
+      },
+      {
+        "severity": "info",
+        "category": "foundation-table",
+        "message": "no foundation table path rows inventoried"
+      },
+      {
+        "severity": "info",
+        "category": "foundation-bullet",
+        "message": "bullet foundations consistent: 0 items across 4 chapters"
+      },
+      {
+        "severity": "info",
+        "category": "baseline-retention",
+        "message": "evolution snapshots within retention: 1/24"
+      },
+      {
+        "severity": "warning",
+        "category": "semantic-constraint",
+        "message": "runtime-efficiency-surfaces: missing efficiency surfaces: internal/backend/runtime/memory/runtime.go"
+      },
+      {
+        "severity": "info",
+        "category": "report-retention",
+        "message": "evolution markdown reports within retention: 1/40"
+      }
+    ],
+    "errors": 1,
+    "warnings": 58,
+    "infos": 6
+  },
+  "sediment": {
+    "adrs": [
+      {
+        "type": "adr",
+        "filename": "001-moa-as-virtualmodel-interface.md",
+        "path": "docs/adr/001-moa-as-virtualmodel-interface.md",
+        "adrId": "001"
+      },
+      {
+        "type": "adr",
+        "filename": "002-reuse-modeladapter-not-new-registry.md",
+        "path": "docs/adr/002-reuse-modeladapter-not-new-registry.md",
+        "adrId": "002"
+      },
+      {
+        "type": "adr",
+        "filename": "003-runtime-decorator-pattern.md",
+        "path": "docs/adr/003-runtime-decorator-pattern.md",
+        "adrId": "003"
+      },
+      {
+        "type": "adr",
+        "filename": "004-architecture-review-phase2.md",
+        "path": "docs/adr/004-architecture-review-phase2.md",
+        "adrId": "004"
+      },
+      {
+        "type": "adr",
+        "filename": "005-optimize-runtime-integration.md",
+        "path": "docs/adr/005-optimize-runtime-integration.md",
+        "adrId": "005"
+      },
+      {
+        "type": "adr",
+        "filename": "006-cache-runtime-integration.md",
+        "path": "docs/adr/006-cache-runtime-integration.md",
+        "adrId": "006"
+      },
+      {
+        "type": "adr",
+        "filename": "007-tool-runtime-integration.md",
+        "path": "docs/adr/007-tool-runtime-integration.md",
+        "adrId": "007"
+      },
+      {
+        "type": "adr",
+        "filename": "008-optimization-config-and-cost-summary.md",
+        "path": "docs/adr/008-optimization-config-and-cost-summary.md",
+        "adrId": "008"
+      },
+      {
+        "type": "adr",
+        "filename": "009-optimization-adapter-pool-and-budget-estimate.md",
+        "path": "docs/adr/009-optimization-adapter-pool-and-budget-estimate.md",
+        "adrId": "009"
+      },
+      {
+        "type": "adr",
+        "filename": "045-runtime-metric-baselines-and-regressions.md",
+        "path": "docs/adr/045-runtime-metric-baselines-and-regressions.md",
+        "adrId": "045"
+      },
+      {
+        "type": "adr",
+        "filename": "046-aos-subagent-orchestration.md",
+        "path": "docs/adr/046-aos-subagent-orchestration.md",
+        "adrId": "046"
+      }
+    ],
+    "researchNotes": [
+      {
+        "type": "research",
+        "filename": "aios-agent-os.md",
+        "path": "docs/research/aios-agent-os.md"
+      },
+      {
+        "type": "research",
+        "filename": "autogen-multi-agent.md",
+        "path": "docs/research/autogen-multi-agent.md"
+      },
+      {
+        "type": "research",
+        "filename": "awesome-lists-efficient-multiagent.md",
+        "path": "docs/research/awesome-lists-efficient-multiagent.md"
+      },
+      {
+        "type": "research",
+        "filename": "langgraph-state-machine.md",
+        "path": "docs/research/langgraph-state-machine.md"
+      },
+      {
+        "type": "research",
+        "filename": "memgpt-hierarchical-memory.md",
+        "path": "docs/research/memgpt-hierarchical-memory.md"
+      },
+      {
+        "type": "research",
+        "filename": "moa-together-ai.md",
+        "path": "docs/research/moa-together-ai.md"
+      },
+      {
+        "type": "research",
+        "filename": "runtime-metric-baselines-regressions.md",
+        "path": "docs/research/runtime-metric-baselines-regressions.md"
+      }
+    ],
+    "reports": [
+      {
+        "type": "report",
+        "filename": "2026-07-21-evolution-01.md",
+        "path": "docs/reports/2026-07-21-evolution-01.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase10_continuous_report.md",
+        "path": "docs/reports/optimization_phase10_continuous_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase1_architecture_report.md",
+        "path": "docs/reports/optimization_phase1_architecture_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase2_code_quality_report.md",
+        "path": "docs/reports/optimization_phase2_code_quality_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase3_wails_report.md",
+        "path": "docs/reports/optimization_phase3_wails_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase4_performance_report.md",
+        "path": "docs/reports/optimization_phase4_performance_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase5_architecture_report.md",
+        "path": "docs/reports/optimization_phase5_architecture_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase6_slim_report.md",
+        "path": "docs/reports/optimization_phase6_slim_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase7_security_report.md",
+        "path": "docs/reports/optimization_phase7_security_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase8_testing_report.md",
+        "path": "docs/reports/optimization_phase8_testing_report.md"
+      },
+      {
+        "type": "report",
+        "filename": "optimization_phase9_crossplatform_report.md",
+        "path": "docs/reports/optimization_phase9_crossplatform_report.md"
+      }
+    ],
+    "orphanResearch": [
+      "aios-agent-os.md",
+      "autogen-multi-agent.md",
+      "awesome-lists-efficient-multiagent.md",
+      "langgraph-state-machine.md",
+      "memgpt-hierarchical-memory.md",
+      "moa-together-ai.md"
+    ],
+    "orphanADR": [
+      "001",
+      "002",
+      "003",
+      "004",
+      "005",
+      "006",
+      "007",
+      "008",
+      "009",
+      "046"
+    ],
+    "totalArtifacts": 29
+  },
+  "tests": {
+    "ran": true,
+    "packages": [
+      {
+        "package": "./internal/docguard/",
+        "passed": true,
+        "durationMS": 178,
+        "output": "?   \tcursor/internal/docguard\t[no test files]\n"
+      },
+      {
+        "package": "./internal/backend/runtime/evolver/",
+        "passed": true,
+        "durationMS": 231,
+        "output": "?   \tcursor/internal/backend/runtime/evolver\t[no test files]\n"
+      }
+    ],
+    "passed": 2,
+    "failed": 0,
+    "durationMS": 410
+  },
+  "proposal": {
+    "priorities": [
+      {
+        "priority": 1,
+        "category": "fix",
+        "title": "Fix code-path error: cannot read handbook dir: open E:\\cursor-byok-main\\docs\\handbook: The system can...",
+        "rationale": "Hard constraint violation or broken reference must be resolved before next phase."
+      },
+      {
+        "priority": 2,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: README.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 3,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 00_Project_Constitution.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 4,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 01_Project_Vision.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 5,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 02_Core_Principles.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 6,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 03_System_Architecture.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 7,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 04_Runtime_Architecture.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 8,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 05_Organization_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 9,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 06_Leader_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 10,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 07_Member_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 11,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 08_Workspace_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 12,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 09_Workflow_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 13,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 10_Context_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 14,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 11_Memory_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 15,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 12_Cache_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 16,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 13_Optimization_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 17,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 14_Tool_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 18,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 15_Streaming_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 19,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 16_Telemetry_Runtime.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 20,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 17_Frontend_Architecture.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 21,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 18_Backend_Architecture.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 22,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 19_Config_System.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 23,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 20_Virtual_Model.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 24,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 21_Team_Protocol.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 25,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 22_Prompt_Engineering.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 26,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 23_Context_Engineering.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 27,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 24_Research_Charter.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 28,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 25_Engineering_Standards.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 29,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 26_Testing_Standards.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 30,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 27_Benchmark.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 31,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 28_ADR_Guide.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 32,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 29_Roadmap.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 33,
+        "category": "fix",
+        "title": "Resolve docguard drift: missing handbook chapter: 30_References.md",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 34,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 00_Project_Constitution.md: open E:\\cursor-byok-main\\docs\\handbook\\0...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 35,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 25_Engineering_Standards.md: open E:\\cursor-byok-main\\docs\\handbook\\...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 36,
+        "category": "fix",
+        "title": "Resolve docguard drift: hard constraint markers missing from 00+25: ChannelService, non-nil, ModelAdapte...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 37,
+        "category": "fix",
+        "title": "Resolve docguard drift: ChannelService production non-nil rule missing from 00+25",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 38,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read README.md: open E:\\cursor-byok-main\\docs\\handbook\\README.md: The sys...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 39,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 00_Project_Constitution.md: open E:\\cursor-byok-main\\docs\\handbook\\0...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 40,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 24_Research_Charter.md: open E:\\cursor-byok-main\\docs\\handbook\\24_Re...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 41,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 27_Benchmark.md: open E:\\cursor-byok-main\\docs\\handbook\\27_Benchmark...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 42,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 28_ADR_Guide.md: open E:\\cursor-byok-main\\docs\\handbook\\28_ADR_Guide...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 43,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 29_Roadmap.md: open E:\\cursor-byok-main\\docs\\handbook\\29_Roadmap.md:...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 44,
+        "category": "fix",
+        "title": "Resolve docguard drift: cannot read 30_References.md: open E:\\cursor-byok-main\\docs\\handbook\\30_Referenc...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 45,
+        "category": "fix",
+        "title": "Resolve docguard drift: writeback markers missing from process chapters: docs/research/, docs/adr/, docs...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 46,
+        "category": "fix",
+        "title": "Resolve docguard drift: read 28_ADR_Guide.md: open E:\\cursor-byok-main\\docs\\handbook\\28_ADR_Guide.md: Th...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 47,
+        "category": "fix",
+        "title": "Resolve docguard drift: read 24_Research_Charter.md: open E:\\cursor-byok-main\\docs\\handbook\\24_Research_...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 48,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Organization Runtime: missing-from-matrix (path=internal/backend/virtualmodel/ao...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 49,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Context Runtime: missing-from-matrix (path=internal/backend/runtime/context infe...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 50,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Memory Runtime: missing-from-matrix (path=internal/backend/runtime/memory inferr...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 51,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Cache Runtime: missing-from-matrix (path=internal/backend/runtime/cache inferred...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 52,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Optimization Runtime: missing-from-matrix (path=internal/backend/runtime/optimiz...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 53,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Tool Runtime: missing-from-matrix (path=internal/backend/runtime/tool inferred=\ufffd...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 54,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Streaming Runtime: missing-from-matrix (path=internal/backend/runtime/streaming ...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 55,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Telemetry Runtime: missing-from-matrix (path=internal/backend/runtime/telemetry ...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 56,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Workflow Runtime: missing-from-matrix (path=internal/backend/runtime/workflow in...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 57,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Plugin Runtime: missing-from-matrix (path=internal/plugin inferred=框架就绪 ...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 58,
+        "category": "fix",
+        "title": "Resolve runtime-catalog drift: Evolver Runtime: missing-from-matrix (path=internal/backend/runtime/evolver infe...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 59,
+        "category": "fix",
+        "title": "Resolve semantic-constraint drift: runtime-efficiency-surfaces: missing efficiency surfaces: internal/backend/runti...",
+        "rationale": "Handbook-code consistency is the foundation of the living document."
+      },
+      {
+        "priority": 60,
+        "category": "research",
+        "title": "Convert 6 orphaned research note(s) into ADRs",
+        "rationale": "Research without architectural decision is knowledge that hasn't sedimented into the project's decision record."
+      },
+      {
+        "priority": 61,
+        "category": "optimize",
+        "title": "Restore runtime efficiency surfaces (cache/tool/memory/optimize/forwarder)",
+        "rationale": "Evolution proposals prioritize measurable runtime efficiency evidence surfaces."
+      },
+      {
+        "priority": 62,
+        "category": "implement",
+        "title": "Plan next evolution cycle based on Roadmap priorities",
+        "rationale": "The constitution mandates: never stop after coding — proactively plan the next phase."
+      }
+    ]
+  },
+  "memory": {
+    "window": 1,
+    "examined": 12,
+    "warningTrend": [
+      58
+    ],
+    "errorTrend": [
+      1
+    ],
+    "artifactTrend": [
+      28
+    ],
+    "healthyStreak": 0,
+    "improving": false,
+    "worsening": false
+  },
+  "runtimeMetrics": {
+    "hasBaseline": true,
+    "current": {
+      "timestamp": "2026-07-21T14:09:35Z",
+      "hasCache": true,
+      "hasToolCache": false,
+      "hasOptimize": true
+    },
+    "baseline": {
+      "timestamp": "2026-07-21T14:09:30Z",
+      "hasCache": true,
+      "hasToolCache": false,
+      "hasOptimize": true
+    }
+  },
+  "writebackList": [
+    "28_ADR_Guide.md",
+    "24_Research_Charter.md",
+    "27_Benchmark.md",
+    "04_Runtime_Architecture.md"
+  ],
+  "taskPlan": {
+    "generatedAt": "2026-07-21T14:09:35.8908324Z",
+    "source": "proposal",
+    "summary": "Compiled 5 executable task(s) from proposal priorities",
+    "tasks": [
+      {
+        "id": "task-1",
+        "role": "docs",
+        "title": "Fix code-path error: cannot read handbook dir: open E:\\cursor-byok-main\\docs\\handbook: The system can...",
+        "category": "fix",
+        "priority": 1,
+        "rationale": "Hard constraint violation or broken reference must be resolved before next phase.",
+        "acceptance": "Handbook indexes/reports updated; evolver diagnose warnings for this drift cleared.",
+        "action": "auto-writeback"
+      },
+      {
+        "id": "task-2",
+        "role": "docs",
+        "title": "Resolve docguard drift: missing handbook chapter: README.md",
+        "category": "fix",
+        "priority": 2,
+        "rationale": "Handbook-code consistency is the foundation of the living document.",
+        "acceptance": "Handbook indexes/reports updated; evolver diagnose warnings for this drift cleared.",
+        "action": "auto-writeback"
+      },
+      {
+        "id": "task-3",
+        "role": "docs",
+        "title": "Resolve docguard drift: missing handbook chapter: 00_Project_Constitution.md",
+        "category": "fix",
+        "priority": 3,
+        "rationale": "Handbook-code consistency is the foundation of the living document.",
+        "acceptance": "Handbook indexes/reports updated; evolver diagnose warnings for this drift cleared.",
+        "action": "auto-writeback"
+      },
+      {
+        "id": "task-4",
+        "role": "docs",
+        "title": "Resolve docguard drift: missing handbook chapter: 01_Project_Vision.md",
+        "category": "fix",
+        "priority": 4,
+        "rationale": "Handbook-code consistency is the foundation of the living document.",
+        "acceptance": "Handbook indexes/reports updated; evolver diagnose warnings for this drift cleared.",
+        "action": "auto-writeback"
+      },
+      {
+        "id": "task-5",
+        "role": "docs",
+        "title": "Resolve docguard drift: missing handbook chapter: 02_Core_Principles.md",
+        "category": "fix",
+        "priority": 5,
+        "rationale": "Handbook-code consistency is the foundation of the living document.",
+        "acceptance": "Handbook indexes/reports updated; evolver diagnose warnings for this drift cleared.",
+        "action": "auto-writeback"
+      }
+    ]
+  }
+}

@@ -50,7 +50,7 @@ func TestNormalizeOpenAIEndpoint(t *testing.T) {
 		endpoint string
 		want     string
 	}{
-		{"openai", "", "/v1/responses"},
+		{"openai", "", "/v1/chat/completions"},
 		{"openai", "/v1/responses", "/v1/responses"},
 		{"openai", "/v1/chat/completions", "/v1/chat/completions"},
 		{"openai", "/custom", "/custom"},

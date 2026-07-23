@@ -17,6 +17,7 @@ import {
   appState,
   appViewState,
   saveRoutingMode,
+  saveOutboundProxy,
   syncHomeMetrics,
   syncServiceState,
   toUserError,
@@ -24,6 +25,12 @@ import {
 } from "@/state/appState";
 import { Events } from "@wailsio/runtime";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+
+const router = useRouter();
+function openModelConfig() {
+  router.push("/model-config");
+}
 
 const directModeEnabled = computed(() => appState.routingMode === "upstream");
 const message = useMessage();
@@ -85,6 +92,18 @@ async function handleDirectModeChange(enabled) {
     return;
   }
   message.success(enabled ? "已切换到直连 Cursor 模式" : "已切换到本地服务模式");
+}
+
+async function handleSaveOutboundProxy() {
+  const result = await saveOutboundProxy({
+    httpProxy: appState.outboundProxy.httpProxy,
+    httpsProxy: appState.outboundProxy.httpsProxy,
+  });
+  if (!result.ok) {
+    await showActionError("保存失败", result.error);
+    return;
+  }
+  message.success("出站代理已保存");
 }
 
 const petEnabled = computed({
@@ -220,6 +239,13 @@ function statusColor(pet) {
       @reset="handleResetMetrics"
     />
 
+    <div class="flex justify-end">
+      <Button variant="secondary" @click="openModelConfig">
+        <span class="icon-[mdi--cog-outline] text-[16px]"></span>
+        <span class="ml-1">模型配置</span>
+      </Button>
+    </div>
+
     <div class="rounded-[8px] bg-[#1e1e1e] p-4 flex flex-col gap-4">
       <!-- Section 1: 服务状态 -->
       <div class="flex items-start justify-between gap-4">
@@ -260,7 +286,49 @@ function statusColor(pet) {
       <!-- Divider 2 -->
       <div class="border-b border-[rgba(255,255,255,0.06)] mx-2"></div>
 
-      <!-- Section 3: 桌面宠物 -->
+      <!-- Section 3: 出站代理 -->
+      <div class="flex flex-col gap-3">
+        <div class="flex items-center gap-2">
+          <span class="icon-[mdi--server-network] text-[16px] text-[#a3a3a3]"></span>
+          <h2 class="text-base font-medium text-white">出站代理</h2>
+        </div>
+        <div class="text-xs text-[#a3a3a3]">配置出站 HTTP/HTTPS 代理，用于连接外部服务</div>
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs text-[#a3a3a3]">HTTP 代理</label>
+            <input
+              v-model="appState.outboundProxy.httpProxy"
+              type="text"
+              placeholder="http://127.0.0.1:7890"
+              class="h-9 rounded-[6px] border border-[#3f3f3f] bg-[#232323] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
+            />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs text-[#a3a3a3]">HTTPS 代理</label>
+            <input
+              v-model="appState.outboundProxy.httpsProxy"
+              type="text"
+              placeholder="http://127.0.0.1:7890"
+              class="h-9 rounded-[6px] border border-[#3f3f3f] bg-[#232323] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
+            />
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <Button
+            variant="primary"
+            :disabled="appState.configSaving"
+            @click="handleSaveOutboundProxy"
+          >
+            <span class="icon-[mdi--content-save] text-[14px]"></span>
+            <span class="ml-1">保存代理设置</span>
+          </Button>
+        </div>
+      </div>
+
+      <!-- Divider 3 -->
+      <div class="border-b border-[rgba(255,255,255,0.06)] mx-2"></div>
+
+      <!-- Section 4: 桌面宠物 -->
       <div class="flex items-center justify-between gap-4">
         <div>
           <h2 class="text-base font-medium text-white">桌面宠物</h2>

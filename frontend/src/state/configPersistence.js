@@ -47,6 +47,14 @@ function normalizeOptimization(source) {
   };
 }
 
+function normalizeOutboundProxy(source) {
+  const raw = source && typeof source === "object" ? source : {};
+  return {
+    httpProxy: asString(raw.httpProxy),
+    httpsProxy: asString(raw.httpsProxy),
+  };
+}
+
 export function normalizeConfig(source) {
   const raw = source && typeof source === "object" ? source : {};
   const routing = raw.routing && typeof raw.routing === "object" ? raw.routing : {};
@@ -69,6 +77,7 @@ export function normalizeConfig(source) {
     optimization: normalizeOptimization(raw.optimization),
     virtualModels,
     lastAgentModelHash: asString(raw.lastAgentModelHash),
+    outboundProxy: normalizeOutboundProxy(raw.outboundProxy),
   };
 }
 
@@ -149,6 +158,7 @@ export function buildConfigPayload(source = appState) {
     optimization: normalized.optimization,
     virtualModels: normalized.virtualModels,
     lastAgentModelHash: normalized.lastAgentModelHash,
+    outboundProxy: normalized.outboundProxy,
   };
 }
 
@@ -171,6 +181,7 @@ export function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
   if (normalized.virtualModels) {
     appState.virtualModels = normalized.virtualModels;
   }
+  appState.outboundProxy = normalized.outboundProxy;
   appState.aosConfig = normalizeAOSConfig(normalized.virtualModels?.aos);
   return normalized;
 }
@@ -230,6 +241,7 @@ export async function persistUserConfig() {
       ...currentConfig.homeMetrics,
       includeCacheWriteInHitRate: appState.includeCacheWriteInHitRate,
     },
+    outboundProxy: appState.outboundProxy,
   });
 }
 
@@ -259,6 +271,21 @@ export async function saveRoutingMode(mode) {
       mode: normalizeRouteMode(mode),
     },
   });
+}
+
+export async function saveOutboundProxy(proxy) {
+  const currentConfig = await loadPersistedUserConfig();
+  const nextProxy = normalizeOutboundProxy(proxy);
+  const previousProxy = appState.outboundProxy;
+  appState.outboundProxy = nextProxy;
+  const result = await persistConfigPayload({
+    ...currentConfig,
+    outboundProxy: nextProxy,
+  });
+  if (!result.ok) {
+    appState.outboundProxy = previousProxy;
+  }
+  return result;
 }
 
 export async function reloadUserConfig(options = {}) {

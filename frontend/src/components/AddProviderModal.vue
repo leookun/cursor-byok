@@ -2,12 +2,22 @@
 import Button from "@/components/ui/Button.vue";
 import Select from "@/components/ui/Select.vue";
 import { fetchModelsFromProvider } from "@/services/clientApi";
-import { createEmptyModelAdapter, normalizeModelAdapter } from "@/state/appState";
+import {
+  createEmptyModelAdapter,
+  normalizeModelAdapter,
+  OPENAI_ENDPOINT_CHAT_COMPLETIONS,
+  OPENAI_ENDPOINT_RESPONSES,
+} from "@/state/appState";
 import { reactive, ref, watch } from "vue";
 
 const modelTypeOptions = [
   { label: "openai", value: "openai", icon: "icon-[bxl--openai]" },
   { label: "anthropic", value: "anthropic", icon: "icon-[logos--claude-icon]" },
+];
+
+const openAIEndpointOptions = [
+  { label: "/v1/chat/completions", value: OPENAI_ENDPOINT_CHAT_COMPLETIONS, icon: "icon-[mdi--message-text-outline]" },
+  { label: "/v1/responses", value: OPENAI_ENDPOINT_RESPONSES, icon: "icon-[mdi--api]" },
 ];
 
 const props = defineProps({
@@ -16,7 +26,7 @@ const props = defineProps({
 
 const emit = defineEmits(["cancel", "save"]);
 
-const form = reactive({ baseURL: "", keys: [], type: "openai", name: "" });
+const form = reactive({ baseURL: "", keys: [], type: "openai", name: "", openAIEndpoint: OPENAI_ENDPOINT_CHAT_COMPLETIONS });
 const newKeyInput = ref("");
 const fetchingModels = ref(false);
 const fetchedModels = ref([]);
@@ -31,6 +41,7 @@ watch(
       form.keys = [];
       form.type = "openai";
       form.name = "";
+      form.openAIEndpoint = OPENAI_ENDPOINT_CHAT_COMPLETIONS;
       newKeyInput.value = "";
       fetchedModels.value = [];
       selectedModels.value = new Set();
@@ -63,8 +74,7 @@ function maskSecret(value) {
 
 async function handleFetchModels() {
   const baseURL = form.baseURL.trim();
-  const apiKey = form.keys[0] || "";
-  if (!baseURL || !apiKey) {
+  if (!baseURL || form.keys.length === 0) {
     fetchError.value = "请填写 baseURL 和至少一个 API Key";
     return;
   }
@@ -73,18 +83,34 @@ async function handleFetchModels() {
   fetchedModels.value = [];
   selectedModels.value = new Set();
   try {
-    const res = await fetchModelsFromProvider(baseURL, apiKey, form.type);
-    if (res.error) {
-      fetchError.value = res.error;
-    } else {
-      fetchedModels.value = res.models || [];
-      selectedModels.value = new Set(fetchedModels.value);
-      if (fetchedModels.value.length === 0) {
-        fetchError.value = "Provider 未返回任何模型";
+    const results = await Promise.allSettled(
+      form.keys.map((key) => fetchModelsFromProvider(baseURL, key, form.type)),
+    );
+    const seen = new Set();
+    const errors = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        const res = r.value;
+        if (res?.error) {
+          errors.push(res.error);
+        } else if (Array.isArray(res?.models)) {
+          for (const m of res.models) {
+            if (!seen.has(m)) {
+              seen.add(m);
+              fetchedModels.value.push(m);
+            }
+          }
+        }
+      } else {
+        errors.push(String(r.reason?.message || r.reason || "获取失败"));
       }
     }
-  } catch (e) {
-    fetchError.value = String(e?.message || e || "获取失败");
+    if (fetchedModels.value.length === 0 && errors.length > 0) {
+      fetchError.value = errors.join("; ");
+    } else if (fetchedModels.value.length === 0) {
+      fetchError.value = "Provider 未返回任何模型";
+    }
+    selectedModels.value = new Set(fetchedModels.value);
   } finally {
     fetchingModels.value = false;
   }
@@ -122,9 +148,10 @@ function handleSave() {
           baseURL,
           apiKey: primaryKey,
           type: form.type,
+          openAIEndpoint: form.openAIEndpoint,
         }),
       )
-    : [normalizeModelAdapter({ ...createEmptyModelAdapter(), baseURL, apiKey: primaryKey, type: form.type })];
+    : [normalizeModelAdapter({ ...createEmptyModelAdapter(), baseURL, apiKey: primaryKey, type: form.type, openAIEndpoint: form.openAIEndpoint })];
 
   // Attach provider-level multi-key info for the save handler.
   adapters.forEach((a) => { a._providerKeys = form.keys; a._providerName = form.name.trim(); });
@@ -160,6 +187,11 @@ function handleCancel() {
                 <label class="flex flex-col gap-1">
                   <span class="text-sm text-[#d4d4d4]">类型</span>
                   <Select v-model="form.type" :options="modelTypeOptions" />
+                </label>
+
+                <label v-if="form.type === 'openai'" class="flex flex-col gap-1">
+                  <span class="text-sm text-[#d4d4d4]">接口</span>
+                  <Select v-model="form.openAIEndpoint" :options="openAIEndpointOptions" />
                 </label>
 
                 <label class="flex flex-col gap-1">

@@ -5,6 +5,7 @@ import (
 
 	"cursor/internal/appdata"
 	serverconfig "cursor/internal/backend/server/config"
+	"cursor/internal/netproxy"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -105,6 +106,11 @@ func (s *ProxyService) SaveUserConfig(cfg UserConfig) error {
 		return err
 	}
 	s.emitUserConfigChanged(normalized)
+	// Re-apply the outbound proxy override immediately at the save site so
+	// netproxy stays in sync even if the Wails event listener in runner.go
+	// is delayed or not yet registered (e.g. during early startup). This is
+	// idempotent with the runner.go EventUserConfigChanged listener.
+	netproxy.SetManualProxy(normalized.OutboundProxy.HTTPProxy, normalized.OutboundProxy.HTTPSProxy)
 	return nil
 }
 

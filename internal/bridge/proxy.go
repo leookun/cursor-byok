@@ -6,6 +6,7 @@ import (
 	"cursor/internal/certs"
 	"cursor/internal/client"
 	"cursor/internal/mitm"
+	"log"
 	"runtime"
 	"sync"
 )
@@ -51,9 +52,11 @@ type UsageRecordsResult = client.UsageRecordsResult
 type ProxyService struct {
 	// core 表示当前声明中的 core。
 	core *client.ProxyService
-	// onCursorActivity 是可选的 Cursor 请求活动回调。
+	// onCursorActivity 是可选的 Cursor 请求活动回调列表（多订阅）。
+	// 之前是单槽 func，第二次 SetCursorActivityCallback 会覆盖第一次的回调，
+	// 导致 MITM → PetService FSM 链路被前端事件回调截断。改为切片支持多订阅。
 	onCursorActivityMu sync.RWMutex
-	onCursorActivity   func(method, path string)
+	onCursorActivity   []func(method, path string)
 }
 
 // NewProxyService 用于处理与 NewProxyService 相关的逻辑。
@@ -223,19 +226,32 @@ func (s *ProxyService) BackendHost() *backend.Host {
 }
 
 // SetCursorActivityCallback 注册 Cursor 请求活动回调（供 PetService 使用）。
+// 支持多订阅：每次调用追加一个回调，不会覆盖先前注册的回调。
+// 这样 runner 可以同时把活动信号接到 PetService FSM 和 Wails 前端事件。
 func (s *ProxyService) SetCursorActivityCallback(fn func(method, path string)) {
 	s.onCursorActivityMu.Lock()
 	defer s.onCursorActivityMu.Unlock()
-	s.onCursorActivity = fn
+	s.onCursorActivity = append(s.onCursorActivity, fn)
 }
 
 // FireCursorActivity 触发活动回调（供 mitm 层或 runner 调用）。
+// 按注册顺序同步调用所有回调；任一回调 panic 不会中断后续回调。
 func (s *ProxyService) FireCursorActivity(method, path string) {
 	s.onCursorActivityMu.RLock()
-	fn := s.onCursorActivity
+	fns := s.onCursorActivity
 	s.onCursorActivityMu.RUnlock()
-	if fn != nil {
-		fn(method, path)
+	for _, fn := range fns {
+		if fn == nil {
+			continue
+		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[bridge] onCursorActivity callback panic recovered: %v", r)
+				}
+			}()
+			fn(method, path)
+		}()
 	}
 }
 

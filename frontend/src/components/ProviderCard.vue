@@ -1,7 +1,7 @@
 <script setup>
 import InputModal from "@/components/ui/InputModal.vue";
 import { appState, persistUserConfig } from "@/state/appState";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps({
   provider: {
@@ -18,6 +18,22 @@ const showAddKey = ref(false);
 const newKeyValue = ref("");
 const isEditingName = ref(false);
 const editingName = ref("");
+const showAllKeys = ref(false);
+
+const allKeys = computed(() => {
+  const keysFromProvider = props.provider.keys || [];
+  const adapterKeys = (props.provider.models || [])
+    .map((m) => m.apiKey)
+    .filter(Boolean);
+  const merged = [...new Set([...keysFromProvider, ...adapterKeys])];
+  const seen = new Set();
+  return merged.filter((k) => {
+    const t = String(k || "").trim();
+    if (!t || seen.has(t)) return false;
+    seen.add(t);
+    return true;
+  });
+});
 
 function maskSecret(value) {
   const text = String(value || "").trim();
@@ -170,7 +186,7 @@ async function saveProviderName() {
     <div class="flex flex-col gap-1.5">
       <div class="flex items-center justify-between">
         <span class="text-[11px] uppercase tracking-[0.08em] text-[#555]">
-          API Keys
+          API Keys ({{ allKeys.length }})
         </span>
         <button
           type="button"
@@ -183,26 +199,51 @@ async function saveProviderName() {
           <span>添加</span>
         </button>
       </div>
-      <div class="flex flex-col gap-1">
+
+      <!-- Collapsed: show first key + count -->
+      <div
+        v-if="!showAllKeys && allKeys.length > 0"
+        class="flex cursor-pointer items-center gap-2 rounded-[5px] bg-[#1c1c1c] px-2.5 py-1.5"
+        @click.stop="showAllKeys = true"
+      >
+        <span class="flex-1 truncate font-mono text-xs text-[#d4d4d4]">{{
+          maskSecret(allKeys[0])
+        }}</span>
+        <span v-if="allKeys.length > 1" class="text-[10px] text-[#10AD5D]"
+          >+{{ allKeys.length - 1 }}</span
+        >
+        <span class="icon-[mdi--chevron-down] text-[12px] text-[#555]" />
+      </div>
+
+      <!-- Expanded: show all keys -->
+      <div v-if="showAllKeys" class="flex flex-col gap-1">
         <div
-          v-for="(k, i) in (provider.keys || [provider.apiKey])"
+          v-for="(k, i) in allKeys"
           :key="i"
           class="flex items-center justify-between gap-2 rounded-[5px] bg-[#1c1c1c] px-2.5 py-1.5"
         >
-          <span class="truncate font-mono text-xs text-[#d4d4d4]">
-            {{ maskSecret(k) }}
-          </span>
+          <span class="truncate font-mono text-xs text-[#d4d4d4]">{{
+            maskSecret(k)
+          }}</span>
           <button
-            v-if="(provider.keys || []).length > 1"
+            v-if="allKeys.length > 1"
             type="button"
             :disabled="disabled"
-            class="shrink-0 rounded p-0.5 text-[#555] opacity-0 transition hover:bg-[#3a1212] hover:text-[#f87171] group-hover:opacity-100 disabled:pointer-events-none"
+            class="shrink-0 rounded p-0.5 text-[#555] transition hover:bg-[#3a1212] hover:text-[#f87171]"
             title="移除该 Key"
             @click.stop="handleRemoveKey(i)"
           >
             <span class="icon-[mdi--close] text-[13px]" />
           </button>
         </div>
+        <!-- Collapse button -->
+        <button
+          type="button"
+          class="self-end rounded-[4px] px-1.5 py-0.5 text-[10px] text-[#555] hover:text-[#a3a3a3]"
+          @click.stop="showAllKeys = false"
+        >
+          <span class="icon-[mdi--chevron-up] text-[11px]" /> 收起
+        </button>
       </div>
     </div>
 

@@ -129,6 +129,15 @@ type PluginConfig struct {
 	DataDir string `json:"dataDir,omitempty" yaml:"dataDir,omitempty"`
 }
 
+// OutboundProxyConfig configures the manual outbound proxy override used by
+// the netproxy resolver (internal/netproxy). Both fields are optional. When
+// both are empty, the resolver falls back to environment/system proxy
+// detection. See NormalizeOutboundProxyConfig for the canonicalization rules.
+type OutboundProxyConfig struct {
+	HTTPProxy  string `json:"httpProxy" yaml:"httpProxy"`
+	HTTPSProxy string `json:"httpsProxy" yaml:"httpsProxy"`
+}
+
 // ModelInProviderConfig is a model entry inside a ProviderConfig.
 // It excludes baseURL/apiKey/type which are inherited from the provider.
 type ModelInProviderConfig struct {
@@ -175,6 +184,7 @@ type Config struct {
 	LastAgentModelHash        string                  `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
 	VirtualModels             VirtualModelsConfig     `json:"virtualModels" yaml:"virtualModels"`
 	EvolverBackground         EvolverBackgroundConfig `json:"evolverBackground" yaml:"evolverBackground"`
+	OutboundProxy            OutboundProxyConfig     `json:"outboundProxy" yaml:"outboundProxy"`
 	Plugin                    PluginConfig            `json:"plugin" yaml:"plugin"`
 }
 
@@ -194,8 +204,15 @@ func DefaultConfig() Config {
 			MonthlyBudgetUSD: DefaultOptimizationMonthlyBudget,
 		},
 		EvolverBackground: DefaultEvolverBackgroundConfig(),
+		OutboundProxy:     DefaultOutboundProxyConfig(),
 		Plugin:            DefaultPluginConfig(),
 	}
+}
+
+// DefaultOutboundProxyConfig returns the default outbound proxy config
+// (empty — no manual override; falls back to env/system proxy detection).
+func DefaultOutboundProxyConfig() OutboundProxyConfig {
+	return OutboundProxyConfig{}
 }
 
 // DefaultPluginConfig returns the default Plugin Marketplace config.
@@ -265,6 +282,7 @@ func NormalizeConfig(input Config) (Config, error) {
 	}
 
 	output.EvolverBackground = NormalizeEvolverBackgroundConfig(input.EvolverBackground)
+	output.OutboundProxy = NormalizeOutboundProxyConfig(input.OutboundProxy)
 	output.Plugin = NormalizePluginConfig(input.Plugin)
 	return output, nil
 }
@@ -281,6 +299,33 @@ func NormalizeEvolverBackgroundConfig(input EvolverBackgroundConfig) EvolverBack
 		return EvolverBackgroundConfig{Enabled: false, IntervalMinutes: 0}
 	}
 	return input
+}
+
+// NormalizeOutboundProxyConfig canonicalizes the outbound proxy fields:
+//   - whitespace is trimmed from both fields;
+//   - a non-empty value missing a scheme ("://") is prefixed with "http://".
+//
+// Both-empty input is valid and means "no manual override — use env/system
+// proxy detection". Non-empty values without a scheme default to http:// so
+// callers that expect a *url.URL parse cleanly.
+func NormalizeOutboundProxyConfig(input OutboundProxyConfig) OutboundProxyConfig {
+	return OutboundProxyConfig{
+		HTTPProxy:  normalizeProxyAddress(input.HTTPProxy),
+		HTTPSProxy: normalizeProxyAddress(input.HTTPSProxy),
+	}
+}
+
+// normalizeProxyAddress trims the address and prefixes "http://" when a
+// scheme separator ("://") is absent. Empty input stays empty.
+func normalizeProxyAddress(value string) string {
+	addr := strings.TrimSpace(value)
+	if addr == "" {
+		return ""
+	}
+	if !strings.Contains(addr, "://") {
+		addr = "http://" + addr
+	}
+	return addr
 }
 
 // NormalizeOptimizationConfig 归一化 Optimization 配置。

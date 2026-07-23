@@ -74,6 +74,8 @@ type openAIImageGenerationAccumulator struct {
 }
 
 const (
+	// openAIThinkOpenTag / openAIThinkCloseTag æ¯åå²ç¬¬ä¸æ¡ think æ ç­¾å¯¹ï¼DeepSeek / GLM ç­ï¼ï¼
+	// ä¿çä¸ºå¸¸éä¾ååå¼å®¹ä¸é»è®¤éç½®ä½¿ç¨ã
 	openAIThinkOpenTag       = "<think>"
 	openAIThinkCloseTag      = "</think>"
 	openAIStreamMaxTokenSize = 64 * 1024 * 1024
@@ -92,22 +94,107 @@ type openAIContentPart struct {
 	Text string
 }
 
-// openAIThinkTagParser 负责把某些 OpenAI 兼容 provider 放进 content 的 <think> 标签拆回 reasoning 流。
+// openAIThinkTagPair æè¿°ä¸å¯¹ç¨äºåè£¹ reasoning çæ ç­¾ã
+type openAIThinkTagPair struct {
+	Open  string
+	Close string
+}
+
+// openAIDefaultThinkTagPairs æ¯é»è®¤è¯å«ç think æ ç­¾å¯¹éåï¼
+//
+//   - <think></think>  â DeepSeek / GLM / Moonshot / Doubao ç­ OpenAI å¼å®¹ providerã
+//   - <thought></thought> â é¨å Qwen é¨ç½²ä½¿ç¨çåä½ã
+//
+// é¡ºåºä¸å½±åå¹éç»æï¼Consume æ»æ¯åå¨ input ä¸­ææ©åºç°çå¼æ ç­¾ã
+var openAIDefaultThinkTagPairs = []openAIThinkTagPair{
+	{Open: "<think>", Close: "</think>"},
+	{Open: "<thought>", Close: "</thought>"},
+}
+
+// openAIThinkTagParser è´è´£ææäº OpenAI å¼å®¹ provider æ¾è¿ content ç think æ ç­¾
+// ï¼<think> / <thought> ç­ï¼æå reasoning æµã
+//
+// æ¯æå¯éç½®çæ ç­¾å¯¹éåï¼è°ç¨æ¹å¯å¨æé åéè¿è®¾ç½® Tags å­æ®µè¦çé»è®¤éåï¼é¶å¼ parser
+// å¨é¦æ¬¡ Consume/Flush æ¶æå è½½ openAIDefaultThinkTagPairsï¼å æ­¤ `&openAIThinkTagParser{}`
+// è¿ä¸æ¢æç¨æ³æ éæ¹å¨å³å¯ä¿æåè¡ä¸ºå¹¶èªå¨è·å¾æ°æ ç­¾æ¯æã
 type openAIThinkTagParser struct {
-	carry   string
-	inThink bool
+	// carry ç¼å­å°æªå¤å®ä¸ºçº¯ææ¬æçº¯ reasoning çå°¾é¨çæ®µï¼è·¨ Consume è°ç¨ç»­æ¥ã
+	carry string
+	// activeCloseTag éç©ºè¡¨ç¤ºå½åæ­£å¤äºæä¸ª think ååé¨ï¼å¶å¼ä¸ºè¯¥åå¯¹åºçé­åæ ç­¾ã
+	// ç©ºå­ç¬¦ä¸²è¡¨ç¤ºå½åä¸å¨ think ååãæ¿ä»£äºåæ¥ç inThink bool ââ ä¹æä»¥æ¹æå­ç¬¦ä¸²ï¼
+	// æ¯å ä¸ºä¸åå¼æ ç­¾éè¦å¹éä¸åçé­æ ç­¾ã
+	activeCloseTag string
+	// Tags æ¯è¯¥ parser è¯å«ç (open, close) æ ç­¾å¯¹éåãé¶å¼ï¼nil/ç©ºï¼ä¼å¨é¦æ¬¡ä½¿ç¨æ¶
+	// æå è½½ä¸º openAIDefaultThinkTagPairsã
+	Tags []openAIThinkTagPair
+}
+
+// ensureTags å¨ Tags ä¸ºç©ºæ¶æå è½½é»è®¤æ ç­¾å¯¹éåï¼ä¿è¯é¶å¼ parser å¼ç®±å³ç¨ã
+func (parser *openAIThinkTagParser) ensureTags() {
+	if len(parser.Tags) > 0 {
+		return
+	}
+	parser.Tags = openAIDefaultThinkTagPairs
+}
+
+// findThinkOpenTag å¨ input ä¸­æ¥æ¾ææ©åºç°çå¼æ ç­¾ï¼è¿åå¹éå°çæ ç­¾å¯¹ä¸èµ·å§ä¸æ ï¼
+// æªæ¾å°ä»»ä½å¼æ ç­¾æ¶è¿å (_, -1)ã
+func findThinkOpenTag(input string, tags []openAIThinkTagPair) (openAIThinkTagPair, int) {
+	best := -1
+	var bestPair openAIThinkTagPair
+	for _, tag := range tags {
+		if tag.Open == "" {
+			continue
+		}
+		idx := strings.Index(input, tag.Open)
+		if idx < 0 {
+			continue
+		}
+		if best < 0 || idx < best {
+			best = idx
+			bestPair = tag
+		}
+	}
+	return bestPair, best
+}
+
+// findThinkCloseTag å¨ input ä¸­æ¥æ¾æå®é­åæ ç­¾çä¸æ ï¼æªæ¾å°è¿å -1ã
+func findThinkCloseTag(input string, closeTag string) int {
+	if closeTag == "" {
+		return -1
+	}
+	return strings.Index(input, closeTag)
+}
+
+// earliestOpenTagPrefixLength è¿å input æ«å°¾ä½ä¸ºä»»ä¸å¼æ ç­¾åç¼çæå¤§é¿åº¦ï¼
+// ç¨äºè·¨ Consume è°ç¨æ¶ä¿çå¯è½è¢«æªæ­çå¼æ ç­¾çæ®µãè¿å 0 è¡¨ç¤ºæ«å°¾ä¸å«ä»»ä½å¼æ ç­¾åç¼ã
+func earliestOpenTagPrefixLength(input string, tags []openAIThinkTagPair) int {
+	maxLen := 0
+	for _, tag := range tags {
+		if tag.Open == "" {
+			continue
+		}
+		n := trailingTagPrefixLength(input, tag.Open)
+		if n > maxLen {
+			maxLen = n
+		}
+	}
+	return maxLen
 }
 
 func (parser *openAIThinkTagParser) Consume(text string) []openAIContentPart {
 	if parser == nil || text == "" {
 		return nil
 	}
+	parser.ensureTags()
 	input := parser.carry + text
 	parser.carry = ""
 	parts := make([]openAIContentPart, 0, 4)
 	for input != "" {
-		if parser.inThink {
-			closeIndex := strings.Index(input, openAIThinkCloseTag)
+		// å¤äº think ååï¼æ¥æ¾å½ååå¯¹åºçé­æ ç­¾ã
+		if parser.activeCloseTag != "" {
+			closeTag := parser.activeCloseTag
+			closeIndex := findThinkCloseTag(input, closeTag)
 			if closeIndex >= 0 {
 				if closeIndex > 0 {
 					parts = append(parts, openAIContentPart{
@@ -116,11 +203,11 @@ func (parser *openAIThinkTagParser) Consume(text string) []openAIContentPart {
 					})
 				}
 				parts = append(parts, openAIContentPart{Kind: openAIContentPartThinkingCompleted})
-				parser.inThink = false
-				input = input[closeIndex+len(openAIThinkCloseTag):]
+				parser.activeCloseTag = ""
+				input = input[closeIndex+len(closeTag):]
 				continue
 			}
-			carryLen := trailingTagPrefixLength(input, openAIThinkCloseTag)
+			carryLen := trailingTagPrefixLength(input, closeTag)
 			if emitText := input[:len(input)-carryLen]; emitText != "" {
 				parts = append(parts, openAIContentPart{
 					Kind: openAIContentPartReasoning,
@@ -131,7 +218,8 @@ func (parser *openAIThinkTagParser) Consume(text string) []openAIContentPart {
 			break
 		}
 
-		openIndex := strings.Index(input, openAIThinkOpenTag)
+		// å¤äº think åå¤ï¼æ¥æ¾ææ©åºç°çä»»ä¸å¼æ ç­¾ã
+		tagPair, openIndex := findThinkOpenTag(input, parser.Tags)
 		if openIndex >= 0 {
 			if openIndex > 0 {
 				parts = append(parts, openAIContentPart{
@@ -139,11 +227,11 @@ func (parser *openAIThinkTagParser) Consume(text string) []openAIContentPart {
 					Text: input[:openIndex],
 				})
 			}
-			parser.inThink = true
-			input = input[openIndex+len(openAIThinkOpenTag):]
+			parser.activeCloseTag = tagPair.Close
+			input = input[openIndex+len(tagPair.Open):]
 			continue
 		}
-		carryLen := trailingTagPrefixLength(input, openAIThinkOpenTag)
+		carryLen := earliestOpenTagPrefixLength(input, parser.Tags)
 		if emitText := input[:len(input)-carryLen]; emitText != "" {
 			parts = append(parts, openAIContentPart{
 				Kind: openAIContentPartText,
@@ -161,15 +249,51 @@ func (parser *openAIThinkTagParser) Flush() []openAIContentPart {
 		return nil
 	}
 	kind := openAIContentPartText
-	if parser.inThink {
+	if parser.activeCloseTag != "" {
 		kind = openAIContentPartReasoning
 	}
 	text := parser.carry
 	parser.carry = ""
+	parser.activeCloseTag = ""
 	return []openAIContentPart{{
 		Kind: kind,
 		Text: text,
 	}}
+}
+
+// openAIReasoningFromDelta selects the reasoning text from a chat-completions
+// stream delta. It prefers the canonical reasoning_content field and falls
+// back to the reasoning alias used by some OpenAI-compatible providers
+// (certain Qwen, GLM, Moonshot deployments and proxy gateways). When both
+// fields are present, reasoning_content wins to avoid double-counting.
+//
+// This helper is package-level so the fallback contract is unit-testable;
+// streamChatCompletions wires it to choice.Delta.ReasoningContent /
+// choice.Delta.Reasoning.
+func openAIReasoningFromDelta(reasoningContent, reasoning string) string {
+	if reasoningContent != "" {
+		return reasoningContent
+	}
+	return reasoning
+}
+
+// openAIResponsesReasoningText selects the reasoning text for a Responses API
+// streaming event. The canonical OpenAI Responses path emits reasoning via
+// response.reasoning_text.delta / response.reasoning_summary_text.delta, whose
+// payload arrives in delta. Some OpenAI-compatible proxies and gateways
+// additionally inject a non-standard reasoning_content field on other event
+// types (e.g. response.output_text.delta) to mirror the chat-completions
+// reasoning_content convention.
+//
+// To avoid double-counting when both are present on the same event, the
+// explicit reasoning delta wins and reasoning_content is used only as a
+// fallback. This helper is package-level so the fallback contract is
+// unit-testable without needing the local openAIResponsesStreamEvent type.
+func openAIResponsesReasoningText(delta, reasoningContent string) string {
+	if delta != "" {
+		return delta
+	}
+	return reasoningContent
 }
 
 // NewOpenAIAdapter 创建一个 OpenAI 兼容适配器。
@@ -550,7 +674,12 @@ func (adapter *OpenAIAdapter) streamChatCompletions(ctx context.Context, req Str
 			Delta struct {
 				Content          string                `json:"content"`
 				ReasoningContent string                `json:"reasoning_content"`
-				ToolCalls        []openAIToolCallDelta `json:"tool_calls"`
+				// Reasoning is an alias some OpenAI-compatible providers
+				// (certain Qwen, GLM, Moonshot deployments and proxy gateways)
+				// use instead of reasoning_content. Preferred value is
+				// reasoning_content; this is a fallback only.
+				Reasoning string                `json:"reasoning,omitempty"`
+				ToolCalls []openAIToolCallDelta `json:"tool_calls"`
 			} `json:"delta"`
 			FinishReason *string `json:"finish_reason"`
 		} `json:"choices"`
@@ -798,13 +927,13 @@ func (adapter *OpenAIAdapter) streamChatCompletions(ctx context.Context, req Str
 				return fail(err)
 			}
 		}
-		if reasoning := choice.Delta.ReasoningContent; reasoning != "" {
+		if reasoning := openAIReasoningFromDelta(choice.Delta.ReasoningContent, choice.Delta.Reasoning); reasoning != "" {
 			if err := emitThinkingDelta(reasoning); err != nil {
 				return fail(err)
 			}
 		}
 
-		if len(choice.Delta.ToolCalls) > 0 && choice.Delta.Content == "" && choice.Delta.ReasoningContent == "" {
+		if len(choice.Delta.ToolCalls) > 0 && choice.Delta.Content == "" && openAIReasoningFromDelta(choice.Delta.ReasoningContent, choice.Delta.Reasoning) == "" {
 			if err := flushTaggedContentTail(); err != nil {
 				return fail(err)
 			}
@@ -1056,7 +1185,16 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 		ItemID          string                     `json:"item_id"`
 		Item            *openAIResponsesOutputItem `json:"item,omitempty"`
 		Response        *openAIResponsesResponse   `json:"response,omitempty"`
-		Error           *struct {
+		// ReasoningContent captures a non-standard reasoning_content field that
+		// some OpenAI-compatible proxies and gateways inject into Responses
+		// streaming events. The canonical OpenAI Responses API does not emit
+		// this field; it is a proxy convention mirroring the chat-completions
+		// reasoning_content delta. When present and no explicit
+		// response.reasoning_text.delta / response.reasoning_summary_text.delta
+		// fired for the same event, it is emitted as ThinkingDelta so
+		// proxy-injected reasoning summaries are not dropped.
+		ReasoningContent string `json:"reasoning_content,omitempty"`
+		Error            *struct {
 			Message string `json:"message"`
 			Type    string `json:"type"`
 			Code    string `json:"code"`
@@ -1562,7 +1700,7 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 				}
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
-			if err := emitThinkingDelta(event.Delta); err != nil {
+			if err := emitThinkingDelta(openAIResponsesReasoningText(event.Delta, event.ReasoningContent)); err != nil {
 				return fail(err)
 			}
 		case "response.completed", "response.incomplete":
@@ -1604,6 +1742,20 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 			turnFinishedPending = true
 		case "response.failed", "error":
 			return fail(errorFromEvent(event))
+		default:
+			// Capture proxy-injected reasoning_content on non-canonical event
+			// types. Some OpenAI-compatible proxies and gateways attach a
+			// non-standard reasoning_content field to events like
+			// response.output_text.delta to mirror the chat-completions
+			// reasoning_content delta convention. Explicit reasoning events
+			// above handle their own Delta; this only fires when an unrelated
+			// event carries reasoning_content, so proxy-injected reasoning
+			// summaries are not dropped.
+			if reasoning := openAIResponsesReasoningText("", event.ReasoningContent); reasoning != "" {
+				if err := emitThinkingDelta(reasoning); err != nil {
+					return fail(err)
+				}
+			}
 		}
 	}
 	for key, accumulator := range tools {

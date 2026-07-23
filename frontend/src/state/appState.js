@@ -63,6 +63,7 @@ export const appState = reactive({
   virtualModels: cachedConfig.virtualModels || {},
   aosConfig: normalizeAOSConfig(cachedConfig.virtualModels?.aos),
   aosRecognition: { members: [], error: "" },
+  outboundProxy: cachedConfig.outboundProxy || { httpProxy: "", httpsProxy: "" },
   optimizationCost: {
     enabled: true,
     qualityTier: "balanced",
@@ -327,6 +328,7 @@ export {
   persistUserConfig,
   saveIncludeCacheWriteInHitRate,
   saveRoutingMode,
+  saveOutboundProxy,
   reloadUserConfig,
   saveAOSConfig,
   recognizeAOSMembers,

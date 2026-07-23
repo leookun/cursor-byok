@@ -23,7 +23,7 @@ type ChannelResolver interface {
 // 专家节点只通过 adapterID / modelID 解析到用户配置的渠道，不新建 registry。
 type AdapterChannelService struct {
 	resolver ChannelResolver
-	router   *modeladapter.Router
+	router   modeladapter.ModelAdapterRouter
 }
 
 // NewAdapterChannelService 创建生产用 ChannelService。
@@ -121,7 +121,7 @@ func (s *AdapterChannelService) CallAdapter(ctx context.Context, info *ChannelIn
 		MaxTokens:     runtimeMaxTokens,
 		RequestKnobs:  reqKnobs,
 	}, func(ev modeladapter.ModelEvent) error {
-		if ev.Text != "" {
+		if ev.Kind == modeladapter.ModelEventKindTextDelta && ev.Text != "" {
 			text.WriteString(ev.Text)
 		}
 		if ev.UsagePresent {

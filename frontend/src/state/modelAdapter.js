@@ -317,12 +317,41 @@ export async function deleteModelAdapterAt(index) {
     };
   }
 
+  const deletedAdapter = nextAdapters[index];
   nextAdapters.splice(index, 1);
+
+  // Also remove the deleted model from the matching provider's `models` list.
+  // Backend NormalizeConfig → FlattenProvidersToAdapters regenerates
+  // modelAdapters from providers, so the model would reappear after reload
+  // if we only splice the adapter array.
+  const nextProviders = Array.isArray(currentConfig.providers)
+    ? currentConfig.providers.map((provider) => {
+        if (
+          String(provider?.baseURL || "").trim() !== String(deletedAdapter.baseURL || "").trim() ||
+          String(provider?.type || "").trim().toLowerCase()
+            !== String(deletedAdapter.type || "").trim().toLowerCase()
+        ) {
+          return provider;
+        }
+        if (!Array.isArray(provider?.models)) {
+          return provider;
+        }
+        const filteredModels = provider.models.filter(
+          (model) =>
+            !(
+              String(model?.modelID || "") === String(deletedAdapter.modelID || "")
+              && String(model?.displayName || "") === String(deletedAdapter.displayName || "")
+            ),
+        );
+        return { ...provider, models: filteredModels };
+      })
+    : currentConfig.providers;
 
   return persistConfigPayload(
     {
       ...currentConfig,
       modelAdapters: nextAdapters,
+      providers: nextProviders,
     },
     { modelAdaptersOnly: true },
   );

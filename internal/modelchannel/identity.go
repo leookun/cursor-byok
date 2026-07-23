@@ -50,7 +50,7 @@ func NormalizeOpenAIEndpoint(providerType string, endpoint string) string {
 	normalized := strings.TrimSpace(endpoint)
 	switch normalized {
 	case "":
-		return OpenAIEndpointResponses
+		return OpenAIEndpointChatCompletions
 	case OpenAIEndpointResponses, OpenAIEndpointChatCompletions, OpenAIEndpointCustom:
 		return normalized
 	default:

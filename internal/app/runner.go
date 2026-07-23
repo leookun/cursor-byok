@@ -51,7 +51,7 @@ func init() {
 	application.RegisterEvent[updater.ProgressPayload](EventUpdateProgress)
 	application.RegisterEvent[updater.ReadyPayload](EventUpdateReady)
 	application.RegisterEvent[updater.ErrorPayload](EventUpdateError)
-	application.RegisterEvent[string](EventCursorActivity)
+	application.RegisterEvent[map[string]string](EventCursorActivity)
 	application.RegisterEvent[[]bridge.PetInfo](EventPetListChanged)
 	application.RegisterEvent[map[string]string](EventPetStateChanged)
 }
@@ -60,6 +60,7 @@ func init() {
 func Run(resources EmbeddedResources) error {
 	logger.Init()
 	netproxy.InstallDefaultTransport()
+	applyOutboundProxyFromDisk()
 
 	certManager, err := certs.EnsureCA(appdata.CACertFilePath(), appdata.CAKeyFilePath())
 	if err != nil {
@@ -258,6 +259,14 @@ func Run(resources EmbeddedResources) error {
 	app.Event.On(EventProxyState, func(event *application.CustomEvent) {
 		refreshTray()
 	})
+	// Re-apply outbound proxy whenever the user config is saved (the payload
+	// is the normalized serverconfig.Config). Keeps netproxy in sync with
+	// config.yaml edits without a restart.
+	app.Event.On(EventUserConfigChanged, func(event *application.CustomEvent) {
+		if cfg, ok := event.Data.(bridge.UserConfig); ok {
+			applyOutboundProxy(cfg)
+		}
+	})
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(event *application.ApplicationEvent) {
 		logger.Infof("应用版本：v%s", buildinfo.CurrentVersion())
 		updateManager.Start()
@@ -301,4 +310,26 @@ func Run(resources EmbeddedResources) error {
 	refreshTray()
 
 	return app.Run()
+}
+
+// applyOutboundProxy pushes the configured outbound proxy override into the
+// netproxy resolver. Both empty values clear the manual override and fall
+// back to environment/system proxy detection.
+func applyOutboundProxy(cfg serverconfig.Config) {
+	netproxy.SetManualProxy(cfg.OutboundProxy.HTTPProxy, cfg.OutboundProxy.HTTPSProxy)
+}
+
+// applyOutboundProxyFromDisk reads the user config from disk (best-effort:
+// missing/malformed config is non-fatal at startup — the default empty
+// override is applied) and pushes the proxy override into netproxy. This
+// runs once at startup before the backend host is built, so the config
+// manager is not yet available; we read directly via the Store.
+func applyOutboundProxyFromDisk() {
+	store := serverconfig.NewStore(appdata.ConfigFilePath(), appdata.LogsRootPath())
+	cfg, err := store.Load(context.Background())
+	if err != nil {
+		logger.Errorf("启动时读取出站代理配置失败，使用默认值: %v", err)
+		cfg = serverconfig.DefaultConfig()
+	}
+	applyOutboundProxy(cfg)
 }

@@ -26,7 +26,25 @@ var (
 	initialDefaultTransport = cloneDefaultTransport()
 	defaultResolver         = &proxyResolver{}
 	proxyTransports         sync.Map
+
+	manualProxyMu    sync.Mutex
+	manualHTTPProxy  string
+	manualHTTPSProxy string
 )
+
+// SetManualProxy overrides all proxy sources with an explicit proxy
+// configuration. Both values are trimmed. Setting both to "" clears the
+// manual override and falls back to env / system proxy detection.
+func SetManualProxy(httpProxy, httpsProxy string) {
+	manualProxyMu.Lock()
+	manualHTTPProxy = strings.TrimSpace(httpProxy)
+	manualHTTPSProxy = strings.TrimSpace(httpsProxy)
+	manualProxyMu.Unlock()
+	defaultResolver.mu.Lock()
+	defaultResolver.snapshot = proxySnapshot{} // force rebuild on next call
+	defaultResolver.mu.Unlock()
+	closeIdleProxyConnections()
+}
 
 // InstallDefaultTransport makes clients with a nil Transport use the same
 // proxy resolution as clients created through this package.
@@ -158,13 +176,27 @@ func (resolver *proxyResolver) logCurrentSnapshot(prefix string) {
 }
 
 func buildProxySnapshot(now time.Time) proxySnapshot {
+	// Manual proxy takes highest priority — checked before env / system.
+	manualProxyMu.Lock()
+	httpProxy := manualHTTPProxy
+	httpsProxy := manualHTTPSProxy
+	manualProxyMu.Unlock()
+	if httpProxy != "" || httpsProxy != "" {
+		cfg := httpproxy.Config{
+			HTTPProxy:  httpProxy,
+			HTTPSProxy: httpsProxy,
+			NoProxy:    alwaysNoProxyList,
+		}
+		return snapshotFromConfig(now, "manual", cfg, nil, false, false, "")
+	}
+
 	if cfg, ok := envProxyConfig(); ok {
 		return snapshotFromConfig(now, "env", cfg, nil, false, false, "")
 	}
 
 	systemConfig := loadSystemProxyConfig()
-	httpProxy := systemConfig.HTTPProxy
-	httpsProxy := systemConfig.HTTPSProxy
+	httpProxy = systemConfig.HTTPProxy
+	httpsProxy = systemConfig.HTTPSProxy
 	if systemConfig.SOCKSProxy != "" {
 		if httpProxy == "" {
 			httpProxy = systemConfig.SOCKSProxy

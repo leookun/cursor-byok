@@ -5,7 +5,7 @@ import Card from "@/components/ui/Card.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
 import ProviderCard from "@/components/ProviderCard.vue";
 import { showModal } from "@/composables/useModal";
-import { fetchModelsFromProvider } from "@/services/clientApi";
+import { fetchModelsFromProvider, openModelConfig } from "@/services/clientApi";
 import {
   appState,
   createEmptyModelAdapter,
@@ -105,32 +105,42 @@ const fetchingModels = ref(false);
 async function handleFetchModelsForCurrent() {
   const provider = currentProvider.value;
   if (!provider || fetchingModels.value) return;
-  const key = provider.keys?.[0] || "";
-  if (!key || !provider.baseURL) {
+  const keys = (provider.keys?.length ? provider.keys : (provider.apiKey ? [provider.apiKey] : []));
+  if (!keys.length || !provider.baseURL) {
     await showActionError("无法获取模型", "该供应商缺少 API Key 或 baseURL");
     return;
   }
   fetchingModels.value = true;
-  let fetchedModels = [];
-  let fetchError = "";
+  const fetchedModels = [];
+  const fetchErrors = [];
   try {
-    const res = await fetchModelsFromProvider(provider.baseURL, key, provider.type);
-    if (res.error) {
-      fetchError = res.error;
-    } else {
-      fetchedModels = res.models || [];
+    // Fetch models from ALL keys, merge and deduplicate.
+    const results = await Promise.allSettled(
+      keys.map((key) => fetchModelsFromProvider(provider.baseURL, key, provider.type)),
+    );
+    const seen = new Set();
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        const res = r.value;
+        if (res?.error) {
+          fetchErrors.push(res.error);
+        } else if (Array.isArray(res?.models)) {
+          for (const m of res.models) {
+            if (!seen.has(m)) {
+              seen.add(m);
+              fetchedModels.push(m);
+            }
+          }
+        }
+      } else {
+        fetchErrors.push(String(r.reason?.message || r.reason || "获取失败"));
+      }
     }
-  } catch (e) {
-    fetchError = String(e?.message || e || "获取失败");
   } finally {
     fetchingModels.value = false;
   }
-  if (fetchError) {
-    await showActionError("获取模型失败", fetchError);
-    return;
-  }
   if (!fetchedModels.length) {
-    await showActionError("获取模型", "Provider 未返回任何模型");
+    await showActionError("获取模型失败", fetchErrors.join("; ") || "Provider 未返回任何模型");
     return;
   }
   // Filter out models already in the provider.
@@ -157,7 +167,7 @@ async function handleFetchModelsForCurrent() {
         displayName: modelID,
         modelID,
         baseURL: provider.baseURL,
-        apiKey: key,
+        apiKey: keys[0],
         type: provider.type,
       }),
     );
@@ -366,6 +376,10 @@ onBeforeUnmount(() => {
             </Button>
           </template>
           <template v-else>
+            <Button variant="default" @click="openModelConfig">
+              <span class="icon-[mdi--folder-open-outline] mr-1 text-[15px]" />
+              配置文件夹
+            </Button>
             <Button variant="primary" :disabled="appState.configSaving" @click="showAddProvider = true">
               <span class="icon-[mdi--plus] mr-1 text-[15px]" />
               添加供应商

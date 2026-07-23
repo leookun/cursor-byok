@@ -106,7 +106,10 @@ func (s *WindowService) OpenConfigWindow() {
 	openDirectory(client.ResolveSettingsRootPath())
 }
 
-func (s *WindowService) OpenModelConfigWindow() {}
+func (s *WindowService) OpenModelConfigWindow() {
+	_ = os.MkdirAll(client.ResolveSettingsRootPath(), 0o755)
+	openDirectory(client.ResolveSettingsRootPath())
+}
 
 func (s *WindowService) OpenModelEditorWindow(index int, adapterJSON string) {
 	s.mu.Lock()
