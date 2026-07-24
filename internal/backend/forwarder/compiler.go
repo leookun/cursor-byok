@@ -64,16 +64,25 @@ func (compiler *DefaultPromptCompiler) Compile(conversation *ConversationFile, m
 	sharedRulesPrompt := ""
 	sharedRuleCount := 0
 	sharedRuleTotal := 0
-	if compiler.rules != nil && normalizedMode != agentv1.AgentMode_AGENT_MODE_DEBUG {
+	ruleRecords := []UserRuleRecord(nil)
+	if compiler.rules != nil {
+		ruleRecords, err = compiler.rules.List()
+		if err != nil {
+			return CompiledConversation{}, err
+		}
 		sharedRulesPrompt, sharedRuleTotal, sharedRuleCount, err = compiler.rules.BuildSystemPromptSection()
 		if err != nil {
 			return CompiledConversation{}, err
 		}
 	}
-	messages := make([]modeladapter.Message, 0, len(replayMessages)+1)
+	languagePolicy := resolveLanguagePolicy(ruleRecords, latestUserText)
+	messages := make([]modeladapter.Message, 0, len(replayMessages)+2)
 	systemParts := []string{sanitizePromptAsset(systemPrompt, modelName)}
 	if strings.TrimSpace(sharedRulesPrompt) != "" {
 		systemParts = append(systemParts, sharedRulesPrompt)
+	}
+	if lockInstruction := languagePolicySystemText(languagePolicy); lockInstruction != "" {
+		systemParts = append(systemParts, lockInstruction)
 	}
 	systemText := strings.TrimSpace(strings.Join(filterNonEmpty(systemParts), "\n\n"))
 	if systemText != "" {
@@ -87,12 +96,18 @@ func (compiler *DefaultPromptCompiler) Compile(conversation *ConversationFile, m
 		return CompiledConversation{}, err
 	}
 	messages = append(messages, replayMessages...)
+	if reminder := languagePolicyLatestReminderText(languagePolicy); reminder != "" {
+		messages = append(messages, modeladapter.Message{
+			Role:    "user",
+			Content: wrapSystemReminder(reminder),
+		})
+	}
 	return CompiledConversation{
 		Mode:               normalizedMode,
 		Messages:           messages,
 		StableMessageCount: stableReplayCount,
 		Tools:              tools,
-		CompileSummary:     fmt.Sprintf("mode=%s asset_mode=%s child=%t messages=%d tools=%d shared_rules_total=%d shared_rules_deduped=%d", normalizedMode.String(), string(assetMode), isChildConversationSubagentTypeName(subagentTypeName), len(messages), len(tools), sharedRuleTotal, sharedRuleCount),
+		CompileSummary:     fmt.Sprintf("mode=%s asset_mode=%s child=%t messages=%d tools=%d shared_rules_total=%d shared_rules_deduped=%d language=%s language_source=%s language_locked=%t", normalizedMode.String(), string(assetMode), isChildConversationSubagentTypeName(subagentTypeName), len(messages), len(tools), sharedRuleTotal, sharedRuleCount, languagePolicy.Language, languagePolicy.Source, languagePolicy.Locked),
 	}, nil
 }
 

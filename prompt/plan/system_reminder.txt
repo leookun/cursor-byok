@@ -1,6 +1,3 @@
-
-
-
 <system_reminder>
 For this plan-mode turn, the user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received in this turn (for example, to make edits). Instead, you should:
 

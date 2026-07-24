@@ -577,13 +577,68 @@ const (
 )
 
 func (bridge *Bridge) executeWebSearch(searchTerm string) ([]*agentv1.WebSearchReference, string, error) {
-	if strings.TrimSpace(searchTerm) == "" {
+	searchTerm = strings.TrimSpace(searchTerm)
+	if searchTerm == "" {
 		return nil, "", fmt.Errorf("web search search_term is required")
 	}
 	client := bridge.httpClient
 	if client == nil {
 		client = netproxy.NewHTTPClient(15 * time.Second)
 	}
+
+	// 先尝试百度搜索
+	baiduReferences, baiduPayload, baiduErr := bridge.tryBaiduWebSearch(client, searchTerm)
+	if baiduErr == nil && len(baiduReferences) > 0 {
+		return baiduReferences, baiduPayload, nil
+	}
+
+	// 百度失败，回退到 DuckDuckGo
+	duckReferences, duckPayload, duckErr := bridge.tryDuckDuckGoWebSearch(client, searchTerm)
+	if duckErr == nil && len(duckReferences) > 0 {
+		return duckReferences, duckPayload, nil
+	}
+
+	// 两者都失败，返回综合错误
+	if baiduErr != nil && duckErr != nil {
+		return nil, "", fmt.Errorf("web search failed: baidu=%v, duckduckgo=%v", baiduErr, duckErr)
+	}
+	return nil, "", fmt.Errorf("web search returned no parseable results")
+}
+
+func (bridge *Bridge) tryBaiduWebSearch(client *http.Client, searchTerm string) ([]*agentv1.WebSearchReference, string, error) {
+	requestURL := baiduWebSearchBaseURL + neturl.QueryEscape(searchTerm)
+	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36")
+	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
+	request.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	request.Header.Set("Referer", baiduWebSearchHostURL+"/")
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("baidu http status %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024))
+	if err != nil {
+		return nil, "", err
+	}
+	references := extractBaiduWebSearchReferences(string(body))
+	if len(references) == 0 {
+		return nil, "", fmt.Errorf("baidu returned no parseable results")
+	}
+	if len(references) > 5 {
+		references = references[:5]
+	}
+	resolveBaiduWebSearchRedirects(client, references)
+	return references, formatWebSearchPayload(searchTerm, references), nil
+}
+
+func (bridge *Bridge) tryDuckDuckGoWebSearch(client *http.Client, searchTerm string) ([]*agentv1.WebSearchReference, string, error) {
 	requestURL := webSearchURLOverride + neturl.QueryEscape(searchTerm)
 	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {

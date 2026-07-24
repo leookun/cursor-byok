@@ -1901,10 +1901,13 @@ func openAIThinkingDisableKind(baseURL string, modelID string, endpoint string) 
 		strings.Contains(base, "bigmodel") ||
 		strings.Contains(base, "z.ai") ||
 		strings.Contains(base, "zhipu") ||
+		strings.Contains(base, "xiaomimimo") ||
+		strings.Contains(base, "mimo") ||
 		strings.Contains(model, "deepseek") ||
 		strings.Contains(model, "glm") ||
 		strings.Contains(model, "zai") ||
-		strings.Contains(model, "zhipu"):
+		strings.Contains(model, "zhipu") ||
+		strings.Contains(model, "mimo"):
 		return "thinking_type"
 	case openAIModelSupportsReasoningNone(model):
 		return "reasoning_none"

@@ -237,12 +237,13 @@ func (store *UserRuleStore) BuildSystemPromptSection() (string, int, int, error)
 	}
 	visibleCount := 0
 	for _, record := range records {
-		if strings.TrimSpace(record.Knowledge) == "" {
+		body := parseUserRuleFrontmatter(record.Knowledge).Body
+		if strings.TrimSpace(body) == "" {
 			continue
 		}
 		lines = append(lines,
 			fmt.Sprintf(`<rule file="%s">`, escapeSharedRulePromptText(record.Filename)),
-			escapeSharedRulePromptText(record.Knowledge),
+			escapeSharedRulePromptText(body),
 			"</rule>",
 		)
 		visibleCount++

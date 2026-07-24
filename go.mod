@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
 	connectrpc.com/connect v1.19.1
+	github.com/PuerkitoBio/goquery v1.9.2
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/elazarl/goproxy v1.7.2
 	github.com/firecrawl/html-to-markdown v0.0.0-20260312013131-1af9901a5d61
@@ -29,7 +30,6 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.3.0 // indirect
-	github.com/PuerkitoBio/goquery v1.9.2 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
