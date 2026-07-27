@@ -6,7 +6,6 @@ import HomeMetricsCard from "@/components/HomeMetricsCard.vue";
 import { useMessage } from "@/composables/useMessage";
 import { showModal } from "@/composables/useModal";
 import { getAdRuntime } from "@/services/clientApi";
-import { useLocale } from "@/i18n/runtime";
 import {
   appState,
   appViewState,
@@ -43,12 +42,7 @@ function asBoolean(value) {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
-const { locale } = useLocale();
-
 const homeAds = computed(() => {
-  if (locale.value !== "zh-CN") {
-    return [];
-  }
   const runtime = adRuntime.value && typeof adRuntime.value === "object" ? adRuntime.value : {};
   const slots = Array.isArray(runtime.slots) && runtime.slots.length > 0 ? runtime.slots : [runtime];
   return slots

@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:dev": "node ./scripts/run-vite-build.mjs --minify false --mode development",
-    "build": "node ./scripts/run-vite-build.mjs --mode production",
+    "build:dev": "node ./scripts/run-vite-build.mjs --scan --minify false --mode development",
+    "build": "node ./scripts/run-vite-build.mjs --scan --mode production",
     "preview": "vite preview"
   },
   "dependencies": {

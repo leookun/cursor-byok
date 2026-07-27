@@ -16,7 +16,6 @@ import {
 import { isWindows } from "@/utils/isWindows";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { useLocale } from "@/i18n/runtime";
 import Logo from "@/assets/logo.png";
 
 const route = useRoute();
@@ -26,28 +25,15 @@ const title = computed(() => route.meta.title ?? "Cursor助手｜永久免费｜
 const directlyClose = computed(() => route.meta.directlyClose === true);
 const showFooter = computed(() => route.path === "/");
 const footerAuthorInfo = ref(null);
-const { locale } = useLocale();
 
 const localizedAuthorInfo = computed(() => {
   if (!footerAuthorInfo.value) return null;
-  if (locale.value === "zh-CN") {
-    return footerAuthorInfo.value;
-  }
-  if (locale.value === "ja-JP") {
-    return {
-      buttonText: "著者 leookun",
-      dialogTitle: "著者からのメッセージ",
-      dialogContent: "このソフトウェアは完全に無料です。もし料金を請求された場合は、詐欺の可能性が高いです。\n著者のホームページ https://space.bilibili.com/311706663/upload/video にアクセスして、更新情報や利用方法などを確認してください。",
-      dialogConfirmText: "ホームページへ",
-      dialogCancelText: "閉じる"
-    };
-  }
   return {
-    buttonText: "Author leookun",
-    dialogTitle: "Author's Message",
-    dialogContent: "This software is completely free. If you were charged, you were likely scammed.\nWelcome to visit the author's homepage at https://space.bilibili.com/311706663/upload/video\nto see more updates, sharing guides, and future content.",
-    dialogConfirmText: "Visit Homepage",
-    dialogCancelText: "Close"
+    buttonText: "作者 leookun",
+    dialogTitle: "作者寄语",
+    dialogContent: "本软件是纯免费软件，如果你被收费，那大概率就是被骗了。\n欢迎点击访问作者主页 https://space.bilibili.com/311706663/upload/video\n查看更多更新动态、使用分享和后续内容。",
+    dialogConfirmText: "访问主页",
+    dialogCancelText: "关闭",
   };
 });
 const usageDocsURL = "https://docs.leokun.cn";
