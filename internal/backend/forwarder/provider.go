@@ -25,6 +25,7 @@ func (gateway *DefaultProviderGateway) StartStream(ctx context.Context, req Prov
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	defer releaseArtifactSession(req.Observer, req.RequestID, req.ModelCallID)
 	requestKnobs := make(map[string]any, len(req.RequestKnobs)+2)
 	for key, value := range req.RequestKnobs {
 		requestKnobs[key] = value
@@ -59,4 +60,16 @@ func (gateway *DefaultProviderGateway) StartStream(ctx context.Context, req Prov
 		return providerTerminalError{cause: err}
 	}
 	return nil
+}
+
+type artifactSessionCleaner interface {
+	ClearActiveArtifacts(requestID string, modelCallID string)
+}
+
+func releaseArtifactSession(observer modeladapter.LLMArtifactObserver, requestID string, modelCallID string) {
+	cleaner, ok := observer.(artifactSessionCleaner)
+	if !ok {
+		return
+	}
+	cleaner.ClearActiveArtifacts(requestID, modelCallID)
 }

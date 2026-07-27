@@ -23,10 +23,10 @@ type artifactRecorder struct {
 }
 
 type artifactSession struct {
-	conversationID string
-	turnSeq        int64
-	requestPayload map[string]any
-	summaryPayload map[string]any
+	conversationID   string
+	turnSeq          int64
+	requestPrefix    requestArtifactPrefix
+	hasRequestPrefix bool
 }
 
 type requestArtifactPrefix struct {
@@ -57,14 +57,22 @@ func (recorder *artifactRecorder) RecordLLMRequest(requestID string, _ string, m
 	if err != nil {
 		return "", err
 	}
-	session.requestPayload = cloneStringAnyMap(payload)
+	prefix, hasPrefix, prefixErr := decodeRequestPrefixPayload(payload)
+	session.requestPrefix = requestArtifactPrefix{}
+	session.hasRequestPrefix = false
+	if prefixErr == nil && hasPrefix && prefix != nil {
+		session.requestPrefix = *prefix
+		session.hasRequestPrefix = true
+	}
 	recorder.mu.Lock()
 	recorder.sessions[artifactSessionKey(requestID, modelCallID)] = session
 	recorder.mu.Unlock()
-	if prefix, ok, err := decodeRequestPrefixPayload(session.requestPayload); err == nil && ok && prefix != nil {
+	if prefixErr == nil && hasPrefix && prefix != nil {
 		recorder.persistLatestRequestPrefix(session.conversationID, requestID, modelCallID, prefix)
 	}
-	recorder.debug.LogProviderArtifact(context.Background(), requestID, session.conversationID, modelCallID, "llm_request", session.requestPayload)
+	// The payload is serialized synchronously for debug output and is deliberately
+	// not retained in sessions: it can contain the entire replayed conversation.
+	recorder.debug.LogProviderArtifact(context.Background(), requestID, session.conversationID, modelCallID, "llm_request", payload)
 	return "", nil
 }
 
@@ -86,17 +94,16 @@ func (recorder *artifactRecorder) RecordLLMSummary(requestID string, _ string, m
 	if err != nil {
 		return "", err
 	}
-	session.summaryPayload = cloneStringAnyMap(payload)
-	recorder.mu.Lock()
-	recorder.sessions[artifactSessionKey(requestID, modelCallID)] = session
-	recorder.mu.Unlock()
-	if prefix, ok, err := decodeRequestPrefixPayload(session.requestPayload); err == nil && ok && prefix != nil {
-		if tokens := readInt64Value(session.summaryPayload["prompt_tokens_total"]); tokens > 0 {
-			prefix.PromptTokensTotal = tokens
+	if session.hasRequestPrefix {
+		if tokens := readInt64Value(payload["prompt_tokens_total"]); tokens > 0 {
+			session.requestPrefix.PromptTokensTotal = tokens
 		}
-		recorder.persistLatestRequestPrefix(session.conversationID, requestID, modelCallID, prefix)
+		recorder.mu.Lock()
+		recorder.sessions[artifactSessionKey(requestID, modelCallID)] = session
+		recorder.mu.Unlock()
+		recorder.persistLatestRequestPrefix(session.conversationID, requestID, modelCallID, &session.requestPrefix)
 	}
-	recorder.debug.LogProviderArtifact(context.Background(), requestID, session.conversationID, modelCallID, "llm_summary", session.summaryPayload)
+	recorder.debug.LogProviderArtifact(context.Background(), requestID, session.conversationID, modelCallID, "llm_summary", payload)
 	return "", nil
 }
 

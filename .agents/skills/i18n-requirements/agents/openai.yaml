@@ -1,0 +1,4 @@
+interface:
+  display_name: "I18n Requirements"
+  short_description: "Keep UI translations and generated catalogs in sync"
+  default_prompt: "Use $i18n-requirements to update localized UI text safely."

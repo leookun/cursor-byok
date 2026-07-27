@@ -11,7 +11,7 @@ import { normalizePath } from "vite";
 const traverse = traverseModule.default ?? traverseModule;
 
 const SOURCE_LANGUAGE = "zh-CN";
-const SUPPORTED_LOCALES = ["zh-CN", "en-US", "ja-JP"];
+const SUPPORTED_LOCALES = ["zh-CN", "en-US", "ja-JP", "ru-RU"];
 const HAN_REGEX = /\p{Script=Han}/u;
 const JS_HELPERS = {
   localized: "__i18nLocalized",
@@ -490,22 +490,34 @@ function walkTemplateNode(node, visitor) {
   }
 }
 
-function transformVueTemplate(templateCode, filePath, rootDir) {
+function resolveAbsoluteLoc(sourceCode, sourceOffset, relativeOffset) {
+  const absoluteOffset = sourceOffset + relativeOffset;
+  const prefix = sourceCode.slice(0, absoluteOffset);
+  const lastLineBreak = prefix.lastIndexOf("\n");
+  return {
+    line: prefix.split("\n").length,
+    column: absoluteOffset - lastLineBreak,
+  };
+}
+
+function transformVueTemplate(templateCode, filePath, rootDir, options = {}) {
   const ast = parseTemplate(templateCode, { comments: true });
   const replacements = [];
   const records = [];
+  const sourceCode = options.sourceCode ?? templateCode;
+  const sourceOffset = options.sourceOffset ?? 0;
+  const resolveLoc = (node, offset = 0) =>
+    resolveAbsoluteLoc(sourceCode, sourceOffset, node.loc.start.offset + offset);
 
   walkTemplateNode(ast, (node, parent) => {
     if (node.type === 2 && containsHan(node.content)) {
+      const canonical = node.content.trim();
       const record = buildMessageRecord(
         filePath,
         rootDir,
-        node.content.trim(),
+        canonical,
         0,
-        {
-          line: node.loc.start.line,
-          column: node.loc.start.column + 1,
-        },
+        resolveLoc(node, node.content.indexOf(canonical)),
       );
       const replacement = createTextNodeReplacement(node.loc.source, record);
       if (!replacement) {
@@ -527,10 +539,7 @@ function transformVueTemplate(templateCode, filePath, rootDir) {
         rootDir,
         node.value.content,
         0,
-        {
-          line: node.loc.start.line,
-          column: node.loc.start.column + 1,
-        },
+        resolveLoc(node),
       );
       records.push(record);
       replacements.push({
@@ -552,10 +561,7 @@ function transformVueTemplate(templateCode, filePath, rootDir) {
         node.content,
         filePath,
         rootDir,
-        {
-          line: node.loc.start.line,
-          column: node.loc.start.column + 1,
-        },
+        resolveLoc(node),
       );
       if (!transformed.changed) {
         return;
@@ -585,7 +591,10 @@ function transformVueSFC(code, filePath, rootDir) {
   let changed = false;
 
   if (descriptor.template) {
-    const templateResult = transformVueTemplate(descriptor.template.content, filePath, rootDir);
+    const templateResult = transformVueTemplate(descriptor.template.content, filePath, rootDir, {
+      sourceCode: code,
+      sourceOffset: descriptor.template.loc.start.offset,
+    });
     records.push(...templateResult.records);
     if (templateResult.changed) {
       changed = true;
