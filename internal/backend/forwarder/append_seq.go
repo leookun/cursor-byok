@@ -2,6 +2,7 @@ package forwarder
 
 import (
 	"context"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -37,8 +38,9 @@ func (tracker *appendSequenceTracker) Acquire(ctx context.Context, requestID str
 	if tracker == nil || strings.TrimSpace(requestID) == "" || appendSeq <= 0 {
 		return appendSequenceTicket{}, false, nil
 	}
-	state := tracker.state(strings.TrimSpace(requestID))
-	stale, err := state.acquire(ctx, appendSeq)
+	requestID = strings.TrimSpace(requestID)
+	state := tracker.state(requestID)
+	stale, err := state.acquire(ctx, requestID, appendSeq)
 	if err != nil || stale {
 		return appendSequenceTicket{}, stale, err
 	}
@@ -72,7 +74,7 @@ func (tracker *appendSequenceTracker) state(requestID string) *appendSequenceSta
 	return state
 }
 
-func (state *appendSequenceState) acquire(ctx context.Context, appendSeq int64) (bool, error) {
+func (state *appendSequenceState) acquire(ctx context.Context, requestID string, appendSeq int64) (bool, error) {
 	for {
 		state.mu.Lock()
 		now := time.Now().UTC()
@@ -83,6 +85,29 @@ func (state *appendSequenceState) acquire(ctx context.Context, appendSeq int64) 
 			state.ready = make(chan struct{})
 		}
 		state.updatedAt = now
+
+		// Cursor may reuse the same request_id for a later turn and restart
+		// append_seqno from 1. Accept that as a sequence restart when idle so
+		// tool results are not discarded as stale forever.
+		if appendSeq == 1 && state.next > 1 {
+			if state.processing {
+				ready := state.ready
+				state.mu.Unlock()
+				select {
+				case <-ctx.Done():
+					return false, ctx.Err()
+				case <-ready:
+				}
+				continue
+			}
+			prevNext := state.next
+			state.next = 1
+			state.processing = true
+			state.mu.Unlock()
+			log.Printf("forwarder reset append sequence request_id=%s previous_next=%d append_seqno=1", requestID, prevNext)
+			return false, nil
+		}
+
 		switch {
 		case appendSeq < state.next:
 			state.mu.Unlock()

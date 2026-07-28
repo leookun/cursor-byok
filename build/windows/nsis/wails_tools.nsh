@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "Cursor助手"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.0.41"
+    !define INFO_PRODUCTVERSION "0.0.42"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026, Cursor助手"
