@@ -598,6 +598,9 @@ func buildModelAdapterTestRequestHash(adapter serverconfig.ModelAdapterConfig) s
 		source.OpenAIExtraParamsJSON,
 		strconv.Itoa(source.CustomHeadersEnabled),
 		source.CustomHeadersJSON,
+		strconv.Itoa(source.SystemPromptEnabled),
+		source.SystemPrompt,
+		source.SystemPromptPosition,
 		strconv.Itoa(source.AnthropicExtraParamsEnabled),
 		source.AnthropicExtraParamsJSON,
 		strconv.Itoa(source.ContextWindowTokens),
@@ -622,6 +625,9 @@ type modelAdapterTestHashSource struct {
 	OpenAIExtraParamsJSON       string
 	CustomHeadersEnabled        int
 	CustomHeadersJSON           string
+	SystemPromptEnabled         int
+	SystemPrompt                string
+	SystemPromptPosition        string
 	AnthropicExtraParamsEnabled int
 	AnthropicExtraParamsJSON    string
 	ContextWindowTokens         int
@@ -646,6 +652,9 @@ func normalizeModelAdapterTestHashSource(adapter serverconfig.ModelAdapterConfig
 		OpenAIExtraParamsJSON:       normalizeModelAdapterTestOpenAIExtraParamsJSON(adapter),
 		CustomHeadersEnabled:        normalizeModelAdapterTestBool(adapter.CustomHeadersEnabled),
 		CustomHeadersJSON:           normalizeModelAdapterTestCustomHeadersJSON(adapter),
+		SystemPromptEnabled:         normalizeModelAdapterTestBool(adapter.SystemPromptEnabled),
+		SystemPrompt:                normalizeModelAdapterTestSystemPrompt(adapter),
+		SystemPromptPosition:        normalizeModelAdapterTestSystemPromptPosition(adapter),
 		AnthropicExtraParamsEnabled: normalizeModelAdapterTestBool(adapter.Type == "anthropic" && adapter.AnthropicExtraParamsEnabled),
 		AnthropicExtraParamsJSON:    normalizeModelAdapterTestAnthropicExtraParamsJSON(adapter),
 		ContextWindowTokens:         normalizeModelAdapterTestInt(adapter.ContextWindowTokens),
@@ -737,6 +746,25 @@ func normalizeModelAdapterTestCustomHeadersJSON(adapter serverconfig.ModelAdapte
 		return ""
 	}
 	return strings.TrimSpace(adapter.CustomHeadersJSON)
+}
+
+func normalizeModelAdapterTestSystemPrompt(adapter serverconfig.ModelAdapterConfig) string {
+	if !adapter.SystemPromptEnabled {
+		return ""
+	}
+	return strings.TrimSpace(adapter.SystemPrompt)
+}
+
+func normalizeModelAdapterTestSystemPromptPosition(adapter serverconfig.ModelAdapterConfig) string {
+	if !adapter.SystemPromptEnabled {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(adapter.SystemPromptPosition)) {
+	case "before":
+		return "before"
+	default:
+		return "after"
+	}
 }
 
 func normalizeModelAdapterTestAnthropicExtraParamsJSON(adapter serverconfig.ModelAdapterConfig) string {

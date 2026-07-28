@@ -60,6 +60,12 @@ type ModelAdapterConfig struct {
 	CustomHeadersEnabled bool `json:"customHeadersEnabled"`
 	// CustomHeadersJSON 表示自定义请求头 JSON 对象。
 	CustomHeadersJSON string `json:"customHeadersJSON"`
+	// SystemPromptEnabled 表示是否为该模型渠道注入自定义系统提示词。
+	SystemPromptEnabled bool `json:"systemPromptEnabled"`
+	// SystemPrompt 表示该模型渠道的自定义系统提示词。
+	SystemPrompt string `json:"systemPrompt"`
+	// SystemPromptPosition 表示自定义系统提示词位于内置提示词之前或之后。
+	SystemPromptPosition string `json:"systemPromptPosition"`
 	// AnthropicExtraParamsEnabled 表示是否启用 Anthropic 额外请求参数。
 	AnthropicExtraParamsEnabled bool `json:"anthropicExtraParamsEnabled"`
 	// AnthropicExtraParamsJSON 表示 Anthropic 额外请求参数 JSON 对象。
@@ -126,6 +132,19 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 		}
 		next.CustomHeadersEnabled = item.CustomHeadersEnabled
 		next.CustomHeadersJSON = strings.TrimSpace(item.CustomHeadersJSON)
+		next.SystemPromptEnabled = item.SystemPromptEnabled
+		next.SystemPrompt = strings.TrimSpace(item.SystemPrompt)
+		next.SystemPromptPosition = normalizeSystemPromptPosition(item.SystemPromptPosition)
+		if next.SystemPromptEnabled {
+			switch {
+			case next.SystemPrompt == "":
+				return nil, errors.New("模型适配器 systemPrompt 启用时不能为空")
+			case len([]byte(next.SystemPrompt)) > 32*1024:
+				return nil, errors.New("模型适配器 systemPrompt 不能超过 32768 字节")
+			case next.SystemPromptPosition == "":
+				return nil, errors.New("模型适配器 systemPromptPosition 仅支持 before 或 after")
+			}
+		}
 		switch {
 		case next.DisplayName == "":
 			return nil, errors.New("模型适配器 displayName 不能为空")
@@ -220,6 +239,17 @@ func normalizeAnthropicThinkingEffort(value string) string {
 	}
 }
 
+func normalizeSystemPromptPosition(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "after":
+		return "after"
+	case "before":
+		return "before"
+	default:
+		return ""
+	}
+}
+
 func normalizeMaxCompletionTokens(value int) int {
 	if value <= 0 {
 		return 0
@@ -275,6 +305,12 @@ type ResolvedChannel struct {
 	CustomHeadersEnabled bool
 	// CustomHeadersJSON 表示自定义请求头 JSON 对象。
 	CustomHeadersJSON string
+	// SystemPromptEnabled 表示是否为该模型渠道注入自定义系统提示词。
+	SystemPromptEnabled bool
+	// SystemPrompt 表示该模型渠道的自定义系统提示词。
+	SystemPrompt string
+	// SystemPromptPosition 表示自定义系统提示词位于内置提示词之前或之后。
+	SystemPromptPosition string
 	// AnthropicExtraParamsEnabled 表示是否启用 Anthropic 额外请求参数。
 	AnthropicExtraParamsEnabled bool
 	// AnthropicExtraParamsJSON 表示 Anthropic 额外请求参数 JSON 对象。
@@ -403,6 +439,9 @@ func (s *FixedChannelService) SelectChannelForModel(ctx context.Context, modelID
 			OpenAIExtraParamsJSON:       strings.TrimSpace(adapter.OpenAIExtraParamsJSON),
 			CustomHeadersEnabled:        adapter.CustomHeadersEnabled,
 			CustomHeadersJSON:           strings.TrimSpace(adapter.CustomHeadersJSON),
+			SystemPromptEnabled:         adapter.SystemPromptEnabled,
+			SystemPrompt:                strings.TrimSpace(adapter.SystemPrompt),
+			SystemPromptPosition:        strings.TrimSpace(adapter.SystemPromptPosition),
 			AnthropicExtraParamsEnabled: adapter.AnthropicExtraParamsEnabled,
 			AnthropicExtraParamsJSON:    strings.TrimSpace(adapter.AnthropicExtraParamsJSON),
 			AnthropicMaxTokens:          configurableChannelMaxTokens,

@@ -24,7 +24,10 @@ const GENERIC_SERVICE_ERROR = "服务错误";
 const SUPPORTED_MODEL_ADAPTER_TYPES = new Set(["openai", "anthropic"]);
 const SUPPORTED_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const SUPPORTED_ANTHROPIC_THINKING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+const SUPPORTED_SYSTEM_PROMPT_POSITIONS = new Set(["before", "after"]);
 export const ANTHROPIC_THINKING_EFFORT_DEFAULT = "xhigh";
+export const SYSTEM_PROMPT_POSITION_DEFAULT = "after";
+export const SYSTEM_PROMPT_MAX_BYTES = 32 * 1024;
 export const OPENAI_ENDPOINT_RESPONSES = "/v1/responses";
 export const OPENAI_ENDPOINT_CHAT_COMPLETIONS = "/v1/chat/completions";
 export const OPENAI_ENDPOINT_CUSTOM = "/custom";
@@ -185,6 +188,9 @@ export function buildModelAdapterTestRequestHash(source) {
     adapter.type === "openai" && adapter.openAIExtraParamsEnabled ? asString(adapter.openAIExtraParamsJSON) : "",
     String(Boolean(adapter.customHeadersEnabled)),
     adapter.customHeadersEnabled ? asString(adapter.customHeadersJSON) : "",
+    String(Boolean(adapter.systemPromptEnabled)),
+    adapter.systemPromptEnabled ? asString(adapter.systemPrompt) : "",
+    adapter.systemPromptEnabled ? asString(adapter.systemPromptPosition) : "",
     adapter.type === "anthropic" ? String(Boolean(adapter.anthropicExtraParamsEnabled)) : "false",
     adapter.type === "anthropic" && adapter.anthropicExtraParamsEnabled ? asString(adapter.anthropicExtraParamsJSON) : "",
     String(asPositiveInteger(adapter.contextWindowTokens)),
@@ -273,6 +279,9 @@ export function createEmptyModelAdapter() {
     openAIExtraParamsJSON: OPENAI_EXTRA_PARAMS_DEFAULT_JSON,
     customHeadersEnabled: false,
     customHeadersJSON: CUSTOM_HEADERS_DEFAULT_JSON,
+    systemPromptEnabled: false,
+    systemPrompt: "",
+    systemPromptPosition: SYSTEM_PROMPT_POSITION_DEFAULT,
     anthropicExtraParamsEnabled: false,
     anthropicExtraParamsJSON: EXTRA_PARAMS_DEFAULT_JSON,
     contextWindowTokens: 0,
@@ -292,6 +301,14 @@ function normalizeOpenAIEndpoint(value) {
     return OPENAI_ENDPOINT_RESPONSES;
   }
   return SUPPORTED_OPENAI_ENDPOINTS.has(text) ? text : "";
+}
+
+function normalizeSystemPromptPosition(value) {
+  const text = asString(value).toLowerCase();
+  if (!text) {
+    return SYSTEM_PROMPT_POSITION_DEFAULT;
+  }
+  return SUPPORTED_SYSTEM_PROMPT_POSITIONS.has(text) ? text : "";
 }
 
 function isValidOpenAIEndpoint(value) {
@@ -360,6 +377,11 @@ export function normalizeModelAdapter(source) {
     : "";
   const customHeadersEnabled = asBoolean(raw.customHeadersEnabled ?? raw.custom_headers_enabled);
   const customHeadersJSON = asString(raw.customHeadersJSON ?? raw.custom_headers_json) || CUSTOM_HEADERS_DEFAULT_JSON;
+  const systemPromptEnabled = asBoolean(raw.systemPromptEnabled ?? raw.system_prompt_enabled);
+  const systemPrompt = asString(raw.systemPrompt ?? raw.system_prompt);
+  const systemPromptPosition = normalizeSystemPromptPosition(
+    raw.systemPromptPosition ?? raw.system_prompt_position,
+  );
   const anthropicExtraParamsEnabled = normalizedType === "anthropic"
     ? asBoolean(raw.anthropicExtraParamsEnabled ?? raw.anthropic_extra_params_enabled)
     : false;
@@ -382,6 +404,9 @@ export function normalizeModelAdapter(source) {
     openAIExtraParamsJSON,
     customHeadersEnabled,
     customHeadersJSON,
+    systemPromptEnabled,
+    systemPrompt,
+    systemPromptPosition,
     anthropicExtraParamsEnabled,
     anthropicExtraParamsJSON,
     contextWindowTokens: asPositiveInteger(
@@ -448,6 +473,15 @@ export function validateModelAdapters(source) {
       if (customHeadersError) {
         return `${prefix} 的 ${customHeadersError}`;
       }
+    }
+    if (adapter.systemPromptEnabled && !adapter.systemPrompt) {
+      return `${prefix} 的自定义系统提示词不能为空`;
+    }
+    if (adapter.systemPromptEnabled && new TextEncoder().encode(adapter.systemPrompt).length > SYSTEM_PROMPT_MAX_BYTES) {
+      return `${prefix} 的自定义系统提示词不能超过 ${SYSTEM_PROMPT_MAX_BYTES} 字节`;
+    }
+    if (adapter.systemPromptEnabled && !SUPPORTED_SYSTEM_PROMPT_POSITIONS.has(adapter.systemPromptPosition)) {
+      return `${prefix} 的系统提示词位置仅支持内置提示词之前或之后`;
     }
     if (adapter.type === "anthropic" && adapter.anthropicExtraParamsEnabled) {
       const extraParamsError = validateAnthropicExtraParamsJSON(adapter.anthropicExtraParamsJSON);
