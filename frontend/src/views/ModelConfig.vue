@@ -131,7 +131,7 @@ async function handleDuplicateModelAdapter(index) {
 }
 
 function getAdapterTestResult(adapter) {
-  return getModelAdapterTestResultByID(adapter?.id);
+  return getModelAdapterTestResultByID(adapter?.id) || null;
 }
 
 function isAdapterTesting(adapter) {
@@ -141,25 +141,9 @@ function isAdapterTesting(adapter) {
 async function handleTestModelAdapter(adapter) {
   try {
     await runModelAdapterTest(adapter);
-  } catch (_error) {
-    // 失败结果会通过事件同步到界面，这里不再额外弹窗打断用户。
+  } catch (error) {
+    await showActionError("测试失败", toUserError(error));
   }
-}
-
-function isCancelError(error) {
-  return String(error?.name || "").trim() === "CancelError";
-}
-
-async function stopBatchTesting() {
-  if (!batchTesting.value || batchStopping.value) {
-    return;
-  }
-  batchStopRequested = true;
-  batchStopping.value = true;
-  const activeCalls = Array.from(batchActiveCalls);
-  await Promise.allSettled(
-    activeCalls.map((call) => (typeof call?.cancel === "function" ? call.cancel("batch-stop") : undefined)),
-  );
 }
 
 async function handleTestAllModelAdapters() {
@@ -167,33 +151,33 @@ async function handleTestAllModelAdapters() {
     await stopBatchTesting();
     return;
   }
-  const adapters = filteredAdapters.value.slice();
-  if (adapters.length === 0) {
+  const targets = filteredAdapters.value.slice();
+  if (targets.length === 0) {
     return;
   }
   batchStopRequested = false;
-  batchTesting.value = true;
   batchStopping.value = false;
-  batchTotal.value = adapters.length;
+  batchTesting.value = true;
+  batchTotal.value = targets.length;
   batchCompleted.value = 0;
-  let nextIndex = 0;
+  batchActiveCalls.clear();
+
   try {
-    const workers = Array.from({ length: Math.min(BATCH_TEST_CONCURRENCY, adapters.length) }, async () => {
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(BATCH_TEST_CONCURRENCY, targets.length) }, async () => {
       while (!batchStopRequested) {
         const currentIndex = nextIndex;
         nextIndex += 1;
-        if (currentIndex >= adapters.length) {
-          return;
+        if (currentIndex >= targets.length) {
+          break;
         }
-        const adapter = adapters[currentIndex];
+        const adapter = targets[currentIndex];
         const call = startModelAdapterTest(adapter);
         batchActiveCalls.add(call);
         try {
           await call;
-        } catch (error) {
-          if (!isCancelError(error) && !batchStopRequested) {
-            // 单个失败结果由卡片自行展示，这里继续后续测试。
-          }
+        } catch (_error) {
+          // keep batch running; individual result already stored
         } finally {
           batchActiveCalls.delete(call);
           batchCompleted.value += 1;
@@ -207,6 +191,14 @@ async function handleTestAllModelAdapters() {
     batchTesting.value = false;
     batchStopping.value = false;
   }
+}
+
+async function stopBatchTesting() {
+  if (!batchTesting.value || batchStopping.value) {
+    return;
+  }
+  batchStopRequested = true;
+  batchStopping.value = true;
 }
 
 onMounted(async () => {

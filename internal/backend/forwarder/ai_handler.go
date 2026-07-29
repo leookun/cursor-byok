@@ -47,6 +47,14 @@ func newAIHandler(service *Service) http.Handler {
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceWriteGitCommitMessageProcedure, service.WriteGitCommitMessage),
 	)
 	mux.Handle(
+		aiserverv1connect.AiServiceStreamEditProcedure,
+		connect.NewServerStreamHandler(aiserverv1connect.AiServiceStreamEditProcedure, service.StreamEdit),
+	)
+	mux.Handle(
+		aiserverv1connect.AiServicePreloadEditProcedure,
+		connect.NewUnaryHandler(aiserverv1connect.AiServicePreloadEditProcedure, service.PreloadEdit),
+	)
+	mux.Handle(
 		aiserverv1connect.AiServiceCreateExperimentalIndexProcedure,
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceCreateExperimentalIndexProcedure, service.CreateExperimentalIndex),
 	)
@@ -102,6 +110,28 @@ func newAIHandler(service *Service) http.Handler {
 	return mux
 }
 
+func newCmdKHandler(service *Service) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(
+		cmdKServiceStreamCmdKProcedure,
+		connect.NewServerStreamHandler(cmdKServiceStreamCmdKProcedure, service.StreamCmdK),
+	)
+	mux.Handle(
+		cmdKServiceRerankCmdKContextProcedure,
+		connect.NewUnaryHandler(cmdKServiceRerankCmdKContextProcedure, service.RerankCmdKContext),
+	)
+	mux.Handle(
+		cmdKServiceStreamTerminalCmdKProcedure,
+		connect.NewServerStreamHandler(cmdKServiceStreamTerminalCmdKProcedure, service.StreamTerminalCmdK),
+	)
+	mux.Handle(
+		cmdKServiceRerankTerminalCmdKContextProcedure,
+		connect.NewUnaryHandler(cmdKServiceRerankTerminalCmdKContextProcedure, service.RerankTerminalCmdKContext),
+	)
+	mux.Handle("/", http.NotFoundHandler())
+	return mux
+}
+
 func (service *Service) GetThoughtAnnotation(_ context.Context, req *connect.Request[aiserverv1.GetThoughtAnnotationRequest]) (*connect.Response[aiserverv1.GetThoughtAnnotationResponse], error) {
 	requestID := strings.TrimSpace(req.Msg.GetRequestId())
 	thought, ok, err := service.lookupThoughtAnnotation(requestID)
@@ -134,11 +164,14 @@ func (service *Service) GetTokenUsage(_ context.Context, req *connect.Request[ai
 }
 
 func (service *Service) GetGlassEarlyPreviewEnrollment(context.Context, *connect.Request[aiserverv1.GetGlassEarlyPreviewEnrollmentRequest]) (*connect.Response[aiserverv1.GetGlassEarlyPreviewEnrollmentResponse], error) {
-	granted := true
+	// Keep Glass enrollment off so classic IDE stays on !isGlass.
+	// Terminal Generate-in-Terminal is gated on !isGlass; Agents Window UI is controlled
+	// separately via Statsig titlebar/open-window gates.
+	denied := false
 	return connect.NewResponse(&aiserverv1.GetGlassEarlyPreviewEnrollmentResponse{
-		Enabled:                           true,
-		EnterpriseGlassSelfEnrollEligible: &granted,
-		GlassAccessGranted:                &granted,
+		Enabled:                           false,
+		EnterpriseGlassSelfEnrollEligible: &denied,
+		GlassAccessGranted:                &denied,
 	}), nil
 }
 

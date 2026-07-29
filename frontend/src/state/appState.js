@@ -172,6 +172,44 @@ function hashStringFNV32a(value) {
   return hash.toString(16).padStart(8, "0");
 }
 
+// buildModelAdapterChannelID mirrors backend modelchannel.BuildChannelID (sha256, first 16 hex).
+export async function buildModelAdapterChannelID(source) {
+  const adapter = normalizeModelAdapter(source);
+  const parts = [
+    normalizeBaseURL(adapter.baseURL),
+    asString(adapter.modelID),
+    asString(adapter.apiKey),
+    asString(adapter.displayName),
+  ];
+  if (adapter.type === "openai") {
+    const endpoint = normalizeOpenAIEndpoint(adapter.openAIEndpoint);
+    if (endpoint) {
+      parts.push(endpoint);
+    }
+  }
+  const payload = parts.join("\n");
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    const data = new TextEncoder().encode(payload);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 16);
+  }
+  // Fallback only for non-crypto environments; backend still recomputes authoritative IDs.
+  return hashStringFNV32a(payload).slice(0, 16);
+}
+
+export function ensureModelAdapterChannelID(source) {
+  const adapter = normalizeModelAdapter(source);
+  if (adapter.id) {
+    return adapter.id;
+  }
+  // Sync path for UI lists: prefer backend-provided id from load/save.
+  // If missing, leave empty and let save/load rehydrate.
+  return "";
+}
+
 export function buildModelAdapterTestRequestHash(source) {
   const adapter = normalizeModelAdapter(source);
   return hashStringFNV32a([
@@ -533,12 +571,21 @@ function normalizeConfig(source) {
   const raw = source && typeof source === "object" ? source : {};
   const routing = raw.routing && typeof raw.routing === "object" ? raw.routing : {};
   const homeMetrics = raw.homeMetrics && typeof raw.homeMetrics === "object" ? raw.homeMetrics : {};
+  const modelAdapters = normalizeModelAdapters(raw.modelAdapters);
+  const knownIDs = new Set(modelAdapters.map((adapter) => asString(adapter.id)).filter(Boolean));
+  const cmdKModelHash = asString(raw.cmdKModelHash);
+  // Keep empty (= auto). Drop pin only when adapters are known and pin is missing.
+  const normalizedCmdKModelHash = !cmdKModelHash
+    ? ""
+    : knownIDs.size === 0 || knownIDs.has(cmdKModelHash)
+      ? cmdKModelHash
+      : "";
   return {
     log: asBoolean(raw.log),
     providerStreamIdleTimeout: asPositiveInteger(raw.providerStreamIdleTimeout),
     backendListenAddr: asString(raw.configBackendListenAddr) || asString(raw.backendListenAddr),
     proxyListenAddr: asString(raw.configProxyListenAddr) || asString(raw.proxyListenAddr),
-    modelAdapters: normalizeModelAdapters(raw.modelAdapters),
+    modelAdapters,
     routing: {
       mode: normalizeRouteMode(routing.mode),
     },
@@ -546,6 +593,7 @@ function normalizeConfig(source) {
       includeCacheWriteInHitRate: asBoolean(homeMetrics.includeCacheWriteInHitRate),
     },
     lastAgentModelHash: asString(raw.lastAgentModelHash),
+    cmdKModelHash: normalizedCmdKModelHash,
   };
 }
 
@@ -587,6 +635,7 @@ function buildConfigPayload(source = appState) {
     routing: normalized.routing,
     homeMetrics: normalized.homeMetrics,
     lastAgentModelHash: normalized.lastAgentModelHash,
+    cmdKModelHash: normalized.cmdKModelHash,
   };
 }
 
@@ -594,6 +643,13 @@ function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
   const normalized = normalizeConfig(config);
   if (modelAdaptersOnly) {
     appState.modelAdapters = normalized.modelAdapters;
+    // Re-validate pin against latest adapters without wiping other config fields.
+    if (appState.cmdKModelHash) {
+      const knownIDs = new Set(normalized.modelAdapters.map((adapter) => asString(adapter.id)).filter(Boolean));
+      if (knownIDs.size > 0 && !knownIDs.has(appState.cmdKModelHash)) {
+        appState.cmdKModelHash = "";
+      }
+    }
     return normalized;
   }
   appState.modelAdapters = normalized.modelAdapters;
@@ -601,6 +657,7 @@ function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
   appState.configProxyListenAddr = normalized.proxyListenAddr;
   appState.routingMode = normalized.routing.mode;
   appState.includeCacheWriteInHitRate = normalized.homeMetrics.includeCacheWriteInHitRate;
+  appState.cmdKModelHash = normalized.cmdKModelHash;
   return normalized;
 }
 
@@ -832,6 +889,7 @@ export const appState = reactive({
   configProxyListenAddr: cachedConfig.proxyListenAddr,
   routingMode: cachedConfig.routing.mode,
   includeCacheWriteInHitRate: cachedConfig.homeMetrics.includeCacheWriteInHitRate,
+  cmdKModelHash: cachedConfig.cmdKModelHash,
 
   serviceRunning: asBoolean(cachedState.serviceRunning),
   backendRunning: asBoolean(cachedState.backendRunning),
@@ -1125,6 +1183,7 @@ export async function persistUserConfig() {
       ...currentConfig.homeMetrics,
       includeCacheWriteInHitRate: appState.includeCacheWriteInHitRate,
     },
+    cmdKModelHash: asString(appState.cmdKModelHash),
   });
 }
 
@@ -1142,6 +1201,21 @@ export async function saveIncludeCacheWriteInHitRate(value) {
   });
   if (!result.ok) {
     appState.includeCacheWriteInHitRate = previousValue;
+  }
+  return result;
+}
+
+export async function saveCmdKModelHash(value) {
+  const currentConfig = await loadPersistedUserConfig();
+  const previousValue = asString(appState.cmdKModelHash);
+  const nextValue = asString(value);
+  appState.cmdKModelHash = nextValue;
+  const result = await persistConfigPayload({
+    ...currentConfig,
+    cmdKModelHash: nextValue,
+  });
+  if (!result.ok) {
+    appState.cmdKModelHash = previousValue;
   }
   return result;
 }

@@ -119,6 +119,9 @@ type statsigBootstrapTemplate struct {
 
 var bootstrapStatsigTemplate = statsigBootstrapTemplate{
 	FeatureGates: map[string]map[string]any{
+		// Keep Agents Window titlebar/open-window UI available.
+		// Classic terminal Generate-in-Terminal depends on !isGlass, which is controlled
+		// by GetGlassEarlyPreviewEnrollment (kept denied), not by these UI gates alone.
 		bootstrapStatsigGlassModeAvailableGate:           buildEnabledStatsigGate(bootstrapStatsigGlassModeAvailableGate),
 		bootstrapStatsigGlassOpenAgentInWindowGate:       buildEnabledStatsigGate(bootstrapStatsigGlassOpenAgentInWindowGate),
 		bootstrapStatsigOpenAgentsTitlebarGate:           buildEnabledStatsigGate(bootstrapStatsigOpenAgentsTitlebarGate),
@@ -659,13 +662,18 @@ func buildAvailableModelEntries(adapters []legacyruntime.ModelAdapterConfig) []m
 			"namedModelSectionIndex":             1,
 			"parameterDefinitions":               buildThinkingEffortParameterDefinitions(adapter.Type),
 			"serverModelName":                    channelID,
-			"supportsAgent":                      true,
-			"supportsImages":                     true,
-			"supportsMaxMode":                    false,
-			"supportsNonMaxMode":                 true,
-			"supportsPlanMode":                   true,
-			"supportsSandboxing":                 true,
-			"supportsThinking":                   true,
+			// Cursor filters cmd-k models with:
+			//   supportsNonMaxMode===false || supportsThinking===true || supportsCmdK===false
+			// Keep thinking variants available via parameterDefinitions, but do not mark the
+			// catalog entry itself as "thinking-only" or the CmdK picker becomes empty.
+			"supportsAgent":       true,
+			"supportsCmdK":        true,
+			"supportsImages":      true,
+			"supportsMaxMode":     false,
+			"supportsNonMaxMode":  true,
+			"supportsPlanMode":    true,
+			"supportsSandboxing":  true,
+			"supportsThinking":    false,
 			"tagline":                            thinkingEffortDisplayName(defaultThinkingEffort),
 			"tooltipData": map[string]any{
 				"markdownContent": tooltipData,

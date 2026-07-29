@@ -14,6 +14,7 @@ type Module struct {
 	LocalBidiHandler         http.Handler
 	LocalRunSSE              http.Handler
 	AiHandler                http.Handler
+	CmdKHandler              http.Handler
 	RepositoryServiceHandler http.Handler
 	UploadServiceHandler     http.Handler
 }
@@ -28,6 +29,7 @@ func NewModule(historyRoot string, channelService modeladapter.ChannelResolver) 
 		LocalBidiHandler:         connect.NewUnaryHandler(legacyBidiAppendProcedure, service.BidiAppend),
 		LocalRunSSE:              NewLegacyRunSSEHandler(legacyRunSSEProcedure, service.RunSSE),
 		AiHandler:                newAIHandler(service),
+		CmdKHandler:              newCmdKHandler(service),
 		RepositoryServiceHandler: newRepositoryServiceHandler(service),
 		UploadServiceHandler:     newUploadServiceHandler(service),
 	}
