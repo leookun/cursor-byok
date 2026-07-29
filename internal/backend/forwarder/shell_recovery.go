@@ -34,7 +34,7 @@ func initializePendingExecForTracking(pending runtimecore.PendingExec) runtimeco
 }
 
 func shellForegroundTimeoutDuration(argsJSON []byte) time.Duration {
-	timeoutMS := int64(30000)
+	timeoutMS := int64(120000)
 	args, err := runtimecore.DecodeArgsMap(argsJSON)
 	if err == nil {
 		if blockUntilMS, found, err := runtimecore.ReadFloat64Arg(args, "block_until_ms", "blockUntilMS"); err == nil && found {
