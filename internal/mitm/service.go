@@ -192,7 +192,7 @@ func NewProxyServer(addr, baseURL, _ string, _ string, certManager *certs.Manage
 		upstreamClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-				ForceAttemptHTTP2:     true,
+				ForceAttemptHTTP2:     false,
 				MaxIdleConns:          200,
 				IdleConnTimeout:       90 * time.Second,
 				TLSHandshakeTimeout:   10 * time.Second,
@@ -365,7 +365,7 @@ func (s *ProxyServer) newGoproxyHandler() *goproxy.ProxyHttpServer {
 	proxy.CertStore = newMITMCertStore()
 	proxy.Tr = netproxy.NewTransport(&http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          200,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
