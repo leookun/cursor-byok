@@ -175,7 +175,7 @@ func (parser *openAIThinkTagParser) Flush() []openAIContentPart {
 // NewOpenAIAdapter 创建一个 OpenAI 兼容适配器。
 func NewOpenAIAdapter() *OpenAIAdapter {
 	return &OpenAIAdapter{
-		client: netproxy.NewHTTPClient(0),
+		client: netproxy.NewHTTPClient(5 * time.Minute),
 	}
 }
 
