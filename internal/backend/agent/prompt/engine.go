@@ -897,8 +897,8 @@ func buildMessagesFromPendingAssistantRaw(raw string) []Message {
 	reasoningSignature := ""
 	pendingToolCalls := make([]ToolCallDescriptor, 0, len(payload.Content))
 	pendingToolResults := make([]Message, 0, len(payload.Content))
-	flushAssistantText := func(forceReasoningOnly bool) {
-		if len(textParts) == 0 && (!forceReasoningOnly || len(reasoningParts) == 0) {
+	flushAssistantTurn := func() {
+		if len(textParts) == 0 && len(reasoningParts) == 0 && len(pendingToolCalls) == 0 {
 			return
 		}
 		messages = append(messages, Message{
@@ -906,23 +906,10 @@ func buildMessagesFromPendingAssistantRaw(raw string) []Message {
 			Content:            formatMessageText(strings.Join(textParts, "")),
 			ReasoningContent:   strings.Join(reasoningParts, ""),
 			ReasoningSignature: reasoningSignature,
-		})
-		textParts = textParts[:0]
-		reasoningParts = reasoningParts[:0]
-		reasoningSignature = ""
-	}
-	flushToolCalls := func() {
-		if len(pendingToolCalls) == 0 {
-			return
-		}
-		messages = append(messages, Message{
-			Role:               "assistant",
-			Content:            "",
-			ReasoningContent:   strings.Join(reasoningParts, ""),
-			ReasoningSignature: reasoningSignature,
 			ToolCalls:          append([]ToolCallDescriptor(nil), pendingToolCalls...),
 		})
 		messages = append(messages, pendingToolResults...)
+		textParts = textParts[:0]
 		reasoningParts = reasoningParts[:0]
 		reasoningSignature = ""
 		pendingToolCalls = pendingToolCalls[:0]
@@ -932,8 +919,6 @@ func buildMessagesFromPendingAssistantRaw(raw string) []Message {
 	for _, item := range payload.Content {
 		switch strings.TrimSpace(item.Type) {
 		case "reasoning":
-			flushToolCalls()
-			flushAssistantText(false)
 			if item.Text != "" {
 				reasoningParts = append(reasoningParts, item.Text)
 			}
@@ -941,12 +926,10 @@ func buildMessagesFromPendingAssistantRaw(raw string) []Message {
 				reasoningSignature = strings.TrimSpace(item.Signature)
 			}
 		case "text":
-			flushToolCalls()
 			if item.Text != "" {
 				textParts = append(textParts, item.Text)
 			}
 		case "tool-call":
-			flushAssistantText(false)
 			pendingToolCalls = append(pendingToolCalls, ToolCallDescriptor{
 				ID:    strings.TrimSpace(item.ToolCallID),
 				Index: len(pendingToolCalls),
@@ -966,9 +949,7 @@ func buildMessagesFromPendingAssistantRaw(raw string) []Message {
 			}
 		}
 	}
-	flushAssistantText(false)
-	flushToolCalls()
-	flushAssistantText(true)
+	flushAssistantTurn()
 	return messages
 }
 

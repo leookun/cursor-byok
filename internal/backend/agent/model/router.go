@@ -249,7 +249,7 @@ func canMergeProviderAssistantToolCalls(last Message, current Message) bool {
 	if strings.TrimSpace(last.Role) != "assistant" || strings.TrimSpace(current.Role) != "assistant" {
 		return false
 	}
-	if len(last.ToolCalls) == 0 || len(current.ToolCalls) == 0 {
+	if len(current.ToolCalls) == 0 {
 		return false
 	}
 	if strings.TrimSpace(last.ToolCallID) != "" || strings.TrimSpace(last.Name) != "" {

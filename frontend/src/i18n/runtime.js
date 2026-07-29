@@ -11,17 +11,20 @@ import {
 import zhCNMessages from "@/i18n/locales/zh-CN.json";
 import enUSMessages from "@/i18n/locales/en-US.json";
 import jaJPMessages from "@/i18n/locales/ja-JP.json";
+import ruRUMessages from "@/i18n/locales/ru-RU.json";
 
 const localeMessages = {
   "zh-CN": zhCNMessages,
   "en-US": enUSMessages,
   "ja-JP": jaJPMessages,
+  "ru-RU": ruRUMessages,
 };
 
 const languageLocaleMap = {
   zh: "zh-CN",
   en: "en-US",
   ja: "ja-JP",
+  ru: "ru-RU",
 };
 
 function isSupportedLocale(locale) {

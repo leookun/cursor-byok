@@ -294,6 +294,8 @@ func Run(resources EmbeddedResources) error {
 				statusItem.SetLabel("Status: Running")
 			} else if locale == "ja-JP" {
 				statusItem.SetLabel("状態：実行中")
+			} else if locale == "ru-RU" {
+				statusItem.SetLabel("Статус: запущено")
 			} else {
 				statusItem.SetLabel("状态：运行中")
 			}
@@ -302,6 +304,8 @@ func Run(resources EmbeddedResources) error {
 				statusItem.SetLabel("Status: Not Started")
 			} else if locale == "ja-JP" {
 				statusItem.SetLabel("状態：未起動")
+			} else if locale == "ru-RU" {
+				statusItem.SetLabel("Статус: не запущено")
 			} else {
 				statusItem.SetLabel("状态：未启动")
 			}
@@ -321,6 +325,13 @@ func Run(resources EmbeddedResources) error {
 			showItem.SetLabel("ウィンドウを表示")
 			hideItem.SetLabel("ウィンドウを非表示")
 			quitItem.SetLabel("終了")
+		} else if locale == "ru-RU" {
+			startItem.SetLabel("Запустить сервис")
+			stopItem.SetLabel("Остановить сервис")
+			updateItem.SetLabel("Проверить обновления")
+			showItem.SetLabel("Показать окно")
+			hideItem.SetLabel("Скрыть окно")
+			quitItem.SetLabel("Выход")
 		} else {
 			startItem.SetLabel("启动服务")
 			stopItem.SetLabel("停止服务")

@@ -7,8 +7,8 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1023,
-          "column": 42
+          "line": 1017,
+          "column": 14
         }
       ]
     },
@@ -19,8 +19,8 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 35,
-          "column": 165
+          "line": 256,
+          "column": 1
         }
       ]
     },
@@ -31,8 +31,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 82,
-          "column": 22
+          "line": 362,
+          "column": 21
         }
       ]
     },
@@ -43,8 +43,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 21,
-          "column": 48
+          "line": 72,
+          "column": 1
         }
       ]
     },
@@ -67,8 +67,8 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 91,
-          "column": 139
+          "line": 311,
+          "column": 138
         }
       ]
     },
@@ -79,13 +79,13 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 126,
-          "column": 16
+          "line": 406,
+          "column": 15
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 154,
-          "column": 16
+          "line": 434,
+          "column": 15
         }
       ]
     },
@@ -108,8 +108,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 7,
-          "column": 48
+          "line": 58,
+          "column": 1
         }
       ]
     },
@@ -120,8 +120,8 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 78,
-          "column": 20
+          "line": 298,
+          "column": 19
         }
       ]
     },
@@ -132,8 +132,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 145,
-          "column": 20
+          "line": 378,
+          "column": 19
         }
       ]
     },
@@ -156,12 +156,12 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 102,
+          "line": 113,
           "column": 30
         },
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 102,
+          "line": 113,
           "column": 48
         }
       ]
@@ -173,7 +173,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 125,
+          "line": 136,
           "column": 27
         }
       ]
@@ -197,8 +197,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 104,
-          "column": 65
+          "line": 338,
+          "column": 1
         }
       ]
     },
@@ -209,8 +209,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 121,
-          "column": 20
+          "line": 354,
+          "column": 19
         }
       ]
     },
@@ -221,8 +221,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 63,
-          "column": 20
+          "line": 296,
+          "column": 19
         }
       ]
     },
@@ -281,7 +281,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 44,
+          "line": 55,
           "column": 9
         }
       ]
@@ -305,13 +305,13 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 91,
-          "column": 22
+          "line": 221,
+          "column": 21
         },
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 136,
-          "column": 22
+          "line": 266,
+          "column": 21
         }
       ]
     },
@@ -322,8 +322,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 109,
-          "column": 28
+          "line": 239,
+          "column": 27
         },
         {
           "file": "src/state/appState.js",
@@ -332,8 +332,8 @@
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 175,
-          "column": 22
+          "line": 455,
+          "column": 21
         }
       ]
     },
@@ -407,8 +407,20 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 39,
-          "column": 48
+          "line": 90,
+          "column": 1
+        }
+      ]
+    },
+    "2a24519398684ed5": {
+      "source": "访问主页",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 35,
+          "column": 24
         }
       ]
     },
@@ -419,13 +431,13 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 167,
-          "column": 66
+          "line": 297,
+          "column": 65
         },
         {
           "file": "src/components/ui/InputModal.vue",
-          "line": 32,
-          "column": 66
+          "line": 69,
+          "column": 65
         },
         {
           "file": "src/components/ui/Modal.vue",
@@ -444,13 +456,13 @@
         },
         {
           "file": "src/state/appState.js",
-          "line": 1035,
-          "column": 52
+          "line": 1059,
+          "column": 12
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 6,
-          "column": 58
+          "line": 286,
+          "column": 57
         }
       ]
     },
@@ -473,8 +485,8 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 94,
-          "column": 95
+          "line": 314,
+          "column": 94
         }
       ]
     },
@@ -485,8 +497,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 251,
-          "column": 14
+          "line": 531,
+          "column": 13
         }
       ]
     },
@@ -519,8 +531,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 49,
-          "column": 7
+          "line": 151,
+          "column": 1
         }
       ]
     },
@@ -531,7 +543,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 133,
+          "line": 144,
           "column": 27
         }
       ]
@@ -567,8 +579,20 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 28,
-          "column": 60
+          "line": 130,
+          "column": 1
+        }
+      ]
+    },
+    "358f07b2c1445ab1": {
+      "source": "作者寄语",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 33,
+          "column": 18
         }
       ]
     },
@@ -579,7 +603,7 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 36,
+          "line": 256,
           "column": 47
         }
       ]
@@ -591,8 +615,8 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1032,
-          "column": 45
+          "line": 1051,
+          "column": 14
         }
       ]
     },
@@ -642,8 +666,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 47,
-          "column": 22
+          "line": 280,
+          "column": 21
         }
       ]
     },
@@ -683,13 +707,13 @@
         },
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 101,
-          "column": 12
+          "line": 265,
+          "column": 11
         },
         {
           "file": "src/views/Config.vue",
-          "line": 38,
-          "column": 57
+          "line": 88,
+          "column": 56
         }
       ]
     },
@@ -700,8 +724,8 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1021,
-          "column": 11
+          "line": 1015,
+          "column": 5
         }
       ]
     },
@@ -712,8 +736,20 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 52,
+          "line": 102,
           "column": 53
+        }
+      ]
+    },
+    "3fd47edce45b3603": {
+      "source": "关闭",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 36,
+          "column": 23
         }
       ]
     },
@@ -724,8 +760,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 37,
-          "column": 75
+          "line": 138,
+          "column": 74
         }
       ]
     },
@@ -748,8 +784,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 71,
-          "column": 22
+          "line": 304,
+          "column": 21
         }
       ]
     },
@@ -844,7 +880,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 49,
+          "line": 60,
           "column": 9
         }
       ]
@@ -856,8 +892,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 23,
-          "column": 9
+          "line": 125,
+          "column": 1
         }
       ]
     },
@@ -880,13 +916,13 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 120,
-          "column": 22
+          "line": 400,
+          "column": 21
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 148,
-          "column": 22
+          "line": 428,
+          "column": 21
         }
       ]
     },
@@ -962,7 +998,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 48,
+          "line": 59,
           "column": 9
         }
       ]
@@ -986,8 +1022,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 6,
-          "column": 62
+          "line": 240,
+          "column": 61
         }
       ]
     },
@@ -1032,8 +1068,8 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 92,
-          "column": 156
+          "line": 312,
+          "column": 155
         }
       ]
     },
@@ -1056,8 +1092,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 12,
-          "column": 20
+          "line": 113,
+          "column": 19
         }
       ]
     },
@@ -1121,8 +1157,8 @@
       "refs": [
         {
           "file": "src/views/Home.vue",
-          "line": 35,
-          "column": 12
+          "line": 185,
+          "column": 11
         }
       ]
     },
@@ -1133,8 +1169,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 74,
-          "column": 16
+          "line": 354,
+          "column": 15
         }
       ]
     },
@@ -1145,13 +1181,13 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 77,
-          "column": 20
+          "line": 297,
+          "column": 19
         },
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 89,
-          "column": 23
+          "line": 309,
+          "column": 22
         }
       ]
     },
@@ -1216,8 +1252,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 12,
-          "column": 15
+          "line": 62,
+          "column": 14
         }
       ]
     },
@@ -1240,8 +1276,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 70,
-          "column": 22
+          "line": 303,
+          "column": 21
         }
       ]
     },
@@ -1310,13 +1346,13 @@
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 257,
-          "column": 21
+          "line": 537,
+          "column": 20
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 257,
-          "column": 21
+          "line": 537,
+          "column": 20
         }
       ]
     },
@@ -1349,13 +1385,13 @@
         },
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 89,
-          "column": 23
+          "line": 309,
+          "column": 22
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 8,
-          "column": 15
+          "line": 288,
+          "column": 14
         }
       ]
     },
@@ -1402,12 +1438,12 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 60,
-          "column": 16
+          "line": 224,
+          "column": 15
         },
         {
           "file": "src/state/appState.js",
-          "line": 1013,
+          "line": 1036,
           "column": 16
         }
       ]
@@ -1419,8 +1455,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 156,
-          "column": 65
+          "line": 390,
+          "column": 1
         }
       ]
     },
@@ -1431,8 +1467,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 68,
-          "column": 22
+          "line": 348,
+          "column": 21
         }
       ]
     },
@@ -1484,8 +1520,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 20,
-          "column": 57
+          "line": 70,
+          "column": 56
         }
       ]
     },
@@ -1496,8 +1532,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 71,
-          "column": 20
+          "line": 201,
+          "column": 19
         }
       ]
     },
@@ -1520,8 +1556,8 @@
       "refs": [
         {
           "file": "src/views/Home.vue",
-          "line": 38,
-          "column": 12
+          "line": 188,
+          "column": 11
         }
       ]
     },
@@ -1554,13 +1590,13 @@
         },
         {
           "file": "src/views/Config.vue",
-          "line": 50,
-          "column": 57
+          "line": 100,
+          "column": 56
         },
         {
           "file": "src/views/Home.vue",
-          "line": 55,
-          "column": 69
+          "line": 205,
+          "column": 68
         }
       ]
     },
@@ -1583,8 +1619,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 47,
-          "column": 16
+          "line": 327,
+          "column": 15
         }
       ]
     },
@@ -1595,8 +1631,8 @@
       "refs": [
         {
           "file": "src/components/ui/Tooltip.vue",
-          "line": 31,
-          "column": 23
+          "line": 145,
+          "column": 22
         }
       ]
     },
@@ -1619,8 +1655,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 55,
-          "column": 67
+          "line": 105,
+          "column": 66
         }
       ]
     },
@@ -1643,13 +1679,13 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 12,
-          "column": 15
+          "line": 62,
+          "column": 14
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 11,
-          "column": 15
+          "line": 291,
+          "column": 14
         }
       ]
     },
@@ -1672,8 +1708,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 108,
-          "column": 23
+          "line": 342,
+          "column": 1
         }
       ]
     },
@@ -1696,8 +1732,20 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 55,
-          "column": 22
+          "line": 335,
+          "column": 21
+        }
+      ]
+    },
+    "93faf55cd25c8319": {
+      "source": "本软件是纯免费软件，如果你被收费，那大概率就是被骗了。\n欢迎点击访问作者主页 https://space.bilibili.com/311706663/upload/video\n查看更多更新动态、使用分享和后续内容。",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 34,
+          "column": 20
         }
       ]
     },
@@ -1708,7 +1756,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 81,
+          "line": 92,
           "column": 44
         }
       ]
@@ -1744,12 +1792,12 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1280,
+          "line": 1304,
           "column": 32
         },
         {
           "file": "src/state/appState.js",
-          "line": 1301,
+          "line": 1325,
           "column": 32
         }
       ]
@@ -1773,8 +1821,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 72,
-          "column": 22
+          "line": 305,
+          "column": 21
         }
       ]
     },
@@ -1809,8 +1857,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 134,
-          "column": 22
+          "line": 414,
+          "column": 21
         }
       ]
     },
@@ -1821,8 +1869,8 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1035,
-          "column": 45
+          "line": 1057,
+          "column": 14
         }
       ]
     },
@@ -1845,8 +1893,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 16,
-          "column": 97
+          "line": 297,
+          "column": 1
         }
       ]
     },
@@ -1869,8 +1917,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 41,
-          "column": 75
+          "line": 142,
+          "column": 74
         }
       ]
     },
@@ -1893,8 +1941,13 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1028,
-          "column": 42
+          "line": 1003,
+          "column": 12
+        },
+        {
+          "file": "src/state/appState.js",
+          "line": 1046,
+          "column": 87
         }
       ]
     },
@@ -1905,13 +1958,13 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 168,
-          "column": 64
+          "line": 298,
+          "column": 63
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 11,
-          "column": 15
+          "line": 291,
+          "column": 14
         }
       ]
     },
@@ -1922,7 +1975,7 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1225,
+          "line": 1249,
           "column": 14
         },
         {
@@ -1939,8 +1992,8 @@
       "refs": [
         {
           "file": "src/components/ui/Input.vue",
-          "line": 18,
-          "column": 21
+          "line": 67,
+          "column": 20
         }
       ]
     },
@@ -1963,8 +2016,8 @@
       "refs": [
         {
           "file": "src/views/Home.vue",
-          "line": 37,
-          "column": 12
+          "line": 187,
+          "column": 11
         }
       ]
     },
@@ -2014,8 +2067,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 8,
-          "column": 15
+          "line": 288,
+          "column": 14
         }
       ]
     },
@@ -2026,13 +2079,13 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 21,
-          "column": 57
+          "line": 151,
+          "column": 56
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 42,
-          "column": 22
+          "line": 322,
+          "column": 21
         }
       ]
     },
@@ -2063,6 +2116,18 @@
         }
       ]
     },
+    "ab607d54d86dc789": {
+      "source": "作者 leookun",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 32,
+          "column": 17
+        }
+      ]
+    },
     "ac217e4d1ca410f1": {
       "source": "发现新版本",
       "kind": "text",
@@ -2070,7 +2135,7 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1009,
+          "line": 1032,
           "column": 16
         }
       ]
@@ -2082,8 +2147,8 @@
       "refs": [
         {
           "file": "src/views/Home.vue",
-          "line": 51,
-          "column": 48
+          "line": 201,
+          "column": 47
         }
       ]
     },
@@ -2094,8 +2159,8 @@
       "refs": [
         {
           "file": "src/components/ui/Input.vue",
-          "line": 18,
-          "column": 21
+          "line": 67,
+          "column": 20
         }
       ]
     },
@@ -2193,8 +2258,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 60,
-          "column": 16
+          "line": 340,
+          "column": 15
         }
       ]
     },
@@ -2217,8 +2282,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 162,
-          "column": 22
+          "line": 442,
+          "column": 21
         }
       ]
     },
@@ -2241,7 +2306,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 36,
+          "line": 47,
           "column": 12
         }
       ]
@@ -2253,8 +2318,8 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 39,
-          "column": 57
+          "line": 169,
+          "column": 56
         }
       ]
     },
@@ -2265,8 +2330,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 95,
-          "column": 22
+          "line": 375,
+          "column": 21
         }
       ]
     },
@@ -2277,13 +2342,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 42,
-          "column": 18
-        },
-        {
-          "file": "src/components/HomeMetricsCard.vue",
-          "line": 47,
-          "column": 22
+          "line": 280,
+          "column": 21
         }
       ]
     },
@@ -2306,7 +2366,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 52,
+          "line": 63,
           "column": 12
         }
       ]
@@ -2318,8 +2378,8 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 93,
-          "column": 20
+          "line": 326,
+          "column": 19
         }
       ]
     },
@@ -2347,8 +2407,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 29,
-          "column": 14
+          "line": 79,
+          "column": 13
         }
       ]
     },
@@ -2371,8 +2431,8 @@
       "refs": [
         {
           "file": "src/views/Home.vue",
-          "line": 54,
-          "column": 64
+          "line": 204,
+          "column": 63
         }
       ]
     },
@@ -2383,8 +2443,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 109,
-          "column": 22
+          "line": 389,
+          "column": 21
         }
       ]
     },
@@ -2395,17 +2455,17 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1196,
+          "line": 1220,
           "column": 28
         },
         {
           "file": "src/state/appState.js",
-          "line": 1198,
+          "line": 1222,
           "column": 38
         },
         {
           "file": "src/state/appState.js",
-          "line": 1233,
+          "line": 1257,
           "column": 93
         }
       ]
@@ -2465,8 +2525,8 @@
       "refs": [
         {
           "file": "src/views/Home.vue",
-          "line": 36,
-          "column": 12
+          "line": 186,
+          "column": 11
         }
       ]
     },
@@ -2477,8 +2537,8 @@
       "refs": [
         {
           "file": "src/components/charts/CacheHitRateChart.vue",
-          "line": 6,
-          "column": 21
+          "line": 115,
+          "column": 20
         }
       ]
     },
@@ -2501,7 +2561,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 95,
+          "line": 106,
           "column": 19
         }
       ]
@@ -2537,7 +2597,7 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1177,
+          "line": 1201,
           "column": 14
         },
         {
@@ -2554,8 +2614,8 @@
       "refs": [
         {
           "file": "src/components/ui/Tooltip.vue",
-          "line": 31,
-          "column": 23
+          "line": 145,
+          "column": 22
         }
       ]
     },
@@ -2588,8 +2648,8 @@
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 223,
-          "column": 22
+          "line": 503,
+          "column": 21
         }
       ]
     },
@@ -2605,8 +2665,8 @@
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 199,
-          "column": 22
+          "line": 479,
+          "column": 21
         }
       ]
     },
@@ -2617,8 +2677,8 @@
       "refs": [
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 101,
-          "column": 16
+          "line": 381,
+          "column": 15
         }
       ]
     },
@@ -2629,13 +2689,13 @@
       "refs": [
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 69,
-          "column": 22
+          "line": 116,
+          "column": 38
         },
         {
           "file": "src/components/HomeMetricsCard.vue",
-          "line": 116,
-          "column": 38
+          "line": 302,
+          "column": 21
         }
       ]
     },
@@ -2663,8 +2723,8 @@
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 246,
-          "column": 20
+          "line": 526,
+          "column": 19
         }
       ]
     },
@@ -2699,8 +2759,8 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1020,
-          "column": 11
+          "line": 1014,
+          "column": 5
         }
       ]
     },
@@ -2711,8 +2771,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 51,
-          "column": 48
+          "line": 102,
+          "column": 1
         }
       ]
     },
@@ -2747,13 +2807,13 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 6,
-          "column": 57
+          "line": 56,
+          "column": 56
         },
         {
           "file": "src/views/Home.vue",
-          "line": 50,
-          "column": 57
+          "line": 200,
+          "column": 56
         }
       ]
     },
@@ -2764,8 +2824,8 @@
       "refs": [
         {
           "file": "src/views/ModelConfig.vue",
-          "line": 28,
-          "column": 110
+          "line": 248,
+          "column": 109
         }
       ]
     },
@@ -2824,7 +2884,7 @@
       "refs": [
         {
           "file": "src/state/appState.js",
-          "line": 1011,
+          "line": 1034,
           "column": 16
         }
       ]
@@ -2836,7 +2896,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 43,
+          "line": 54,
           "column": 9
         }
       ]
@@ -2908,23 +2968,23 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterModal.vue",
-          "line": 117,
-          "column": 28
+          "line": 247,
+          "column": 27
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 183,
-          "column": 22
+          "line": 463,
+          "column": 21
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 207,
-          "column": 22
+          "line": 487,
+          "column": 21
         },
         {
           "file": "src/views/ModelEditor.vue",
-          "line": 231,
-          "column": 22
+          "line": 511,
+          "column": 21
         }
       ]
     },
@@ -2994,7 +3054,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 54,
+          "line": 65,
           "column": 10
         }
       ]
@@ -3006,8 +3066,8 @@
       "refs": [
         {
           "file": "src/components/ui/InputModal.vue",
-          "line": 33,
-          "column": 67
+          "line": 70,
+          "column": 66
         },
         {
           "file": "src/components/ui/Modal.vue",
@@ -3026,13 +3086,13 @@
         },
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 103,
+          "line": 114,
           "column": 18
         },
         {
           "file": "src/state/appState.js",
-          "line": 1032,
-          "column": 56
+          "line": 1053,
+          "column": 12
         }
       ]
     },
@@ -3055,8 +3115,8 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 68,
-          "column": 16
+          "line": 232,
+          "column": 15
         }
       ]
     }

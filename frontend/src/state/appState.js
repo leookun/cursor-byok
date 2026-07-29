@@ -1,7 +1,6 @@
 import { computed, reactive, watchSyncEffect } from "vue";
 import { Events } from "@wailsio/runtime";
 import dayjs from "dayjs";
-import { getLocale } from "@/i18n/runtime";
 import {
   checkForUpdates,
   getAppVersion,
@@ -998,43 +997,19 @@ export const appViewState = reactive({
 
 function localizeUpdateMessage(msg) {
   if (!msg) return "";
-  if (msg.includes("当前已是最新版本")) {
+  if (/当前已是最新版本/.test(msg)) {
     const match = msg.match(/v?([0-9]+\.[0-9]+\.[0-9]+)/);
     const version = match ? match[1] : appState.appVersion || "...";
-    const locale = getLocale ? getLocale() : "zh-CN";
-    if (locale === "en-US") {
-      return `You are already on the latest version (v${version}).`;
-    }
-    if (locale === "ja-JP") {
-      return `すでに最新バージョン（v${version}）です。`;
-    }
     return `当前已是最新版本（v${version}）。`;
   }
   return msg;
 }
 
 function localizeReadyContent() {
-  const locale = getLocale ? getLocale() : "zh-CN";
   const version = appState.updateVersion || appState.appVersion || "...";
   const date = formatReleaseDate(appState.updateReleaseDate);
   const notes = appState.updateReleaseNotes || "";
 
-  if (locale === "en-US") {
-    return [
-      `Version: v${version}`,
-      `Release Date: ${date}`,
-      "",
-      notes || "No release notes",
-    ].join("\n");
-  }
-  if (locale === "ja-JP") {
-    return [
-      `バージョン: v${version}`,
-      `リリース日: ${date}`,
-      "",
-      notes || "リリースノートはありません",
-    ].join("\n");
-  }
   return [
     `版本：v${version}`,
     `发布时间：${date}`,
@@ -1052,19 +1027,12 @@ export const updateViewState = reactive({
     width: `${Math.max(0, Math.min(100, appState.updateProgressPercent || 0))}%`,
   })),
   promptTitle: computed(() => {
-    const locale = getLocale ? getLocale() : "zh-CN";
     switch (appState.updatePromptKind) {
       case "ready":
-        if (locale === "en-US") return "New Version Available";
-        if (locale === "ja-JP") return "新しいバージョンがあります";
         return "发现新版本";
       case "error":
-        if (locale === "en-US") return "Update Failed";
-        if (locale === "ja-JP") return "アップデートに失敗しました";
         return "更新失败";
       default:
-        if (locale === "en-US") return "Check for Updates";
-        if (locale === "ja-JP") return "アップデートを確認";
         return "检查更新";
     }
   }),
@@ -1079,25 +1047,15 @@ export const updateViewState = reactive({
     }
   }),
   promptConfirmText: computed(() => {
-    const locale = getLocale ? getLocale() : "zh-CN";
     if (appState.updatePromptKind === "ready") {
-      if (locale === "en-US") return "Restart to Update";
-      if (locale === "ja-JP") return "再起動して更新";
       return "立即重启更新";
     }
-    if (locale === "en-US") return "OK";
-    if (locale === "ja-JP") return "OK";
     return "确定";
   }),
   promptCancelText: computed(() => {
-    const locale = getLocale ? getLocale() : "zh-CN";
     if (appState.updatePromptKind === "ready") {
-      if (locale === "en-US") return "Later";
-      if (locale === "ja-JP") return "後で";
       return "稍后";
     }
-    if (locale === "en-US") return "Cancel";
-    if (locale === "ja-JP") return "キャンセル";
     return "取消";
   }),
   promptShowCancel: computed(() => appState.updatePromptKind === "ready"),
