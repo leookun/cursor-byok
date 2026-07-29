@@ -197,7 +197,6 @@ func NewProxyServer(addr, baseURL, _ string, _ string, certManager *certs.Manage
 				IdleConnTimeout:       90 * time.Second,
 				TLSHandshakeTimeout:   10 * time.Second,
 				ExpectContinueTimeout: 1 * time.Second,
-				ResponseHeaderTimeout: 60 * time.Second,
 			},
 		},
 	}
@@ -371,7 +370,6 @@ func (s *ProxyServer) newGoproxyHandler() *goproxy.ProxyHttpServer {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
 	})
 	proxy.ConnectionErrHandler = func(conn io.Writer, ctx *goproxy.ProxyCtx, err error) {
 		host := requestHost(ctx)
