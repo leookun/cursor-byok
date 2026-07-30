@@ -466,7 +466,7 @@
   },
   {
     "function": {
-      "description": "Switch the interaction mode to better match the current task. Each mode is optimized for a specific type of work.\n\n## When to Switch Modes\n\nSwitch modes proactively when:\n1. **Task type changes** - User shifts from asking questions to requesting implementation, or vice versa\n2. **Complexity emerges** - What seemed simple reveals architectural decisions or multiple approaches\n3. **Debugging needed** - An error, bug, or unexpected behavior requires investigation\n4. **Planning needed** - The task is large, ambiguous, or has significant trade-offs to discuss\n5. **You're stuck** - Multiple attempts without progress suggest a different approach is needed\n\n## When NOT to Switch\n\nDo NOT switch modes for:\n- Simple, clear tasks that can be completed quickly in current mode\n- Mid-implementation when you're making good progress\n- Minor clarifying questions (just ask them)\n- Tasks where the current mode is working well\n\n## Available Modes\n\n### Agent Mode (cannot switch to this mode)\nDefault implementation mode with full access to all tools for making changes.\n\n### Plan Mode [switchable]\nRead-only collaborative mode for designing implementation approaches before coding.\n\n**Switch to Plan when:**\n- The task has multiple valid approaches with significant trade-offs\n- Architectural decisions are needed (e.g., \"Add caching\" - Redis vs in-memory vs file-based)\n- The task touches many files or systems (large refactors, migrations)\n- Requirements are unclear and you need to explore before understanding scope\n- You would otherwise ask multiple clarifying questions\n\n**Examples:**\n- User: \"Add user authentication\" → Switch to Plan (session vs JWT, storage, middleware decisions)\n- User: \"Refactor the database layer\" → Switch to Plan (large scope, architectural impact)\n- User: \"Make the app faster\" → Switch to Plan (need to profile, multiple optimization strategies)\n\n### Debug Mode (cannot switch to this mode)\nSystematic troubleshooting mode for investigating bugs, failures, and unexpected behavior with runtime evidence.\n\n### Ask Mode (cannot switch to this mode)\nRead-only mode for exploring code and answering questions without making changes.\n\n## Important Notes\n\n- **Be proactive**: Don't wait for the user to ask you to switch modes\n- **Explain briefly**: When switching, briefly explain why in your `explanation` parameter\n- **Don't over-switch**: If the current mode is working, stay in it\n- **User approval required**: Mode switches require user consent",
+      "description": "Switch the interaction mode to better match the current task. Each mode is optimized for a specific type of work.\n\n## When to Switch Modes\n\nSwitch modes proactively when:\n1. **Task type changes** - User shifts from asking questions to requesting implementation, or vice versa\n2. **Complexity emerges** - What seemed simple reveals architectural decisions or multiple approaches\n3. **Debugging needed** - An error, bug, or unexpected behavior requires investigation\n4. **Planning needed** - The task is large, ambiguous, or has significant trade-offs to discuss\n5. **You're stuck** - Multiple attempts without progress suggest a different approach is needed\n\n## When NOT to Switch\n\nDo NOT switch modes for:\n- Simple, clear tasks that can be completed quickly in current mode\n- Mid-implementation when you're making good progress\n- Minor clarifying questions (just ask them)\n- Tasks where the current mode is working well\n\n## Available Modes\n\n### Agent Mode (cannot switch to this mode)\nDefault implementation mode with full access to all tools for making changes.\n\n### Plan Mode [switchable]\nInvestigation-first collaborative mode for designing implementation approaches. It may create a minimal workspace planning artifact only when the user explicitly requests one.\n\n**Switch to Plan when:**\n- The task has multiple valid approaches with significant trade-offs\n- Architectural decisions are needed (e.g., \"Add caching\" - Redis vs in-memory vs file-based)\n- The task touches many files or systems (large refactors, migrations)\n- Requirements are unclear and you need to explore before understanding scope\n- You would otherwise ask multiple clarifying questions\n\n**Examples:**\n- User: \"Add user authentication\" → Switch to Plan (session vs JWT, storage, middleware decisions)\n- User: \"Refactor the database layer\" → Switch to Plan (large scope, architectural impact)\n- User: \"Make the app faster\" → Switch to Plan (need to profile, multiple optimization strategies)\n\n### Debug Mode (cannot switch to this mode)\nSystematic troubleshooting mode for investigating bugs, failures, and unexpected behavior with runtime evidence.\n\n### Ask Mode (cannot switch to this mode)\nRead-only mode for exploring code and answering questions without making changes.\n\n## Important Notes\n\n- **Be proactive**: Don't wait for the user to ask you to switch modes\n- **Explain briefly**: When switching, briefly explain why in your `explanation` parameter\n- **Don't over-switch**: If the current mode is working, stay in it\n- **User approval required**: Mode switches require user consent",
       "name": "SwitchMode",
       "parameters": {
         "properties": {
@@ -631,6 +631,51 @@
         "required": [
           "search_term"
         ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Use this tool to create or revise a concise plan for accomplishing the user's request. It is available in Agent mode when saving or updating a plan in the plan UI would help the user. Use it only when the user requests a persisted plan or when an explicit planning workflow requires it; a textual plan is sufficient otherwise.\n\nThe plan must be concise and actionable. The first line must be a level-1 markdown heading. Do not use markdown tables.\n\nIf a current plan already exists, submit the complete revised plan and omit name. Only the first call may include name.",
+      "name": "CreatePlan",
+      "parameters": {
+        "properties": {
+          "name": {
+            "description": "A short 3-4 word name. Provide only on the first CreatePlan call.",
+            "type": "string"
+          },
+          "overview": {
+            "description": "A 1-2 sentence plan summary.",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The detailed, concrete plan.",
+            "type": "string"
+          },
+          "todos": {
+            "description": "Optional implementation todos.",
+            "items": {
+              "properties": {
+                "content": {
+                  "description": "Description of the todo task.",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Unique todo ID.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "content"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
         "type": "object"
       }
     },

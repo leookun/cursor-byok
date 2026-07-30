@@ -51,18 +51,19 @@ func (injector *DefaultReminderInjector) Inject(mode agentv1.AgentMode, conversa
 	if normalizedMode == agentv1.AgentMode_AGENT_MODE_DEBUG {
 		return debugModePromptReminders(conversation)
 	}
-	reminders = append(reminders, "If multiple <current_plan> or <todo_list> blocks appear in the conversation, treat the last block of each type as the current source of truth.")
+	reminders = append(reminders, "When the user explicitly invokes an installed workflow skill or command such as /ak:plan, first read and follow that workflow's contract. Treat its explicit invocation as authorization for the minimal workspace artifacts it requires. Do not substitute CreatePlan or an ad-hoc document for required workflow artifacts; CreatePlan is only an optional UI mirror unless that workflow or the user requires it.")
 	switch normalizedMode {
 	case agentv1.AgentMode_AGENT_MODE_ASK:
 		reminders = append(reminders, "You are in ask mode. Prefer direct answers and only use tools when they are necessary to answer accurately.")
 		reminders = append(reminders, "Lead with the conclusion, keep the response concise, and avoid unsolicited example code or long bullet lists.")
 	case agentv1.AgentMode_AGENT_MODE_PLAN:
-		reminders = append(reminders, "You are currently working in plan mode for the user. Prioritize investigation, decomposition, tradeoff analysis, and producing or refining a concrete plan.")
-		reminders = append(reminders, "Do not directly modify files in plan mode. Avoid direct file-editing tools such as Write, Delete, and PatchEdit.")
-		reminders = append(reminders, "For non-trivial plan-mode work, first do a quick reconnaissance yourself, then launch 2-4 parallel Task subagents with subagent_type=\"explore\" to investigate distinct angles before CreatePlan. Avoid using exactly one subagent for broad tasks: either handle narrow tasks directly, or split broad tasks into multiple independent investigations. Synthesize the subagent results yourself; do not delegate the final plan.")
-		reminders = append(reminders, "For narrow, well-scoped tasks, you can investigate directly and then create a lean plan with only the essential stages, tradeoffs, and next steps.")
+		reminders = append(reminders, "You are in plan mode. Prioritize investigation, decomposition, tradeoff analysis, and a concrete plan; planning is the default workflow, not a read-only permission boundary.")
+		reminders = append(reminders, "When the user explicitly requests a planning artifact in the workspace—such as a file, directory, command, workflow, configuration, or documentation update—you may make the minimal requested change. Do not implement unrelated product behavior.")
+		reminders = append(reminders, "Use CreatePlan only when the user asks to save or update the plan in the plan UI. A textual plan is sufficient otherwise.")
+		reminders = append(reminders, "For plan-mode work, use hybrid escalation: investigate directly for narrow work; consult one readonly Task worker when technical uncertainty, debugging stagnation, tradeoff analysis, or independent review needs more evidence; delegate one worker for one substantial independent track; and use multiple workers only for distinct parallel tracks with clear benefit and scopes. Keep architecture decisions, synthesis, and the final plan with the main agent. Default to readonly investigation, and permit worker edits only with exclusive file ownership.")
+		reminders = append(reminders, "For narrow, well-scoped tasks, investigate directly and provide only the essential stages, tradeoffs, and next steps.")
 		if hasCurrentPlan(conversation) {
-			reminders = append(reminders, "A current plan already exists. Treat short follow-up requests as modifications to that current plan unless the user explicitly asks for a separate new plan. When calling CreatePlan for an existing plan, send the complete revised plan, preserve relevant existing content, incorporate the user's requested changes, and omit the name field. The CreatePlan name field is only allowed on the first CreatePlan call; never use a later name to rename or create a separate plan.")
+			reminders = append(reminders, "A current plan already exists. Treat short follow-up requests as modifications to that current plan unless the user explicitly asks for a separate new plan. If updating the plan UI, call CreatePlan with the complete revised plan and omit name. The CreatePlan name field is only allowed on the first call.")
 		}
 	case agentv1.AgentMode_AGENT_MODE_MULTITASK:
 		reminders = append(reminders, "You are in multitask mode. Act as a coordinator: for most non-trivial requests, delegate one coherent worker task with Task instead of doing the same investigation or implementation in the foreground.")
@@ -70,7 +71,7 @@ func (injector *DefaultReminderInjector) Inject(mode agentv1.AgentMode, conversa
 		reminders = append(reminders, "Do not wait, sleep, or poll just for a running worker to complete. End the response unless there is separate useful coordination to do.")
 		reminders = append(reminders, "Do not over-decompose small or medium tasks into many sibling workers. Use multiple sibling workers only for clearly independent top-level workstreams.")
 	default:
-		reminders = append(reminders, "You are in agent mode. Use the available tools when they materially improve correctness or efficiency.")
+		reminders = append(reminders, "You are in agent mode with full available tool access. Create or update a plan directly when that improves the task; switch to Plan mode only when its investigation-first workflow is materially useful.")
 		reminders = append(reminders, "When reporting progress or completion, lead with the result, mention only key changes or verification, and avoid long recaps, exhaustive lists, or unsolicited example code.")
 	}
 
@@ -186,7 +187,7 @@ func currentModeContractText(mode agentv1.AgentMode, childSubagent bool) string 
 	}
 	switch normalizeMode(mode) {
 	case agentv1.AgentMode_AGENT_MODE_PLAN:
-		return "For the turn that contains this reminder, the active mode is plan. Do not modify files or system state. Use CreatePlan when the plan is ready or needs updating."
+		return "For the turn that contains this reminder, the active mode is plan. Plan mode is investigation-first, not read-only by definition. You may make the minimal workspace change only when the user explicitly requests a planning artifact such as a file, directory, command, workflow, configuration, or documentation update. Use CreatePlan only when the user asks to save or update the plan in the plan UI. If work would implement product behavior beyond that artifact, ask whether to continue in Agent mode."
 	case agentv1.AgentMode_AGENT_MODE_ASK:
 		return "For the turn that contains this reminder, the active mode is ask. Prefer a direct answer. Use tools only when they materially improve accuracy, and do not call CreatePlan."
 	case agentv1.AgentMode_AGENT_MODE_DEBUG:
@@ -194,7 +195,7 @@ func currentModeContractText(mode agentv1.AgentMode, childSubagent bool) string 
 	case agentv1.AgentMode_AGENT_MODE_MULTITASK:
 		return "For the turn that contains this reminder, the active mode is multitask. Act as the foreground coordinator: delegate most non-trivial work to a coherent worker with Task, avoid duplicating delegated work in the foreground, and do not wait just for a worker to finish."
 	default:
-		return "For the turn that contains this reminder, the active mode is agent. CreatePlan is not available in this mode; do not call CreatePlan. If the user explicitly asks to create or revise a plan, call SwitchMode to return to plan mode first. If there is an accepted or current plan, execute or continue the implementation using the available agent-mode tools."
+		return "For the turn that contains this reminder, the active mode is agent. Agent mode has full available tool access, including CreatePlan. You may create or revise a textual plan or a plan-UI artifact without switching modes. Switch to Plan mode only when investigation, design alternatives, or user collaboration needs its planning workflow; otherwise continue directly with the requested work."
 	}
 }
 
