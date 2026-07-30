@@ -60,7 +60,7 @@ func (injector *DefaultReminderInjector) Inject(mode agentv1.AgentMode, conversa
 		reminders = append(reminders, "You are in plan mode. Prioritize investigation, decomposition, tradeoff analysis, and a concrete plan; planning is the default workflow, not a read-only permission boundary.")
 		reminders = append(reminders, "When the user explicitly requests a planning artifact in the workspace—such as a file, directory, command, workflow, configuration, or documentation update—you may make the minimal requested change. Do not implement unrelated product behavior.")
 		reminders = append(reminders, "Use CreatePlan only when the user asks to save or update the plan in the plan UI. A textual plan is sufficient otherwise.")
-		reminders = append(reminders, "For plan-mode work, use hybrid escalation: investigate directly for narrow work; consult one readonly Task worker when technical uncertainty, debugging stagnation, tradeoff analysis, or independent review needs more evidence; delegate one worker for one substantial independent track; and use multiple workers only for distinct parallel tracks with clear benefit and scopes. Keep architecture decisions, synthesis, and the final plan with the main agent. Default to readonly investigation, and permit worker edits only with exclusive file ownership.")
+		reminders = append(reminders, "For plan-mode work, investigate directly by default, including difficult uncertainty and review. Do not launch exactly one Task worker as a substitute for the main agent. Treat Subagents as a constrained context and cost budget: use them only when at least two substantial, independent tracks have a clear parallel benefit, use the minimum count (normally two, at most three unless the user requests broader parallelism), and do not repeat overlapping investigations after sufficient evidence exists. Give each worker a non-overlapping scope and file ownership. Keep architecture decisions, synthesis, and the final plan with the main agent, and default to readonly investigation unless exclusive file ownership makes edits safe.")
 		reminders = append(reminders, "For narrow, well-scoped tasks, investigate directly and provide only the essential stages, tradeoffs, and next steps.")
 		if hasCurrentPlan(conversation) {
 			reminders = append(reminders, "A current plan already exists. Treat short follow-up requests as modifications to that current plan unless the user explicitly asks for a separate new plan. If updating the plan UI, call CreatePlan with the complete revised plan and omit name. The CreatePlan name field is only allowed on the first call.")
@@ -71,7 +71,7 @@ func (injector *DefaultReminderInjector) Inject(mode agentv1.AgentMode, conversa
 		reminders = append(reminders, "Do not wait, sleep, or poll just for a running worker to complete. End the response unless there is separate useful coordination to do.")
 		reminders = append(reminders, "Do not over-decompose small or medium tasks into many sibling workers. Use multiple sibling workers only for clearly independent top-level workstreams.")
 	default:
-		reminders = append(reminders, "You are in agent mode with full available tool access. Create or update a plan directly when that improves the task; switch to Plan mode only when its investigation-first workflow is materially useful.")
+		reminders = append(reminders, "You are in agent mode with full available tool access. Handle work directly by default. Use Task only when at least two substantial, independent tracks have a clear parallel benefit; treat Subagents as a constrained context and cost budget, use the minimum count (normally two, at most three unless the user requests broader parallelism), and do not repeat overlapping investigations after sufficient evidence exists. Create or update a plan directly when that improves the task; switch to Plan mode only when its investigation-first workflow is materially useful.")
 		reminders = append(reminders, "When reporting progress or completion, lead with the result, mention only key changes or verification, and avoid long recaps, exhaustive lists, or unsolicited example code.")
 	}
 
@@ -351,8 +351,8 @@ func extractLatestSuccessfulEditReminder(messages []modeladapter.Message) (editR
 		return editReminderCandidate{}, false
 	}
 	toolPaths := collectReplayEditToolPaths(messages)
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := messages[index]
+	for reverseOffset := range len(messages) {
+		message := messages[len(messages)-1-reverseOffset]
 		if strings.TrimSpace(message.Role) != "tool" {
 			continue
 		}
