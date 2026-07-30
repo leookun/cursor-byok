@@ -62,6 +62,46 @@ func buildUserReplayMessage(text string, selectedContext *agentv1.SelectedContex
 	}, true
 }
 
+// BuildSelectedCursorCommandsReplayMessage renders command content for new history entries.
+// Keeping this separate from BuildUserMessageReplayMessage prevents old user_message entries
+// from changing their model-visible meaning after a backend upgrade.
+func BuildSelectedCursorCommandsReplayMessage(userMessage *agentv1.UserMessage) (Message, bool) {
+	if userMessage == nil {
+		return Message{}, false
+	}
+	content := buildSelectedCursorCommandsPromptSection(userMessage.GetSelectedContext())
+	if content == "" {
+		return Message{}, false
+	}
+	return Message{Role: "user", Content: content}, true
+}
+
+func buildSelectedCursorCommandsPromptSection(selectedContext *agentv1.SelectedContext) string {
+	if selectedContext == nil || len(selectedContext.GetCursorCommands()) == 0 {
+		return ""
+	}
+	entries := make([]string, 0, len(selectedContext.GetCursorCommands()))
+	for _, command := range selectedContext.GetCursorCommands() {
+		if command == nil {
+			continue
+		}
+		content := strings.TrimSpace(command.GetContent())
+		if content == "" {
+			continue
+		}
+		name := strings.TrimSpace(command.GetName())
+		if name == "" {
+			entries = append(entries, "<cursor_command>\n"+content+"\n</cursor_command>")
+			continue
+		}
+		entries = append(entries, fmt.Sprintf("<cursor_command name=\"%s\">\n%s\n</cursor_command>", escapePromptXML(name), content))
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return "<cursor_commands>\n" + strings.Join(entries, "\n\n") + "\n</cursor_commands>"
+}
+
 func buildSelectedIDEStatePromptSection(selectedContext *agentv1.SelectedContext) string {
 	if selectedContext == nil || selectedContext.GetInvocationContext() == nil {
 		return ""

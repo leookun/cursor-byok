@@ -116,6 +116,11 @@ type StreamSubscriber struct {
 	Signal chan struct{}
 }
 
+type manualCompactionDirective struct {
+	Requested   bool
+	Instruction string
+}
+
 type ActiveStream struct {
 	mu sync.Mutex
 
@@ -126,6 +131,7 @@ type ActiveStream struct {
 	ModelName              string
 	Mode                   agentv1.AgentMode
 	LatestUserText         string
+	ManualCompaction       manualCompactionDirective
 	Status                 StreamStatus
 	ThinkingEffort         string
 	SubagentModelOverrides map[string]runtimecore.SubagentModelOverrideSelection
@@ -407,6 +413,7 @@ type InboundIntent struct {
 	HasExplicitMode          bool
 	ModeSource               ModeSource
 	StartsRun                bool
+	ManualCompaction         manualCompactionDirective
 	SubagentTypeName         string
 	SubagentModelOverrides   map[string]runtimecore.SubagentModelOverrideSelection
 	ConversationState        *agentv1.ConversationStateStructure

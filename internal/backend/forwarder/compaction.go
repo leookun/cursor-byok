@@ -76,7 +76,7 @@ func (service *Service) maybeCompactBeforeProvider(stream *ActiveStream, convers
 	if service == nil || stream == nil || conversation == nil {
 		return false, nil
 	}
-	manualInstruction, manual := parseManualCompactionDirective(stream.LatestUserText)
+	manualInstruction, manual := streamManualCompactionDirective(stream)
 	plan, err := service.buildCompactionPlan(stream, conversation, compiled, manual, manualInstruction)
 	if err != nil {
 		return false, err
@@ -826,7 +826,7 @@ func buildFallbackCompactionSummary(plan *PendingCompaction) string {
 		sections = append(sections, "Compaction note:\n"+truncateCompactionText(plan.HookMessage, 800))
 	}
 	if strings.TrimSpace(plan.ManualInstruction) != "" {
-		sections = append(sections, "Manual compact instruction:\n"+truncateCompactionText(plan.ManualInstruction, 800))
+		sections = append(sections, "Manual summarize instruction:\n"+truncateCompactionText(plan.ManualInstruction, 800))
 	}
 	return strings.TrimSpace(truncateCompactionText(strings.Join(sections, "\n\n"), compactionSummaryMaxChars))
 }
@@ -874,13 +874,62 @@ func (service *Service) resolveCompactionReserveTokens(modelID string) int64 {
 	return compactionAutoReserveTokens
 }
 
+func parseManualCompactionRequest(userMessage *agentv1.UserMessage) (string, bool) {
+	if userMessage == nil {
+		return "", false
+	}
+	userText := strings.TrimSpace(userMessage.GetText())
+	if instruction, ok := parseManualCompactionDirective(userText); ok {
+		return instruction, true
+	}
+	if userText != "" {
+		return "", false
+	}
+	selectedContext := userMessage.GetSelectedContext()
+	if selectedContext == nil {
+		return "", false
+	}
+	for _, command := range selectedContext.GetCursorCommands() {
+		if !isCursorSummarizeCommand(command) {
+			continue
+		}
+		instruction, _ := parseManualCompactionDirective(command.GetContent())
+		return instruction, true
+	}
+	return "", false
+}
+
+func streamManualCompactionDirective(stream *ActiveStream) (string, bool) {
+	if stream == nil {
+		return "", false
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.ManualCompaction.Requested {
+		return strings.TrimSpace(stream.ManualCompaction.Instruction), true
+	}
+	return parseManualCompactionDirective(stream.LatestUserText)
+}
+
+func isCursorSummarizeCommand(command *agentv1.SelectedCursorCommand) bool {
+	if command == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(command.GetName()), "glass-action-summarize") {
+		return true
+	}
+	_, ok := parseManualCompactionDirective(command.GetContent())
+	return ok
+}
+
 func parseManualCompactionDirective(latestUserText string) (string, bool) {
 	trimmed := strings.TrimSpace(latestUserText)
+	const directive = "/summarize"
 	switch {
-	case trimmed == "/compact":
+	case trimmed == directive:
 		return "", true
-	case strings.HasPrefix(trimmed, "/compact "):
-		return strings.TrimSpace(strings.TrimPrefix(trimmed, "/compact")), true
+	case strings.HasPrefix(trimmed, directive+" "):
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, directive)), true
 	default:
 		return "", false
 	}

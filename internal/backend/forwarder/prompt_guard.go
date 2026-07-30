@@ -18,6 +18,10 @@ const (
 	promptGuardSelectedFileChars        = 16000
 	promptGuardSelectedFilesTotalChars  = 64000
 	promptGuardSelectedFilesMaxCount    = 12
+	promptGuardCursorCommandNameChars   = 256
+	promptGuardCursorCommandChars       = 12000
+	promptGuardCursorCommandsTotalChars = 32000
+	promptGuardCursorCommandsMaxCount   = 8
 	promptGuardRequestFileChars         = 16000
 	promptGuardRequestFilesTotalChars   = 64000
 	promptGuardRequestFilesMaxCount     = 12
@@ -106,9 +110,40 @@ func guardSelectedContext(selectedContext *agentv1.SelectedContext) *agentv1.Sel
 		return selectedContext
 	}
 	cloned.Files = guardSelectedFiles(cloned.GetFiles())
+	cloned.CursorCommands = guardSelectedCursorCommands(cloned.GetCursorCommands())
 	cloned.SelectedSkills = guardAgentSkills(cloned.GetSelectedSkills())
 	cloned.ExtraContext = guardStringSlice(cloned.GetExtraContext(), "selected_context.extra_context", promptGuardRealtimeTextChars, promptGuardRealtimeTextChars, promptGuardAgentSkillsMaxCount)
 	return cloned
+}
+
+func guardSelectedCursorCommands(commands []*agentv1.SelectedCursorCommand) []*agentv1.SelectedCursorCommand {
+	if len(commands) == 0 {
+		return nil
+	}
+	result := make([]*agentv1.SelectedCursorCommand, 0, minInt(len(commands), promptGuardCursorCommandsMaxCount))
+	remaining := promptGuardCursorCommandsTotalChars
+	for _, command := range commands {
+		if command == nil || len(result) >= promptGuardCursorCommandsMaxCount {
+			continue
+		}
+		content := strings.TrimSpace(command.GetContent())
+		if content == "" {
+			continue
+		}
+		limit := minInt(promptGuardCursorCommandChars, remaining)
+		if limit <= 0 {
+			break
+		}
+		cloned, ok := proto.Clone(command).(*agentv1.SelectedCursorCommand)
+		if !ok || cloned == nil {
+			continue
+		}
+		cloned.Name = truncatePromptGuardText("selected_context.cursor_commands.name", strings.TrimSpace(cloned.GetName()), promptGuardCursorCommandNameChars)
+		cloned.Content = truncatePromptGuardText("selected_context.cursor_commands.content", content, limit)
+		remaining -= promptGuardRuneCount(cloned.GetContent())
+		result = append(result, cloned)
+	}
+	return result
 }
 
 func guardSelectedFiles(files []*agentv1.SelectedFile) []*agentv1.SelectedFile {

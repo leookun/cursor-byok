@@ -5,6 +5,9 @@
 <img  width="820"  alt="image" src="https://github.com/user-attachments/assets/a607be84-a738-4e33-9750-13352e74001c" />
 
 
+## 交流群组
+https://t.me/cursor_byok
+
 
 ## 为什么做这个项目
 
