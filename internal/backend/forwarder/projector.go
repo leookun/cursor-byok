@@ -2,6 +2,7 @@
 package forwarder
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -17,6 +18,16 @@ import (
 const projectedConversationMaxTokens = 130000
 
 type HistoryProjector struct {
+}
+
+type CheckpointBlob struct {
+	ID   []byte
+	Data []byte
+}
+
+type LegacyCheckpointProjection struct {
+	State *agentv1.ConversationStateStructure
+	Blobs []CheckpointBlob
 }
 
 // NewHistoryProjector 创建 history 投影器。
@@ -481,7 +492,7 @@ func (projector *HistoryProjector) ProjectLegacyCheckpoint(conversation *Convers
 			MaxTokens:  conversationTokenDetailsMaxTokens(conversation),
 		},
 		Summary:          latestCompactionSummaryBytes(conversation),
-		SummaryArchive:   previousCompactionSummaryBytes(conversation),
+		SummaryArchive:   previousCompactionSummaryArchiveBytes(conversation),
 		SummaryArchives:  compactionSummaryArchives(conversation),
 		SelfSummaryCount: uint32(len(compactionSummaryTexts(conversation))),
 	}
@@ -688,6 +699,79 @@ func (projector *HistoryProjector) ProjectLegacyCheckpoint(conversation *Convers
 	return state, nil
 }
 
+// ProjectLegacyCheckpointWithBlobs 把 checkpoint 中的 bytes 实体转换成 Cursor 当前协议使用的 SHA-256 blob 引用。
+func (projector *HistoryProjector) ProjectLegacyCheckpointWithBlobs(conversation *ConversationFile) (*LegacyCheckpointProjection, error) {
+	state, err := projector.ProjectLegacyCheckpoint(conversation)
+	if err != nil {
+		return nil, err
+	}
+	return blobifyLegacyCheckpoint(state)
+}
+
+func blobifyLegacyCheckpoint(state *agentv1.ConversationStateStructure) (*LegacyCheckpointProjection, error) {
+	projection := &LegacyCheckpointProjection{State: state}
+	if state == nil {
+		projection.State = &agentv1.ConversationStateStructure{}
+		return projection, nil
+	}
+	seen := make(map[[sha256.Size]byte]struct{})
+	addBlob := func(data []byte) []byte {
+		if len(data) == 0 {
+			return nil
+		}
+		digest := sha256.Sum256(data)
+		if _, ok := seen[digest]; !ok {
+			seen[digest] = struct{}{}
+			projection.Blobs = append(projection.Blobs, CheckpointBlob{
+				ID:   append([]byte(nil), digest[:]...),
+				Data: append([]byte(nil), data...),
+			})
+		}
+		return append([]byte(nil), digest[:]...)
+	}
+	blobifyList := func(items [][]byte) [][]byte {
+		if len(items) == 0 {
+			return nil
+		}
+		result := make([][]byte, 0, len(items))
+		for _, item := range items {
+			if id := addBlob(item); len(id) > 0 {
+				result = append(result, id)
+			}
+		}
+		return result
+	}
+
+	state.RootPromptMessagesJson = blobifyList(state.GetRootPromptMessagesJson())
+	state.Todos = blobifyList(state.GetTodos())
+	state.SummaryArchives = blobifyList(state.GetSummaryArchives())
+	state.Summary = addBlob(state.GetSummary())
+	state.SummaryArchive = addBlob(state.GetSummaryArchive())
+	state.Plan = addBlob(state.GetPlan())
+
+	turnIDs := make([][]byte, 0, len(state.GetTurns()))
+	for _, rawTurn := range state.GetTurns() {
+		if len(rawTurn) == 0 {
+			continue
+		}
+		turn := &agentv1.ConversationTurnStructure{}
+		if err := proto.Unmarshal(rawTurn, turn); err != nil {
+			return nil, fmt.Errorf("decode projected turn for blob storage: %w", err)
+		}
+		if agentTurn := turn.GetAgentConversationTurn(); agentTurn != nil {
+			agentTurn.UserMessage = addBlob(agentTurn.GetUserMessage())
+			agentTurn.Steps = blobifyList(agentTurn.GetSteps())
+		}
+		encoded, err := proto.Marshal(turn)
+		if err != nil {
+			return nil, fmt.Errorf("encode projected turn for blob storage: %w", err)
+		}
+		turnIDs = append(turnIDs, addBlob(encoded))
+	}
+	state.Turns = turnIDs
+	return projection, nil
+}
+
 func marshalThinkingStep(text string) ([]byte, error) {
 	return proto.Marshal(&agentv1.ConversationStep{
 		Message: &agentv1.ConversationStep_ThinkingMessage{
@@ -718,12 +802,12 @@ func latestCompactionSummaryBytes(conversation *ConversationFile) []byte {
 	return encodeConversationSummaryBytes(texts[len(texts)-1])
 }
 
-func previousCompactionSummaryBytes(conversation *ConversationFile) []byte {
+func previousCompactionSummaryArchiveBytes(conversation *ConversationFile) []byte {
 	texts := compactionSummaryTexts(conversation)
 	if len(texts) < 2 {
 		return nil
 	}
-	return encodeConversationSummaryBytes(texts[len(texts)-2])
+	return encodeConversationSummaryArchiveBytes(texts[len(texts)-2])
 }
 
 func compactionSummaryArchives(conversation *ConversationFile) [][]byte {
@@ -733,7 +817,7 @@ func compactionSummaryArchives(conversation *ConversationFile) [][]byte {
 	}
 	archives := make([][]byte, 0, len(texts))
 	for _, text := range texts {
-		if encoded := encodeConversationSummaryBytes(text); len(encoded) > 0 {
+		if encoded := encodeConversationSummaryArchiveBytes(text); len(encoded) > 0 {
 			archives = append(archives, encoded)
 		}
 	}

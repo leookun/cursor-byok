@@ -47,9 +47,12 @@ func (service *Service) runHistoryMaintenance() error {
 			cleanupRootLegacyHistoryArtifact(historyRoot, entry.Name())
 			continue
 		}
+		if entry.Name() == conversationBlobDirectoryName {
+			continue
+		}
 		service.cleanupConversationLegacyArtifacts(filepath.Join(historyRoot, entry.Name()))
 	}
-	return nil
+	return service.pruneConversationBlobs()
 }
 
 func cleanupRootLegacyHistoryArtifact(historyRoot string, name string) {

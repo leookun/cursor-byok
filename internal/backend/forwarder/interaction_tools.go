@@ -63,13 +63,16 @@ func (service *Service) handleInteractionResult(intent InboundIntent) error {
 	}
 	pending, found := selectPendingInteraction(intent.InteractionResponse, stream)
 	if !found {
+		if recentlyCompletedInteractionExists(stream, intent.InteractionResponse.GetId()) {
+			return nil
+		}
 		return fmt.Errorf("pending interaction not found")
 	}
 	result, err := service.interactionBridge.ApplyInteractionResponse(intent.InteractionResponse, pending)
 	if err != nil {
 		return err
 	}
-	markInteractionCompleted(stream, pending)
+	markInteractionCompleted(stream, pending, intent.InteractionResponse.GetId())
 	toolName := strings.TrimSpace(deriveToolNameFromPendingInteraction(pending))
 	if result.ToolCall != nil {
 		applySwitchModeMetadata(stream, result.ToolCall)
@@ -170,14 +173,44 @@ func switchModeTarget(args *agentv1.SwitchModeArgs) (agentv1.AgentMode, error) {
 	return parseTargetModeID(args.GetTargetModeId())
 }
 
-func markInteractionCompleted(stream *ActiveStream, pending runtimecore.PendingInteraction) {
+func markInteractionCompleted(stream *ActiveStream, pending runtimecore.PendingInteraction, messageID uint32) {
 	if stream == nil {
 		return
 	}
+	now := time.Now().UTC()
+	cutoff := now.Add(-completedClientResponseRetention)
 	stream.mu.Lock()
 	delete(stream.PendingInteractions, pending.InteractionID)
-	stream.UpdatedAt = time.Now().UTC()
+	if messageID != 0 {
+		if stream.RecentCompletedInteractions == nil {
+			stream.RecentCompletedInteractions = make(map[uint32]time.Time)
+		}
+		for id, completedAt := range stream.RecentCompletedInteractions {
+			if completedAt.Before(cutoff) {
+				delete(stream.RecentCompletedInteractions, id)
+			}
+		}
+		stream.RecentCompletedInteractions[messageID] = now
+	}
+	stream.UpdatedAt = now
 	stream.mu.Unlock()
+}
+
+func recentlyCompletedInteractionExists(stream *ActiveStream, messageID uint32) bool {
+	if stream == nil || messageID == 0 {
+		return false
+	}
+	now := time.Now().UTC()
+	cutoff := now.Add(-completedClientResponseRetention)
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	completedAt, ok := stream.RecentCompletedInteractions[messageID]
+	for id, timestamp := range stream.RecentCompletedInteractions {
+		if timestamp.Before(cutoff) {
+			delete(stream.RecentCompletedInteractions, id)
+		}
+	}
+	return ok && !completedAt.Before(cutoff)
 }
 
 func deriveToolNameFromPendingInteraction(pending runtimecore.PendingInteraction) string {

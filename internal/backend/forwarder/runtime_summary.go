@@ -29,7 +29,7 @@ func newRuntimeConversation(conversationID string, mode agentv1.AgentMode) (*Con
 	}, nil
 }
 
-func (service *Service) bootstrapRuntimeConversation(intent InboundIntent) (*ConversationFile, agentv1.AgentMode, int64, []HistoryEntry, error) {
+func (service *Service) bootstrapRuntimeConversation(stream *ActiveStream, intent InboundIntent) (*ConversationFile, agentv1.AgentMode, int64, []HistoryEntry, error) {
 	if service == nil {
 		return nil, agentv1.AgentMode_AGENT_MODE_AGENT, 0, nil, fmt.Errorf("forwarder service is nil")
 	}
@@ -50,7 +50,7 @@ func (service *Service) bootstrapRuntimeConversation(intent InboundIntent) (*Con
 	}
 	importedEntries := []HistoryEntry(nil)
 	if len(conversation.Entries) == 0 && intent.ConversationState != nil {
-		importedEntries, err = service.importConversationState(conversation, intent.ConversationState)
+		importedEntries, err = service.importConversationState(intent.Context, stream, conversation, intent.ConversationState)
 		if err != nil {
 			return nil, agentv1.AgentMode_AGENT_MODE_AGENT, 0, nil, err
 		}

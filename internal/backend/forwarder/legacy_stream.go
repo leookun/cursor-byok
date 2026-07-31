@@ -17,18 +17,51 @@ const legacyRunSSEContentType = "text/event-stream"
 func NewLegacyRunSSEHandler(
 	procedure string,
 	implementation func(context.Context, *connect.Request[aiserverv1.BidiRequestId], *connect.ServerStream[agentv1.AgentServerMessage]) error,
+	onTerminalCompleted func(legacyRunSSETerminalCompletion, bool),
 	options ...connect.HandlerOption,
 ) http.Handler {
 	inner := connect.NewServerStreamHandler(procedure, implementation, options...)
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		inner.ServeHTTP(newLegacyRunSSEHeaderWriter(writer), request)
+		completion := &legacyRunSSECompletion{}
+		request = request.WithContext(context.WithValue(request.Context(), legacyRunSSECompletionContextKey{}, completion))
+		wrappedWriter := newLegacyRunSSEHeaderWriter(writer)
+		inner.ServeHTTP(wrappedWriter, request)
+		if completion.terminal && onTerminalCompleted != nil {
+			delivered := wrappedWriter.writeErr == nil && request.Context().Err() == nil
+			onTerminalCompleted(completion.delivery, delivered)
+		}
 	})
+}
+
+type legacyRunSSECompletionContextKey struct{}
+
+type legacyRunSSECompletion struct {
+	delivery legacyRunSSETerminalCompletion
+	terminal bool
+}
+
+type legacyRunSSETerminalCompletion struct {
+	requestID     string
+	instanceID    uint64
+	subscriberID  string
+	terminalEpoch uint64
+}
+
+func recordLegacyRunSSETerminal(ctx context.Context, delivery legacyRunSSETerminalCompletion) bool {
+	completion, _ := ctx.Value(legacyRunSSECompletionContextKey{}).(*legacyRunSSECompletion)
+	if completion == nil {
+		return false
+	}
+	completion.delivery = delivery
+	completion.terminal = true
+	return true
 }
 
 // legacyRunSSEHeaderWriter 在真正写出 header 时覆盖 Content-Type。
 type legacyRunSSEHeaderWriter struct {
 	http.ResponseWriter
 	wroteHeader bool
+	writeErr    error
 }
 
 // newLegacyRunSSEHeaderWriter 创建一个响应头包装器。
@@ -48,13 +81,17 @@ func (writer *legacyRunSSEHeaderWriter) Write(payload []byte) (int, error) {
 	if !writer.wroteHeader {
 		writer.WriteHeader(http.StatusOK)
 	}
-	return writer.ResponseWriter.Write(payload)
+	written, err := writer.ResponseWriter.Write(payload)
+	if err != nil && writer.writeErr == nil {
+		writer.writeErr = err
+	}
+	return written, err
 }
 
 // Flush 尝试把底层缓冲区立即刷新给客户端。
 func (writer *legacyRunSSEHeaderWriter) Flush() {
-	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
+	if err := http.NewResponseController(writer.ResponseWriter).Flush(); err != nil && writer.writeErr == nil {
+		writer.writeErr = err
 	}
 }
 

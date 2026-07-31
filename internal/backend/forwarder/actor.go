@@ -129,12 +129,15 @@ func (service *Service) dispatchInboundIntent(intent InboundIntent) error {
 	if service == nil {
 		return fmt.Errorf("forwarder service is nil")
 	}
-	stream, err := service.streamForIntent(intent)
+	stream, runSetupGeneration, err := service.streamForIntent(intent)
 	if err != nil {
 		return err
 	}
 	if stream == nil {
 		return nil
+	}
+	if strings.TrimSpace(intent.Kind) == "run" {
+		intent.RunSetupGeneration = runSetupGeneration
 	}
 	commandKind, err := commandKindForIntent(intent)
 	if err != nil {
@@ -146,7 +149,7 @@ func (service *Service) dispatchInboundIntent(intent InboundIntent) error {
 	})
 }
 
-func (service *Service) streamForIntent(intent InboundIntent) (*ActiveStream, error) {
+func (service *Service) streamForIntent(intent InboundIntent) (*ActiveStream, uint64, error) {
 	switch strings.TrimSpace(intent.Kind) {
 	case "run":
 		stream, err := service.broker.OpenStream(
@@ -159,33 +162,33 @@ func (service *Service) streamForIntent(intent InboundIntent) (*ActiveStream, er
 			userMessageText(intent.UserMessage),
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if stream == nil {
-			return nil, fmt.Errorf("open stream failed")
+			return nil, 0, fmt.Errorf("open stream failed")
 		}
-		return stream, nil
+		return stream, service.beginRunSetup(stream, intent.RunIngressGeneration), nil
 	case "metadata", "kv_result":
 		stream, ok := service.broker.Get(intent.RequestID)
 		if !ok || stream == nil {
 			if intent.HasExplicitMode || intent.StartsRun {
-				return nil, fmt.Errorf("metadata intent requires active request context: %s", intent.RequestID)
+				return nil, 0, fmt.Errorf("metadata intent requires active request context: %s", intent.RequestID)
 			}
-			return nil, nil
+			return nil, 0, nil
 		}
 		if isTerminalIntentStream(stream) {
-			return nil, nil
+			return nil, 0, nil
 		}
-		return stream, nil
+		return stream, 0, nil
 	default:
 		stream, ok := service.broker.Get(intent.RequestID)
 		if !ok || stream == nil {
-			return nil, fmt.Errorf("request is not active: %s", intent.RequestID)
+			return nil, 0, fmt.Errorf("request is not active: %s", intent.RequestID)
 		}
 		if isTerminalIntentStream(stream) {
-			return nil, nil
+			return nil, 0, nil
 		}
-		return stream, nil
+		return stream, 0, nil
 	}
 }
 
@@ -314,7 +317,7 @@ func shouldStopStreamActor(stream *ActiveStream) bool {
 func (service *Service) handleStreamCommand(stream *ActiveStream, command streamCommand) error {
 	switch command.Kind {
 	case streamCommandRun:
-		return service.handleRunIntent(command.Intent)
+		return service.handleRunIntent(stream, command.Intent)
 	case streamCommandCancel:
 		return service.handleCancelIntent(command.Intent)
 	case streamCommandMetadata:

@@ -107,7 +107,10 @@ const (
 
 type StreamEvent struct {
 	Message              *agentv1.AgentServerMessage
+	CheckpointBlobIDs    [][]byte
+	RequireBlobDelivery  bool
 	End                  bool
+	TerminalEpoch        uint64
 	TerminalErrorCode    string
 	TerminalErrorMessage string
 }
@@ -124,6 +127,7 @@ type manualCompactionDirective struct {
 type ActiveStream struct {
 	mu sync.Mutex
 
+	InstanceID             uint64
 	RequestID              string
 	ConversationID         string
 	TurnSeq                int64
@@ -139,6 +143,10 @@ type ActiveStream struct {
 	CurrentModelCallID                          string
 	ProviderActive                              bool
 	ProviderCancel                              func()
+	RunSetupCancel                              context.CancelFunc
+	RunSetupGeneration                          uint64
+	RunSetupActive                              bool
+	RunSetupCancelRequested                     bool
 	ProviderPassCount                           int
 	ToolInvocationCount                         int
 	ActorMailbox                                chan streamCommandEnvelope
@@ -175,15 +183,38 @@ type ActiveStream struct {
 	TerminalsFolder             string
 	RequestFileContents         map[string]string
 	RecentCompletedExecs        map[uint32]time.Time
+	RecentCompletedInteractions map[uint32]time.Time
 	BackgroundShells            map[string]*BackgroundShellState
 	BackgroundShellsByMessageID map[uint32]string
 	BackgroundShellsByExecID    map[string]string
 	BackgroundShellActions      map[string]time.Time
+	PendingKVAcks               map[uint32]*pendingKVAck
+	TerminalEpoch               uint64
+	PendingTerminalDeliveries   map[string]uint64
+	TerminalReplayRequired      bool
 	TerminalCleanupTimer        *time.Timer
 	TerminalCleanupSeq          atomic.Uint64
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type pendingKVOperation uint8
+
+const (
+	pendingKVOperationSetBlob pendingKVOperation = iota + 1
+	pendingKVOperationGetBlob
+)
+
+type pendingKVAck struct {
+	id         uint32
+	digest     [32]byte
+	kind       pendingKVOperation
+	done       chan struct{}
+	notify     chan<- struct{}
+	onComplete func()
+	once       sync.Once
+	err        error
 }
 
 type BackgroundShellState struct {
@@ -403,6 +434,7 @@ const (
 )
 
 type InboundIntent struct {
+	Context                  context.Context
 	Kind                     string
 	RequestID                string
 	ConversationID           string
@@ -417,6 +449,7 @@ type InboundIntent struct {
 	SubagentTypeName         string
 	SubagentModelOverrides   map[string]runtimecore.SubagentModelOverrideSelection
 	ConversationState        *agentv1.ConversationStateStructure
+	PreFetchedBlobs          []*agentv1.PreFetchedBlob
 	UserMessage              *agentv1.UserMessage
 	RequestContext           *agentv1.RequestContext
 	ClientMessage            *agentv1.AgentClientMessage
@@ -427,6 +460,8 @@ type InboundIntent struct {
 	CancelReason             string
 	IgnoredReason            string
 	Prewarm                  bool
+	RunIngressGeneration     uint64
+	RunSetupGeneration       uint64
 }
 
 // normalizeMode 对外部传入的 mode 做最小归一化，但不再静默降级。

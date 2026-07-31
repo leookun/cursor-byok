@@ -2056,6 +2056,7 @@ message BidiAppendRequest {
   string data = 1;
   BidiRequestId request_id = 2;
   int64 append_seqno = 3;
+  bytes data_binary = 4;
 }
 
 // Copied from: local:aiserver.v1.BidiAppendResponse (var: MSe)

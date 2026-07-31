@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -45,26 +46,18 @@ func (snapshot turnUsageSnapshot) requestTokensTotal() int64 {
 	return snapshot.promptTokensTotal() + nonNegativeInt64(snapshot.OutputTokens)
 }
 
-func (service *Service) importConversationState(item *ConversationFile, state *agentv1.ConversationStateStructure) ([]HistoryEntry, error) {
+func (service *Service) importConversationState(ctx context.Context, stream *ActiveStream, item *ConversationFile, state *agentv1.ConversationStateStructure) ([]HistoryEntry, error) {
 	if item == nil || state == nil {
 		return nil, nil
 	}
-	item.TokenDetailsUsedTokens = state.GetTokenDetails().GetUsedTokens()
-	entries := make([]HistoryEntry, 0, 2)
-	if messages, err := importedConversationStateModelMessages(state); err != nil {
+	materialized, err := service.materializeConversationState(ctx, stream, state)
+	if err != nil {
 		return nil, err
-	} else {
-		for _, message := range messages {
-			entry, ok, err := newModelMessageEntry(0, "", message)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				entries = append(entries, entry)
-			}
-		}
 	}
-	if len(entries) == 0 {
+	state = materialized
+	item.TokenDetailsUsedTokens = state.GetTokenDetails().GetUsedTokens()
+	entries := make([]HistoryEntry, 0, 4)
+	if len(state.GetRootPromptMessagesJson()) == 0 {
 		summary, ok, err := importedConversationStateSummary(state)
 		if err != nil {
 			return nil, err
@@ -83,6 +76,19 @@ func (service *Service) importConversationState(item *ConversationFile, state *a
 				Kind:    "compacted_summary",
 				Payload: payload,
 			})
+		}
+	}
+	if messages, err := importedConversationStateModelMessages(state); err != nil {
+		return nil, err
+	} else {
+		for _, message := range messages {
+			entry, ok, err := newModelMessageEntry(0, "", message)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				entries = append(entries, entry)
+			}
 		}
 	}
 	runtimeState, ok, err := runtimeStatePayloadFromConversationState(state)

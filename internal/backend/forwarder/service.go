@@ -3,12 +3,16 @@ package forwarder
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -28,12 +32,14 @@ import (
 )
 
 const (
-	providerResumeDebounce         = 200 * time.Millisecond
-	completedExecRetention         = 15 * time.Second
-	nonStreamingExecCloseGrace     = 1500 * time.Millisecond
-	defaultSummaryCompletedThought = "Chat context summarized"
-	providerDefaultMaxOutputTokens = 65536
-	providerOutputSafetyTokens     = 1024
+	providerResumeDebounce           = 200 * time.Millisecond
+	completedClientResponseRetention = appendSequenceRetention
+	nonStreamingExecCloseGrace       = 1500 * time.Millisecond
+	defaultSummaryCompletedThought   = "Chat context summarized"
+	providerDefaultMaxOutputTokens   = 65536
+	providerOutputSafetyTokens       = 1024
+	runIngressCancelWaitTimeout      = 5 * time.Second
+	runIngressCancelWaiterLimit      = 1024
 
 	runtimeThinkingEffortParameterID = "thinking_effort"
 )
@@ -245,22 +251,89 @@ func subagentModelOverrideSummaries(overrides map[string]runtimecore.SubagentMod
 }
 
 type Service struct {
-	store              *ConversationFileStore
-	usageStore         *UsageFileStore
-	codebaseIndexStore *CodebaseIndexStore
-	docsIndexStore     *DocsIndexStore
-	rules              *UserRuleStore
-	projector          *HistoryProjector
-	compiler           PromptCompiler
-	provider           ProviderGateway
-	resolver           modeladapter.ChannelResolver
-	modelMemory        agentModelMemory
-	broker             *StreamBroker
-	recorder           *artifactRecorder
-	debug              *debugRecorder
-	execBridge         execbridge.ExecBridge
-	interactionBridge  interactionbridge.InteractionBridge
-	appendSeq          *appendSequenceTracker
+	store                   *ConversationFileStore
+	blobStore               *ConversationBlobStore
+	usageStore              *UsageFileStore
+	codebaseIndexStore      *CodebaseIndexStore
+	docsIndexStore          *DocsIndexStore
+	rules                   *UserRuleStore
+	projector               *HistoryProjector
+	compiler                PromptCompiler
+	provider                ProviderGateway
+	resolver                modeladapter.ChannelResolver
+	modelMemory             agentModelMemory
+	broker                  *StreamBroker
+	recorder                *artifactRecorder
+	debug                   *debugRecorder
+	execBridge              execbridge.ExecBridge
+	interactionBridge       interactionbridge.InteractionBridge
+	appendSeq               *appendSequenceTracker
+	nextKVMessageID         atomic.Uint32
+	nextRunIngressID        atomic.Uint64
+	blobMaintenanceMu       sync.Mutex
+	kvAckMu                 sync.Mutex
+	kvAckRoutes             map[uint32]kvAckRoute
+	runSetupMu              sync.Mutex
+	runIngresses            map[string]map[uint64]*runIngressState
+	runIngressChanged       chan struct{}
+	pendingRunCancelWaiters map[string]map[*runIngressCancelWaiter]struct{}
+	pendingRunCancelCount   int
+}
+
+type runIngressState struct {
+	ticketAcquired   bool
+	ticketFinalized  bool
+	appendGeneration appendSequenceGeneration
+	cancelRequested  bool
+	cancelWaiters    map[*runIngressCancelWaiter]struct{}
+	setupStream      *ActiveStream
+	setupGeneration  uint64
+}
+
+type runIngressCancelWaiter struct {
+	appendSeq   int64
+	fingerprint [sha256.Size]byte
+	done        chan struct{}
+	once        sync.Once
+	active      bool
+	targets     map[uint64]struct{}
+	err         error
+}
+
+type kvAckRoute struct {
+	requestID        string
+	stream           *ActiveStream
+	streamInstanceID uint64
+	kind             pendingKVOperation
+	appendGeneration appendSequenceGeneration
+	appendSequences  map[kvAckAppendSequenceKey]appendSequenceGeneration
+	restartDone      chan struct{}
+	completed        bool
+	createdAt        time.Time
+}
+
+type kvAckAppendSequenceKey struct {
+	appendSeq   int64
+	fingerprint [sha256.Size]byte
+}
+
+type kvAckRestartToken struct {
+	requestID        string
+	streamInstanceID uint64
+	appendGeneration appendSequenceGeneration
+	done             chan struct{}
+}
+
+type runIngressCancelBinding struct {
+	bound             bool
+	waiting           bool
+	completeAppend    bool
+	appendGeneration  appendSequenceGeneration
+	requestID         string
+	ingressGeneration uint64
+	setupGeneration   uint64
+	setupCancel       context.CancelFunc
+	stream            *ActiveStream
 }
 
 type agentModelMemory interface {
@@ -284,22 +357,26 @@ func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Serv
 	}
 	debug := newDebugRecorder(historyRoot, broker, debugConfig)
 	service := &Service{
-		store:              store,
-		usageStore:         NewUsageFileStore(historyRoot),
-		codebaseIndexStore: NewCodebaseIndexStore(appdata.CodebaseIndexRootPath()),
-		docsIndexStore:     NewDocsIndexStore(appdata.DocsIndexRootPath()),
-		rules:              rules,
-		projector:          projector,
-		compiler:           NewPromptCompiler(projector, NewToolCatalog(), NewReminderInjector(), rules),
-		provider:           NewProviderGateway(resolver),
-		resolver:           resolver,
-		modelMemory:        modelMemory,
-		broker:             broker,
-		recorder:           newArtifactRecorder(store, broker, debug),
-		debug:              debug,
-		execBridge:         execbridge.NewBridge(),
-		interactionBridge:  interactionbridge.NewBridge(),
-		appendSeq:          newAppendSequenceTracker(),
+		store:                   store,
+		blobStore:               NewConversationBlobStore(historyRoot),
+		usageStore:              NewUsageFileStore(historyRoot),
+		codebaseIndexStore:      NewCodebaseIndexStore(appdata.CodebaseIndexRootPath()),
+		docsIndexStore:          NewDocsIndexStore(appdata.DocsIndexRootPath()),
+		rules:                   rules,
+		projector:               projector,
+		compiler:                NewPromptCompiler(projector, NewToolCatalog(), NewReminderInjector(), rules),
+		provider:                NewProviderGateway(resolver),
+		resolver:                resolver,
+		modelMemory:             modelMemory,
+		broker:                  broker,
+		recorder:                newArtifactRecorder(store, broker, debug),
+		debug:                   debug,
+		execBridge:              execbridge.NewBridge(),
+		interactionBridge:       interactionbridge.NewBridge(),
+		appendSeq:               newAppendSequenceTracker(),
+		runIngresses:            make(map[string]map[uint64]*runIngressState),
+		runIngressChanged:       make(chan struct{}),
+		pendingRunCancelWaiters: make(map[string]map[*runIngressCancelWaiter]struct{}),
 	}
 	service.startHistoryMaintenance()
 	return service
@@ -313,20 +390,24 @@ func newServiceWithDependencies(store *ConversationFileStore, projector *History
 	}
 	debug := newDebugRecorder(historyRoot, broker, nil)
 	return &Service{
-		store:              store,
-		rules:              NewUserRuleStore(appdata.RulesRootPath()),
-		projector:          projector,
-		compiler:           compiler,
-		provider:           provider,
-		broker:             broker,
-		usageStore:         NewUsageFileStore(store.HistoryDir()),
-		codebaseIndexStore: NewCodebaseIndexStore(appdata.CodebaseIndexRootPath()),
-		docsIndexStore:     NewDocsIndexStore(appdata.DocsIndexRootPath()),
-		recorder:           newArtifactRecorder(store, broker, debug),
-		debug:              debug,
-		execBridge:         execbridge.NewBridge(),
-		interactionBridge:  interactionbridge.NewBridge(),
-		appendSeq:          newAppendSequenceTracker(),
+		store:                   store,
+		blobStore:               NewConversationBlobStore(historyRoot),
+		rules:                   NewUserRuleStore(appdata.RulesRootPath()),
+		projector:               projector,
+		compiler:                compiler,
+		provider:                provider,
+		broker:                  broker,
+		usageStore:              NewUsageFileStore(store.HistoryDir()),
+		codebaseIndexStore:      NewCodebaseIndexStore(appdata.CodebaseIndexRootPath()),
+		docsIndexStore:          NewDocsIndexStore(appdata.DocsIndexRootPath()),
+		recorder:                newArtifactRecorder(store, broker, debug),
+		debug:                   debug,
+		execBridge:              execbridge.NewBridge(),
+		interactionBridge:       interactionbridge.NewBridge(),
+		appendSeq:               newAppendSequenceTracker(),
+		runIngresses:            make(map[string]map[uint64]*runIngressState),
+		runIngressChanged:       make(chan struct{}),
+		pendingRunCancelWaiters: make(map[string]map[*runIngressCancelWaiter]struct{}),
 	}
 }
 
@@ -341,22 +422,227 @@ func (service *Service) BidiAppend(ctx context.Context, req *connect.Request[ais
 	}
 	appendSeqno := req.Msg.GetAppendSeqno()
 	dataHex := req.Msg.GetData()
-	appendTicket, staleAppend, err := service.appendSeq.Acquire(ctx, requestID, appendSeqno)
+	dataBinary := req.Msg.GetDataBinary()
+	message, clientKind, rawData, decodeErr := protocol.DecodeAgentClientMessagePayload(dataHex, dataBinary)
+	if len(dataBinary) > 0 {
+		dataHex = hex.EncodeToString(dataBinary)
+	}
+	isRunIngress := decodeErr == nil && isRunIngressClientMessage(message, clientKind)
+	isCancel := decodeErr == nil && isConversationCancelMessage(message)
+	var kvMessage *agentv1.KvClientMessage
+	if decodeErr == nil {
+		kvMessage = message.GetKvClientMessage()
+	}
+	var appendFingerprint [sha256.Size]byte
+	if decodeErr == nil {
+		appendFingerprint = sha256.Sum256(rawData)
+	}
+	allowSequenceRestart := service.allowAppendSequenceRestart(requestID, appendSeqno, message, clientKind, appendFingerprint)
+	var kvRestart kvAckRestartToken
+	if kvMessage != nil && appendSeqno == 0 && allowSequenceRestart {
+		kvRestart = service.beginKVAckSequenceRestart(requestID, kvMessage)
+	}
+	var cancelBinding runIngressCancelBinding
+	if isCancel {
+		cancelBinding = service.bindCancelToRunIngress(requestID, appendSeqno)
+		if appendSeqno == 0 && !cancelBinding.bound {
+			cancelBinding = service.bindCancelToActiveStream(requestID)
+		}
+	}
+	if isCancel && appendSeqno == 0 && !cancelBinding.bound {
+		service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+			"client_kind": strings.TrimSpace(clientKind),
+			"reason":      "unbound_sequence_zero_cancel",
+		})
+		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+	}
+	if isCancel && appendSeqno > 0 && !cancelBinding.bound && cancelBinding.waiting {
+		var waitErr error
+		cancelBinding, waitErr = service.waitForRunIngressCancelBinding(ctx, requestID, appendSeqno, appendFingerprint)
+		if waitErr != nil {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "deferred", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"reason":      "run_ingress_cancel_wait_failed",
+				"error":       waitErr.Error(),
+			})
+			code := connect.CodeUnavailable
+			if errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded) && ctx.Err() != nil {
+				code = connect.CodeCanceled
+			}
+			return nil, connect.NewError(code, waitErr)
+		}
+	}
+	if isCancel && appendSeqno > 0 && !cancelBinding.bound && !service.hasCancelableStreamLifecycle(requestID) {
+		waitErr := fmt.Errorf("run lifecycle is not ready for cancellation")
+		service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "deferred", map[string]any{
+			"client_kind": strings.TrimSpace(clientKind),
+			"reason":      "cancel_arrived_before_run_lifecycle",
+			"error":       waitErr.Error(),
+		})
+		return nil, connect.NewError(connect.CodeUnavailable, waitErr)
+	}
+	if isCancel && cancelBinding.bound {
+		if appendSeqno > 0 {
+			if cancelBinding.completeAppend {
+				generationMatched, completion := service.completeAppendAheadForGeneration(requestID, appendSeqno, cancelBinding.appendGeneration, appendFingerprint)
+				if !generationMatched {
+					return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("run lifecycle changed before cancellation could be sequenced"))
+				}
+				if completion.retry {
+					return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("append replay prefix is not ready for cancellation"))
+				}
+				if completion.stale {
+					service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+						"client_kind": strings.TrimSpace(clientKind),
+						"reason":      "duplicate_cancel_append",
+					})
+					return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+				}
+			}
+		} else {
+			allowSequenceRestart = true
+			cancelRestart := service.beginKVAckSequenceRestartForGeneration(requestID, service.appendSeq.CaptureGeneration(requestID))
+			appendTicket, staleCancel, acquireErr := service.appendSeq.AcquireForTransportWithFingerprint(ctx, requestID, appendSeqno, allowSequenceRestart, appendFingerprint)
+			if acquireErr != nil {
+				service.abortKVAckSequenceRestart(cancelRestart)
+				return nil, connect.NewError(connect.CodeCanceled, acquireErr)
+			}
+			if staleCancel {
+				service.abortKVAckSequenceRestart(cancelRestart)
+				service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+					"client_kind": strings.TrimSpace(clientKind),
+					"reason":      "duplicate_cancel_append",
+				})
+				return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+			}
+			service.finishAppendSequenceReplayRestart(cancelRestart, appendTicket)
+			defer appendTicket.Release()
+		}
+		intent, err := service.decodeInboundIntent(requestID, message, clientKind)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		intent.Context = ctx
+		service.dispatchRunIngressCancel(cancelBinding, intent)
+		service.debug.LogBidiRaw(ctx, requestID, intent.ConversationID, appendSeqno, dataHex, "accepted", map[string]any{
+			"client_kind": strings.TrimSpace(clientKind),
+		})
+		service.debug.LogBidiDecoded(ctx, requestID, intent.ConversationID, appendSeqno, clientKind, message, intent, nil)
+		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+	}
+	if decodeErr == nil && appendSeqno == 0 && !allowSequenceRestart {
+		log.Printf("forwarder ignored lifecycle-mismatched bidi append request_id=%s append_seqno=0 kind=%s", requestID, strings.TrimSpace(clientKind))
+		service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+			"client_kind": strings.TrimSpace(clientKind),
+			"reason":      "sequence_zero_lifecycle_mismatch",
+		})
+		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+	}
+	var runIngressGeneration uint64
+	if isRunIngress &&
+		!service.appendSeq.IsDefinitelyStale(requestID, appendSeqno, allowSequenceRestart) {
+		runIngressGeneration = service.beginRunIngress(requestID)
+		defer service.endRunIngress(requestID, runIngressGeneration)
+	}
+	if kvMessage != nil && appendSeqno > 0 {
+		if !service.trackKVAckAppendSequence(requestID, kvMessage, appendSeqno, appendFingerprint) {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"reason":      "unmatched_kv_result",
+			})
+			return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+		}
+		generationMatched, completion := service.completeTrackedKVAckAppendSequence(requestID, kvMessage.GetId(), appendSeqno, appendFingerprint)
+		if !generationMatched {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"reason":      "kv_lifecycle_mismatch",
+			})
+			return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+		}
+		if completion.retry {
+			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("append replay prefix is not ready for KV completion"))
+		}
+		if completion.stale {
+			log.Printf("forwarder ignored stale bidi append request_id=%s append_seqno=%d", requestID, appendSeqno)
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", nil)
+			return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+		}
+		_, matched := service.acknowledgeKVClientMessage(requestID, kvMessage)
+		if !matched {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"reason":      "unmatched_kv_result",
+			})
+			return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+		}
+		intent, err := service.decodeInboundIntent(requestID, message, clientKind)
+		if err != nil {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "intent_error", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"error":       err.Error(),
+			})
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		intent.Context = ctx
+		service.debug.LogBidiRaw(ctx, requestID, intent.ConversationID, appendSeqno, dataHex, "accepted", map[string]any{
+			"client_kind": strings.TrimSpace(clientKind),
+		})
+		service.debug.LogBidiDecoded(ctx, requestID, intent.ConversationID, appendSeqno, clientKind, message, intent, nil)
+		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+	}
+	var appendTicket appendSequenceTicket
+	var staleAppend bool
+	var err error
+	var replayRestart kvAckRestartToken
+	if decodeErr == nil {
+		replayRestart = service.beginAppendSequenceReplayRestart(requestID, appendSeqno, appendFingerprint)
+		if replayRestart.done == nil && appendSeqno == 0 && allowSequenceRestart && kvMessage == nil && !isRunIngress {
+			replayRestart = service.beginKVAckSequenceRestartForGeneration(requestID, service.appendSeq.CaptureGeneration(requestID))
+		}
+		appendTicket, staleAppend, err = service.appendSeq.AcquireForTransportWithFingerprint(ctx, requestID, appendSeqno, allowSequenceRestart, appendFingerprint)
+	} else {
+		appendTicket, staleAppend, err = service.appendSeq.AcquireForTransport(ctx, requestID, appendSeqno, allowSequenceRestart)
+	}
 	if err != nil {
+		service.abortKVAckSequenceRestart(replayRestart)
 		return nil, connect.NewError(connect.CodeCanceled, err)
 	}
 	if staleAppend {
+		service.abortKVAckSequenceRestart(replayRestart)
 		log.Printf("forwarder ignored stale bidi append request_id=%s append_seqno=%d", requestID, appendSeqno)
 		service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", nil)
 		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
 	}
-	defer appendTicket.Release()
-	message, clientKind, err := protocol.DecodeAgentClientMessage(dataHex)
-	if err != nil {
+	service.finishAppendSequenceReplayRestart(replayRestart, appendTicket)
+	if runIngressGeneration != 0 {
+		service.acquireRunIngressTicket(requestID, runIngressGeneration, appendTicket)
+		defer service.finishRunIngressTicket(requestID, runIngressGeneration, appendTicket)
+	} else {
+		defer appendTicket.Release()
+	}
+	if kvMessage != nil && appendSeqno == 0 {
+		generation := appendTicket.Generation()
+		if !service.adoptKVAckSequenceRestart(kvRestart, generation) {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"reason":      "kv_restart_adoption_failed",
+			})
+			return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+		}
+		if _, matched := service.acknowledgeKVClientMessage(requestID, kvMessage); !matched {
+			service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "stale", map[string]any{
+				"client_kind": strings.TrimSpace(clientKind),
+				"reason":      "unmatched_kv_result",
+			})
+			return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+		}
+	}
+	if decodeErr != nil {
 		service.debug.LogBidiRaw(ctx, requestID, "", appendSeqno, dataHex, "decode_error", map[string]any{
-			"error": err.Error(),
+			"error": decodeErr.Error(),
 		})
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, decodeErr)
 	}
 	intent, err := service.decodeInboundIntent(requestID, message, clientKind)
 	if err != nil {
@@ -369,10 +655,15 @@ func (service *Service) BidiAppend(ctx context.Context, req *connect.Request[ais
 		})
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	intent.Context = ctx
+	intent.RunIngressGeneration = runIngressGeneration
 	service.debug.LogBidiRaw(ctx, requestID, intent.ConversationID, appendSeqno, dataHex, "accepted", map[string]any{
 		"client_kind": strings.TrimSpace(clientKind),
 	})
 	service.debug.LogBidiDecoded(ctx, requestID, intent.ConversationID, appendSeqno, clientKind, message, intent, nil)
+	if strings.TrimSpace(intent.Kind) == "kv_result" {
+		return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+	}
 	if err := service.dispatchInboundIntent(intent); err != nil {
 		if shouldAcknowledgeInterruptedInboundIntent(intent, err) {
 			service.debug.LogRuntime(ctx, requestID, intent.ConversationID, "dispatch_interrupted_ignored", map[string]any{
@@ -387,7 +678,11 @@ func (service *Service) BidiAppend(ctx context.Context, req *connect.Request[ais
 		})
 		code := connect.CodeInvalidArgument
 		if strings.TrimSpace(intent.Kind) == "run" {
-			code = connect.CodeInternal
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				code = connect.CodeCanceled
+			} else {
+				code = connect.CodeInternal
+			}
 		}
 		return nil, connect.NewError(code, err)
 	}
@@ -399,6 +694,67 @@ func (service *Service) BidiAppend(ctx context.Context, req *connect.Request[ais
 	})
 
 	return connect.NewResponse(&aiserverv1.BidiAppendResponse{}), nil
+}
+
+func isConversationCancelMessage(message *agentv1.AgentClientMessage) bool {
+	return message != nil && message.GetConversationAction().GetCancelAction() != nil
+}
+
+func isRunIngressClientMessage(message *agentv1.AgentClientMessage, clientKind string) bool {
+	switch strings.TrimSpace(clientKind) {
+	case "run_request", "prewarm_request":
+		return true
+	case "conversation_action":
+		return message != nil && conversationActionStartsRun(message.GetConversationAction())
+	default:
+		return false
+	}
+}
+
+func (service *Service) allowAppendSequenceRestart(requestID string, appendSeqno int64, message *agentv1.AgentClientMessage, clientKind string, sequenceZeroFingerprint [sha256.Size]byte) bool {
+	if service == nil || service.broker == nil || appendSeqno != 0 || message == nil || strings.TrimSpace(clientKind) == "" {
+		return false
+	}
+	if !service.appendSeq.ObserveSequenceZeroFingerprint(requestID, sequenceZeroFingerprint) {
+		return false
+	}
+	if strings.TrimSpace(clientKind) == "kv_client_message" {
+		return service.kvAckMessageMatches(requestID, message.GetKvClientMessage())
+	}
+	stream, ok := service.broker.Get(requestID)
+	if !ok || stream == nil {
+		return isRunIngressClientMessage(message, clientKind)
+	}
+	stream.mu.Lock()
+	terminal := isTerminalStreamStatus(stream.Status) || stream.Phase == TurnPhaseCanceled || stream.Phase == TurnPhaseCompleted || stream.Phase == TurnPhaseFailed
+	placeholder := !terminal && stream.Status == StreamStatusCreated && strings.TrimSpace(stream.ConversationID) == "" && !stream.RunSetupActive && !stream.ProviderActive
+	stream.mu.Unlock()
+	if isRunIngressClientMessage(message, clientKind) {
+		return placeholder || terminal
+	}
+	switch strings.TrimSpace(clientKind) {
+	case "exec_client_message":
+		item := message.GetExecClientMessage()
+		if item == nil {
+			return false
+		}
+		_, found := selectPendingExec(item.GetExecId(), item.GetId(), stream)
+		return found || recentlyCompletedExecExists(stream, item.GetId())
+	case "exec_client_control_message":
+		control := message.GetExecClientControlMessage()
+		_, found := selectPendingExecByControl(control, stream)
+		if found {
+			return true
+		}
+		messageID, valid := execControlMessageID(control)
+		return valid && recentlyCompletedExecExists(stream, messageID)
+	case "interaction_response":
+		response := message.GetInteractionResponse()
+		_, found := selectPendingInteraction(response, stream)
+		return found || recentlyCompletedInteractionExists(stream, response.GetId())
+	default:
+		return false
+	}
 }
 
 func shouldAcknowledgeInterruptedInboundIntent(intent InboundIntent, err error) bool {
@@ -422,20 +778,31 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 	if requestID == "" {
 		return buildRunSSECustomError(connect.CodeInvalidArgument, "请求参数无效", fmt.Errorf("request_id is required"))
 	}
-	subscriberID, signal, err := service.broker.Subscribe(requestID)
+	activeStream, subscriberID, signal, err := service.broker.Subscribe(requestID)
 	if err != nil {
 		return buildRunSSECustomError(connect.CodeInvalidArgument, "请求参数无效", err)
 	}
 	service.debug.LogRunSSE(ctx, requestID, "", "subscribe", map[string]any{
 		"subscriber_id": subscriberID,
 	})
+	terminalObserved := false
+	completionRegistered := false
+	var terminalEpoch uint64
 	defer func() {
-		remaining := service.broker.Unsubscribe(requestID, subscriberID)
+		result := service.broker.Unsubscribe(activeStream, subscriberID, terminalObserved, completionRegistered, terminalEpoch)
 		service.debug.LogRunSSE(context.Background(), requestID, "", "unsubscribe", map[string]any{
 			"subscriber_id":         subscriberID,
-			"remaining_subscribers": remaining,
+			"remaining_subscribers": result.Remaining,
 		})
-		if remaining == 0 {
+		if result.Remaining == 0 {
+			if result.Terminal {
+				if result.Retain {
+					service.broker.scheduleTerminalCleanupForStream(requestID, activeStream.InstanceID)
+				} else {
+					service.broker.removeIfIdleForStream(requestID, activeStream.InstanceID)
+				}
+				return
+			}
 			// RunSSE 连接短暂抖动时，给活跃 provider 一段重连宽限期，
 			// 避免把本来还能正常收口的请求直接打成 context canceled。
 			if !service.scheduleOrphanCancelActor(requestID, "[canceled] RunSSE client disconnected") {
@@ -447,8 +814,12 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	cursor := 0
+	deliveredBlobIDs := make(map[[32]byte]struct{})
+	blobDeliveryDeadlines := make(map[int]time.Time)
+	blobDeliveryFailures := 0
+	var blobDeliveryRetryAt time.Time
 	for {
-		backlog, err := service.broker.ReadFromCursor(requestID, cursor)
+		backlog, err := service.broker.ReadFromStreamCursor(activeStream, cursor)
 		if err != nil {
 			service.debug.LogRunSSE(ctx, requestID, "", "read_error", map[string]any{
 				"cursor": cursor,
@@ -457,21 +828,84 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 			return nil
 		}
 		if len(backlog) > 0 {
+			retryRequiredCheckpoint := false
 			for _, event := range backlog {
-				if event.Message != nil {
-					if err := stream.Send(event.Message); err != nil {
+				message := event.Message
+				if len(event.CheckpointBlobIDs) > 0 {
+					deliveryDeadline := time.Time{}
+					if event.RequireBlobDelivery {
+						deliveryDeadline = blobDeliveryDeadlines[cursor]
+						if deliveryDeadline.IsZero() {
+							deliveryDeadline = time.Now().Add(conversationBlobAckBatchTimeout)
+							blobDeliveryDeadlines[cursor] = deliveryDeadline
+						}
+					}
+					if time.Now().Before(blobDeliveryRetryAt) {
+						service.debug.LogRunSSE(ctx, requestID, "", "checkpoint_blob_backoff", map[string]any{
+							"cursor":   cursor,
+							"retry_at": blobDeliveryRetryAt.UTC().Format(time.RFC3339Nano),
+						})
+						if event.RequireBlobDelivery {
+							retryRequiredCheckpoint = true
+						} else {
+							message = nil
+						}
+					} else if blobCount, err := service.deliverCheckpointBlobs(ctx, deliveryDeadline, activeStream, event.CheckpointBlobIDs, deliveredBlobIDs, stream.Send); err != nil {
+						if ctx.Err() != nil {
+							return nil
+						}
+						var sendErr *checkpointBlobSendError
+						if errors.As(err, &sendErr) {
+							service.debug.LogRunSSE(ctx, requestID, "", "send_error", map[string]any{
+								"cursor":       cursor,
+								"message_case": "kvServerMessage",
+								"error":        sendErr.Error(),
+							})
+							return sendErr.Unwrap()
+						}
+						service.debug.LogRunSSE(ctx, requestID, "", "checkpoint_blob_error", map[string]any{
+							"cursor":     cursor,
+							"blob_count": blobCount,
+							"error":      err.Error(),
+						})
+						if service.checkpointBlobDeliveryAborted(activeStream) {
+							blobDeliveryFailures = 0
+							blobDeliveryRetryAt = time.Time{}
+							message = nil
+						} else {
+							blobDeliveryFailures++
+							blobDeliveryRetryAt = time.Now().Add(checkpointBlobRetryDelay(blobDeliveryFailures))
+							if event.RequireBlobDelivery {
+								if deliveryDeadline.IsZero() || !time.Now().Before(deliveryDeadline) || !blobDeliveryRetryAt.Before(deliveryDeadline) {
+									return connect.NewError(connect.CodeUnavailable, fmt.Errorf("deliver required conversation checkpoint: %w", err))
+								}
+								retryRequiredCheckpoint = true
+							} else {
+								message = nil
+							}
+						}
+					} else {
+						blobDeliveryFailures = 0
+						blobDeliveryRetryAt = time.Time{}
+					}
+				}
+				if retryRequiredCheckpoint {
+					break
+				}
+				if message != nil {
+					if err := stream.Send(message); err != nil {
 						service.debug.LogRunSSE(ctx, requestID, "", "send_error", map[string]any{
 							"cursor":       cursor,
-							"message_case": agentServerMessageCase(event.Message),
-							"message":      protoJSONDebugPayload(event.Message),
+							"message_case": agentServerMessageCase(message),
+							"message":      protoJSONDebugPayload(message),
 							"error":        err.Error(),
 						})
 						return err
 					}
 					service.debug.LogRunSSE(ctx, requestID, "", "send_message", map[string]any{
 						"cursor":       cursor,
-						"message_case": agentServerMessageCase(event.Message),
-						"message":      protoJSONDebugPayload(event.Message),
+						"message_case": agentServerMessageCase(message),
+						"message":      protoJSONDebugPayload(message),
 					})
 				}
 				cursor++
@@ -481,7 +915,20 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 						"terminal_error_code":    strings.TrimSpace(event.TerminalErrorCode),
 						"terminal_error_message": strings.TrimSpace(event.TerminalErrorMessage),
 					})
+					terminalObserved = true
+					terminalEpoch = event.TerminalEpoch
+					completionRegistered = recordLegacyRunSSETerminal(ctx, legacyRunSSETerminalCompletion{
+						requestID:     requestID,
+						instanceID:    activeStream.InstanceID,
+						subscriberID:  subscriberID,
+						terminalEpoch: terminalEpoch,
+					})
 					return buildTerminalStreamError(event)
+				}
+			}
+			if retryRequiredCheckpoint {
+				if err := service.waitForCheckpointBlobRetry(ctx, signal, activeStream, blobDeliveryRetryAt); err != nil {
+					return nil
 				}
 			}
 			continue
@@ -492,7 +939,7 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 				"cursor": cursor,
 				"error":  ctx.Err().Error(),
 			})
-			if backlog, err := service.broker.ReadFromCursor(requestID, cursor); err == nil {
+			if backlog, err := service.broker.ReadFromStreamCursor(activeStream, cursor); err == nil {
 				for _, event := range backlog {
 					cursor++
 					if event.End {
@@ -510,7 +957,7 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 			continue
 		case <-ticker.C:
 		}
-		if backlog, err := service.broker.ReadFromCursor(requestID, cursor); err != nil {
+		if backlog, err := service.broker.ReadFromStreamCursor(activeStream, cursor); err != nil {
 			service.debug.LogRunSSE(ctx, requestID, "", "read_error", map[string]any{
 				"cursor": cursor,
 				"error":  err.Error(),
@@ -556,6 +1003,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		}
 		intent.ConversationID = conversationID
 		intent.ConversationState = runRequest.GetConversationState()
+		intent.PreFetchedBlobs = runRequest.GetPreFetchedBlobs()
 		intent.UserMessage = extractUserMessage(message)
 		intent.RequestContext = extractRequestContext(message)
 		if service.shouldIgnoreEmptyResumeRunRequest(requestID, runRequest, intent.UserMessage, intent.RequestContext) {
@@ -603,6 +1051,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		intent.ConversationID = conversationID
 		intent.SubagentTypeName = strings.TrimSpace(prewarmRequest.GetSubagentTypeName())
 		intent.ConversationState = prewarmRequest.GetConversationState()
+		intent.PreFetchedBlobs = prewarmRequest.GetPreFetchedBlobs()
 		intent.Mode, intent.ModeSource, intent.HasExplicitMode, err = extractPrewarmMode(prewarmRequest)
 		if err != nil {
 			return InboundIntent{}, err
@@ -678,7 +1127,57 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 }
 
 // handleRunIntent 处理 run/prewarm 类 intent，负责建会话、写 turn 和拉起 provider。
-func (service *Service) handleRunIntent(intent InboundIntent) error {
+func (service *Service) handleRunIntent(stream *ActiveStream, intent InboundIntent) (runErr error) {
+	setupContext := intent.Context
+	if setupContext == nil {
+		setupContext = context.Background()
+	}
+	setupContext, setupCancel := context.WithCancel(setupContext)
+	intent.Context = setupContext
+	if stream != nil {
+		stream.mu.Lock()
+		if intent.RunSetupGeneration == 0 ||
+			stream.RunSetupGeneration != intent.RunSetupGeneration ||
+			!stream.RunSetupActive {
+			stream.mu.Unlock()
+			setupCancel()
+			return context.Canceled
+		}
+		cancelRequested := stream.RunSetupCancelRequested
+		stream.RunSetupCancel = setupCancel
+		stream.mu.Unlock()
+		if cancelRequested {
+			setupCancel()
+		}
+	}
+	defer func() {
+		setupCancel()
+		ownsGeneration := false
+		if stream != nil {
+			stream.mu.Lock()
+			if stream.RunSetupGeneration == intent.RunSetupGeneration {
+				ownsGeneration = true
+				stream.RunSetupCancel = nil
+				stream.RunSetupActive = false
+				stream.RunSetupCancelRequested = false
+			}
+			stream.mu.Unlock()
+		}
+		if !ownsGeneration || runErr == nil {
+			return
+		}
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			_ = service.broker.CancelStream(stream, "[canceled] Run setup interrupted")
+			return
+		}
+		_ = service.broker.FailStream(stream, "unknown", runErr.Error())
+	}()
+	if err := setupContext.Err(); err != nil {
+		return err
+	}
+	if err := service.persistPreFetchedBlobs(intent.PreFetchedBlobs); err != nil {
+		return err
+	}
 	intent.UserMessage = normalizeUserMessageForStorage(intent.UserMessage)
 	if !intent.Prewarm {
 		service.cancelOtherConversationActors(
@@ -687,8 +1186,11 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 			"[canceled] Superseded by newer request",
 		)
 	}
-	conversation, effectiveMode, turnSeq, initialEntries, err := service.bootstrapRuntimeConversation(intent)
+	conversation, effectiveMode, turnSeq, initialEntries, err := service.bootstrapRuntimeConversation(stream, intent)
 	if err != nil {
+		return err
+	}
+	if err := setupContext.Err(); err != nil {
 		return err
 	}
 	rewindDecision := service.decideRunRewind(intent, conversation)
@@ -737,7 +1239,7 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 		deriveConversationLoopState(conversation)
 	}
 
-	stream, err := service.broker.OpenStream(intent.RequestID, intent.ConversationID, turnSeq, intent.ModelID, intent.ModelName, effectiveMode, userMessageText(intent.UserMessage))
+	stream, err = service.broker.OpenStream(intent.RequestID, intent.ConversationID, turnSeq, intent.ModelID, intent.ModelName, effectiveMode, userMessageText(intent.UserMessage))
 	if err != nil {
 		return err
 	}
@@ -759,6 +1261,7 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 	stream.PendingExecs = make(map[string]runtimecore.PendingExec)
 	stream.PendingInteractions = make(map[string]runtimecore.PendingInteraction)
 	stream.RecentCompletedExecs = make(map[uint32]time.Time)
+	stream.RecentCompletedInteractions = make(map[uint32]time.Time)
 	stream.BackgroundShells = make(map[string]*BackgroundShellState)
 	stream.BackgroundShellsByMessageID = make(map[uint32]string)
 	stream.BackgroundShellsByExecID = make(map[string]string)
@@ -780,6 +1283,9 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
 	service.setTurnPhase(stream, TurnPhaseIdle)
+	if err := setupContext.Err(); err != nil {
+		return err
+	}
 	service.debug.LogRuntime(context.Background(), intent.RequestID, intent.ConversationID, "stream_state_updated", map[string]any{
 		"turn_seq":                      turnSeq,
 		"model_id":                      strings.TrimSpace(intent.ModelID),
@@ -798,6 +1304,9 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 	}
 	if intent.Prewarm {
 		return nil
+	}
+	if err := setupContext.Err(); err != nil {
+		return err
 	}
 	return service.requestProviderAction(stream, providerActionStart)
 }
@@ -862,7 +1371,7 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
 	service.setTurnPhase(stream, TurnPhaseCanceled)
-	return service.broker.Cancel(intent.RequestID, firstNonEmpty(intent.CancelReason, "[canceled] User aborted request"))
+	return service.broker.CancelStream(stream, firstNonEmpty(intent.CancelReason, "[canceled] User aborted request"))
 }
 
 // handleExecResult 处理客户端返回的执行桥结果，并在终态时把 tool_result 写回 history。
@@ -1245,6 +1754,445 @@ func (service *Service) handleMetadataIntent(intent InboundIntent) error {
 		}
 	}
 	return nil
+}
+
+func (service *Service) beginRunIngress(requestID string) uint64 {
+	if service == nil {
+		return 0
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return 0
+	}
+	generation := service.nextRunIngressID.Add(1)
+	if generation == 0 {
+		generation = service.nextRunIngressID.Add(1)
+	}
+	service.runSetupMu.Lock()
+	if service.runIngresses == nil {
+		service.runIngresses = make(map[string]map[uint64]*runIngressState)
+	}
+	if service.runIngresses[requestID] == nil {
+		service.runIngresses[requestID] = make(map[uint64]*runIngressState)
+	}
+	service.runIngresses[requestID][generation] = &runIngressState{}
+	service.notifyRunIngressChangedLocked()
+	service.runSetupMu.Unlock()
+	return generation
+}
+
+func (service *Service) endRunIngress(requestID string, generation uint64) {
+	if service == nil || generation == 0 {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	service.runSetupMu.Lock()
+	delete(service.runIngresses[requestID], generation)
+	if len(service.runIngresses[requestID]) == 0 {
+		delete(service.runIngresses, requestID)
+	}
+	service.notifyRunIngressChangedLocked()
+	service.runSetupMu.Unlock()
+}
+
+func (service *Service) bindCancelToRunIngress(requestID string, appendSeq int64) runIngressCancelBinding {
+	result := runIngressCancelBinding{}
+	if service == nil || appendSeq < 0 {
+		return result
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return result
+	}
+
+	service.runSetupMu.Lock()
+	defer service.runSetupMu.Unlock()
+	return service.bindCancelToRunIngressLocked(requestID, appendSeq, nil)
+}
+
+func (service *Service) bindCancelToActiveStream(requestID string) runIngressCancelBinding {
+	result := runIngressCancelBinding{}
+	if service == nil || service.broker == nil {
+		return result
+	}
+	stream, ok := service.broker.Get(strings.TrimSpace(requestID))
+	if !ok || stream == nil {
+		return result
+	}
+	stream.mu.Lock()
+	terminal := isTerminalStreamStatus(stream.Status) ||
+		stream.Phase == TurnPhaseCanceled ||
+		stream.Phase == TurnPhaseCompleted ||
+		stream.Phase == TurnPhaseFailed
+	lifecycleStarted := stream.RunSetupActive ||
+		strings.TrimSpace(stream.ConversationID) != "" ||
+		stream.ProviderActive ||
+		stream.CheckpointConversation != nil ||
+		len(stream.PendingExecs) > 0 ||
+		len(stream.PendingInteractions) > 0
+	if !terminal && lifecycleStarted {
+		result.bound = true
+		result.requestID = strings.TrimSpace(requestID)
+		result.stream = stream
+		result.setupGeneration = stream.RunSetupGeneration
+	}
+	stream.mu.Unlock()
+	return result
+}
+
+func (service *Service) bindCancelToRunIngressLocked(requestID string, appendSeq int64, targets map[uint64]struct{}) runIngressCancelBinding {
+	result := runIngressCancelBinding{}
+	if service == nil || appendSeq < 0 {
+		return result
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return result
+	}
+	ingresses := service.runIngresses[requestID]
+	if len(ingresses) == 0 {
+		return result
+	}
+
+	var acquired *runIngressState
+	var acquiredGeneration uint64
+	for generation, ingress := range ingresses {
+		if len(targets) > 0 {
+			if _, allowed := targets[generation]; !allowed {
+				continue
+			}
+		}
+		if ingress != nil && ingress.ticketAcquired && !ingress.ticketFinalized {
+			acquired = ingress
+			acquiredGeneration = generation
+			break
+		}
+	}
+	if acquired != nil {
+		result.bound = true
+		result.completeAppend = appendSeq > 0
+		result.appendGeneration = acquired.appendGeneration
+		result.requestID = requestID
+		result.ingressGeneration = acquiredGeneration
+		stream := acquired.setupStream
+		if stream == nil || acquired.setupGeneration == 0 {
+			return result
+		}
+		stream.mu.Lock()
+		if stream.RunSetupGeneration == acquired.setupGeneration && !isTerminalStreamStatus(stream.Status) {
+			result.stream = stream
+			result.setupGeneration = acquired.setupGeneration
+		}
+		stream.mu.Unlock()
+		return result
+	}
+
+	for generation, ingress := range ingresses {
+		if len(targets) > 0 {
+			if _, allowed := targets[generation]; !allowed {
+				continue
+			}
+		}
+		if ingress == nil || ingress.ticketFinalized {
+			continue
+		}
+		result.waiting = true
+	}
+	return result
+}
+
+func (service *Service) waitForRunIngressCancelBinding(ctx context.Context, requestID string, appendSeq int64, fingerprint [sha256.Size]byte) (runIngressCancelBinding, error) {
+	if service == nil || appendSeq <= 0 {
+		return runIngressCancelBinding{}, fmt.Errorf("run ingress cancellation is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timer := time.NewTimer(runIngressCancelWaitTimeout)
+	defer timer.Stop()
+	waiter := &runIngressCancelWaiter{appendSeq: appendSeq, fingerprint: fingerprint, done: make(chan struct{}), active: true}
+	service.runSetupMu.Lock()
+	if service.pendingRunCancelCount >= runIngressCancelWaiterLimit {
+		service.runSetupMu.Unlock()
+		return runIngressCancelBinding{}, fmt.Errorf("too many run ingress cancellations are waiting")
+	}
+	if !service.registerRunIngressCancelWaiterLocked(strings.TrimSpace(requestID), waiter) {
+		service.runSetupMu.Unlock()
+		return runIngressCancelBinding{}, fmt.Errorf("run ingress is no longer available for cancellation")
+	}
+	service.runSetupMu.Unlock()
+	defer func() {
+		service.runSetupMu.Lock()
+		service.unregisterRunIngressCancelWaiterLocked(strings.TrimSpace(requestID), waiter)
+		service.runSetupMu.Unlock()
+	}()
+	for {
+		service.runSetupMu.Lock()
+		binding := service.bindCancelToRunIngressLocked(requestID, appendSeq, waiter.targets)
+		signal := service.runIngressSignalLocked()
+		service.runSetupMu.Unlock()
+		if binding.bound {
+			return binding, nil
+		}
+		if !binding.waiting {
+			return runIngressCancelBinding{}, fmt.Errorf("run ingress is no longer available for cancellation")
+		}
+		select {
+		case <-waiter.done:
+			if waiter.err != nil {
+				return runIngressCancelBinding{}, waiter.err
+			}
+			return runIngressCancelBinding{bound: true}, nil
+		case <-ctx.Done():
+			return runIngressCancelBinding{}, ctx.Err()
+		case <-timer.C:
+			service.runSetupMu.Lock()
+			binding := service.bindCancelToRunIngressLocked(requestID, appendSeq, waiter.targets)
+			service.runSetupMu.Unlock()
+			if binding.bound {
+				return binding, nil
+			}
+			select {
+			case <-waiter.done:
+				if waiter.err != nil {
+					return runIngressCancelBinding{}, waiter.err
+				}
+				return runIngressCancelBinding{bound: true}, nil
+			default:
+			}
+			return runIngressCancelBinding{}, fmt.Errorf("run ingress was not ready for cancellation within %s", runIngressCancelWaitTimeout)
+		case <-signal:
+		}
+	}
+}
+
+func (service *Service) acquireRunIngressTicket(requestID string, generation uint64, ticket appendSequenceTicket) {
+	if service == nil || generation == 0 {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	service.runSetupMu.Lock()
+	defer service.runSetupMu.Unlock()
+	ingresses := service.runIngresses[requestID]
+	ingress := ingresses[generation]
+	if ingress == nil {
+		return
+	}
+	ingress.ticketAcquired = true
+	ingress.appendGeneration = ticket.Generation()
+	for candidateGeneration := range ingresses {
+		if candidateGeneration != generation {
+			delete(ingresses, candidateGeneration)
+		}
+	}
+	for waiter := range ingress.cancelWaiters {
+		if waiter == nil || !waiter.active {
+			continue
+		}
+		completion := ticket.CompleteAheadWithFingerprint(waiter.appendSeq, &waiter.fingerprint)
+		if completion.retry {
+			waiter.err = fmt.Errorf("append replay prefix is not ready for cancellation")
+		} else if !completion.stale {
+			ingress.cancelRequested = true
+		}
+		service.unregisterRunIngressCancelWaiterLocked(requestID, waiter)
+		waiter.once.Do(func() { close(waiter.done) })
+	}
+	ingress.cancelWaiters = nil
+	service.notifyRunIngressChangedLocked()
+}
+
+func (service *Service) runIngressSignalLocked() <-chan struct{} {
+	if service.runIngressChanged == nil {
+		service.runIngressChanged = make(chan struct{})
+	}
+	return service.runIngressChanged
+}
+
+func (service *Service) notifyRunIngressChangedLocked() {
+	service.runIngressSignalLocked()
+	close(service.runIngressChanged)
+	service.runIngressChanged = make(chan struct{})
+}
+
+func (service *Service) registerRunIngressCancelWaiterLocked(requestID string, waiter *runIngressCancelWaiter) bool {
+	if requestID == "" || waiter == nil || service.pendingRunCancelCount >= runIngressCancelWaiterLimit {
+		return false
+	}
+	waiter.targets = make(map[uint64]struct{})
+	for generation, ingress := range service.runIngresses[requestID] {
+		if ingress != nil && !ingress.ticketFinalized {
+			waiter.targets[generation] = struct{}{}
+		}
+	}
+	if len(waiter.targets) == 0 {
+		return false
+	}
+	if service.pendingRunCancelWaiters == nil {
+		service.pendingRunCancelWaiters = make(map[string]map[*runIngressCancelWaiter]struct{})
+	}
+	if service.pendingRunCancelWaiters[requestID] == nil {
+		service.pendingRunCancelWaiters[requestID] = make(map[*runIngressCancelWaiter]struct{})
+	}
+	service.pendingRunCancelWaiters[requestID][waiter] = struct{}{}
+	service.pendingRunCancelCount++
+	for generation, ingress := range service.runIngresses[requestID] {
+		if _, targeted := waiter.targets[generation]; !targeted {
+			continue
+		}
+		if ingress == nil || ingress.ticketAcquired || ingress.ticketFinalized {
+			continue
+		}
+		if ingress.cancelWaiters == nil {
+			ingress.cancelWaiters = make(map[*runIngressCancelWaiter]struct{})
+		}
+		ingress.cancelWaiters[waiter] = struct{}{}
+	}
+	return true
+}
+
+func (service *Service) unregisterRunIngressCancelWaiterLocked(requestID string, waiter *runIngressCancelWaiter) {
+	if waiter == nil || !waiter.active {
+		return
+	}
+	waiter.active = false
+	if waiters := service.pendingRunCancelWaiters[requestID]; waiters != nil {
+		if _, ok := waiters[waiter]; ok {
+			delete(waiters, waiter)
+			if service.pendingRunCancelCount > 0 {
+				service.pendingRunCancelCount--
+			}
+		}
+		if len(waiters) == 0 {
+			delete(service.pendingRunCancelWaiters, requestID)
+		}
+	}
+	for _, ingress := range service.runIngresses[requestID] {
+		delete(ingress.cancelWaiters, waiter)
+	}
+}
+
+func (service *Service) finishRunIngressTicket(requestID string, generation uint64, ticket appendSequenceTicket) {
+	if service == nil || generation == 0 {
+		ticket.Release()
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	service.runSetupMu.Lock()
+	if ingress := service.runIngresses[requestID][generation]; ingress != nil {
+		ingress.ticketFinalized = true
+	}
+	ticket.Release()
+	delete(service.runIngresses[requestID], generation)
+	if len(service.runIngresses[requestID]) == 0 {
+		delete(service.runIngresses, requestID)
+	}
+	service.notifyRunIngressChangedLocked()
+	service.runSetupMu.Unlock()
+}
+
+func (service *Service) dispatchRunIngressCancel(binding runIngressCancelBinding, intent InboundIntent) {
+	binding = service.activateRunIngressCancelBinding(binding)
+	if binding.setupCancel != nil {
+		binding.setupCancel()
+	}
+	if binding.stream == nil {
+		return
+	}
+	if err := service.postStreamCommandAsync(binding.stream, streamCommand{Kind: streamCommandCancel, Intent: intent}); err != nil {
+		_ = service.broker.CancelStream(binding.stream, firstNonEmpty(intent.CancelReason, "[canceled] User aborted request"))
+	}
+}
+
+func (service *Service) activateRunIngressCancelBinding(binding runIngressCancelBinding) runIngressCancelBinding {
+	if service == nil || !binding.bound {
+		return binding
+	}
+	if binding.ingressGeneration != 0 {
+		service.runSetupMu.Lock()
+		ingress := service.runIngresses[strings.TrimSpace(binding.requestID)][binding.ingressGeneration]
+		if ingress != nil && !ingress.ticketFinalized {
+			ingress.cancelRequested = true
+			if ingress.setupStream != nil && ingress.setupGeneration != 0 {
+				binding.stream = ingress.setupStream
+				binding.setupGeneration = ingress.setupGeneration
+			}
+		}
+		service.runSetupMu.Unlock()
+	}
+	if binding.stream == nil {
+		return binding
+	}
+	binding.stream.mu.Lock()
+	if (binding.setupGeneration == 0 || binding.stream.RunSetupGeneration == binding.setupGeneration) &&
+		!isTerminalStreamStatus(binding.stream.Status) {
+		if binding.stream.RunSetupActive {
+			binding.stream.RunSetupCancelRequested = true
+			binding.setupCancel = binding.stream.RunSetupCancel
+		}
+	}
+	binding.stream.mu.Unlock()
+	return binding
+}
+
+func (service *Service) hasCancelableStreamLifecycle(requestID string) bool {
+	if service == nil || service.broker == nil {
+		return false
+	}
+	stream, ok := service.broker.Get(strings.TrimSpace(requestID))
+	return ok && isCancelableStreamLifecycle(stream)
+}
+
+func isCancelableStreamLifecycle(stream *ActiveStream) bool {
+	if stream == nil {
+		return false
+	}
+	stream.mu.Lock()
+	terminal := isTerminalStreamStatus(stream.Status) ||
+		stream.Phase == TurnPhaseCanceled ||
+		stream.Phase == TurnPhaseCompleted ||
+		stream.Phase == TurnPhaseFailed
+	lifecycleStarted := stream.RunSetupActive ||
+		strings.TrimSpace(stream.ConversationID) != "" ||
+		stream.ProviderActive ||
+		stream.CheckpointConversation != nil ||
+		len(stream.PendingExecs) > 0 ||
+		len(stream.PendingInteractions) > 0
+	stream.mu.Unlock()
+	return !terminal && lifecycleStarted
+}
+
+func (service *Service) beginRunSetup(stream *ActiveStream, ingressGeneration uint64) uint64 {
+	if stream == nil {
+		return 0
+	}
+	service.runSetupMu.Lock()
+	ingressCanceled := false
+	ingress := service.runIngresses[strings.TrimSpace(stream.RequestID)][ingressGeneration]
+	if ingress != nil {
+		ingressCanceled = ingress.cancelRequested
+	}
+	stream.mu.Lock()
+	previousCancel := stream.RunSetupCancel
+	consumeEarlyCancel := !stream.RunSetupActive && (stream.RunSetupCancelRequested || ingressCanceled)
+	stream.RunSetupGeneration++
+	if stream.RunSetupGeneration == 0 {
+		stream.RunSetupGeneration++
+	}
+	generation := stream.RunSetupGeneration
+	stream.RunSetupActive = true
+	stream.RunSetupCancelRequested = consumeEarlyCancel
+	stream.RunSetupCancel = nil
+	if ingress != nil {
+		ingress.setupStream = stream
+		ingress.setupGeneration = generation
+	}
+	stream.mu.Unlock()
+	service.runSetupMu.Unlock()
+	if previousCancel != nil {
+		previousCancel()
+	}
+	return generation
 }
 
 func (service *Service) scheduleProviderResume(stream *ActiveStream, _ int) error {
@@ -2116,7 +3064,7 @@ func (service *Service) completeSuccessfulTurn(stream *ActiveStream, completion 
 			err,
 		)
 	}
-	if err := service.publishCheckpoint(requestID, conversationID); err != nil {
+	if err := service.publishRequiredCheckpoint(requestID, conversationID); err != nil {
 		return err
 	}
 	if err := service.broker.Publish(requestID, StreamEvent{
@@ -2124,7 +3072,7 @@ func (service *Service) completeSuccessfulTurn(stream *ActiveStream, completion 
 	}); err != nil {
 		return err
 	}
-	if err := service.broker.Complete(requestID, "", ""); err != nil {
+	if err := service.broker.CompleteStream(stream, "", ""); err != nil {
 		return err
 	}
 	service.setTurnPhase(stream, TurnPhaseCompleted)
@@ -2146,6 +3094,14 @@ func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCo
 
 // publishCheckpoint 按当前内存会话镜像投影出 checkpoint，并广播给所有 RunSSE 订阅者。
 func (service *Service) publishCheckpoint(requestID string, _ string) error {
+	return service.publishCheckpointWithBlobRequirement(requestID, false)
+}
+
+func (service *Service) publishRequiredCheckpoint(requestID string, _ string) error {
+	return service.publishCheckpointWithBlobRequirement(requestID, true)
+}
+
+func (service *Service) publishCheckpointWithBlobRequirement(requestID string, requireBlobDelivery bool) error {
 	stream, ok := service.broker.Get(requestID)
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", requestID)
@@ -2154,14 +3110,20 @@ func (service *Service) publishCheckpoint(requestID string, _ string) error {
 	if err != nil {
 		return err
 	}
-	state, err := service.projector.ProjectLegacyCheckpoint(conversation)
+	projection, err := service.projector.ProjectLegacyCheckpointWithBlobs(conversation)
 	if err != nil {
 		return err
 	}
+	if err := service.persistCheckpointBlobs(projection.Blobs); err != nil {
+		return err
+	}
+	state := projection.State
 	state.PendingToolCalls = buildPendingToolCalls(pendingExecs, pendingInteractions)
 	service.rewriteCheckpointTokenDetailsForClient(stream, conversation, state)
 	return service.broker.Publish(requestID, StreamEvent{
-		Message: buildCheckpointMessage(state),
+		Message:             buildCheckpointMessage(state),
+		CheckpointBlobIDs:   checkpointBlobIDs(projection.Blobs),
+		RequireBlobDelivery: requireBlobDelivery,
 	})
 }
 
@@ -2310,7 +3272,7 @@ func (service *Service) failActiveStream(stream *ActiveStream, conversationID st
 	if err := service.publishCheckpoint(requestID, conversationID); err != nil && firstErr == nil {
 		firstErr = err
 	}
-	if err := service.broker.Fail(requestID, terminalCode, terminalMessage); err != nil && firstErr == nil {
+	if err := service.broker.FailStream(stream, terminalCode, terminalMessage); err != nil && firstErr == nil {
 		firstErr = err
 	}
 	return firstErr
@@ -3199,7 +4161,7 @@ func markExecCompleted(stream *ActiveStream, pending runtimecore.PendingExec) {
 		return
 	}
 	now := time.Now().UTC()
-	cutoff := now.Add(-completedExecRetention)
+	cutoff := now.Add(-completedClientResponseRetention)
 
 	stream.mu.Lock()
 	delete(stream.PendingExecs, pending.ExecID)
@@ -3223,7 +4185,7 @@ func recentlyCompletedExecExists(stream *ActiveStream, messageID uint32) bool {
 		return false
 	}
 	now := time.Now().UTC()
-	cutoff := now.Add(-completedExecRetention)
+	cutoff := now.Add(-completedClientResponseRetention)
 
 	stream.mu.Lock()
 	defer stream.mu.Unlock()

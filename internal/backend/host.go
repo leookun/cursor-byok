@@ -270,6 +270,8 @@ func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 	agentModule := forwarder.NewModule(appdata.HistoryRootPath(), host.configs)
 	legacyBidiAppendProcedure := "/aiserver.v1.BidiService/BidiAppend"
 	legacyRunSSEProcedure := "/agent.v1.AgentService/RunSSE"
+	uploadConversationBlobsProcedure := "/agent.v1.AgentService/UploadConversationBlobs"
+	notifyConversationCloneProcedure := "/agent.v1.AgentService/NotifyConversationClone"
 	routeDeps := upstream.Dependencies{
 		SystemSettingService: &serverSystemSettings{configs: host.configs},
 		HTTPClient:           netproxy.NewHTTPClient(30000 * time.Second),
@@ -302,6 +304,22 @@ func (host *Host) rebuildLocked(cfg serverconfig.Config) error {
 			server.Local(server.HTTPHandlerAction(agentModule.LocalRunSSE)),
 			server.Upstream(upstream.DirectAction(routeDeps, upstream.CompatRouteConfig{
 				Name: "run_sse",
+			})),
+		),
+		server.POST(uploadConversationBlobsProcedure,
+			server.Name("upload_conversation_blobs"),
+			server.ConnectUnary(),
+			server.Local(server.HTTPHandlerAction(agentModule.LocalUploadConversationBlobs)),
+			server.Upstream(upstream.DirectAction(routeDeps, upstream.CompatRouteConfig{
+				Name: "upload_conversation_blobs",
+			})),
+		),
+		server.POST(notifyConversationCloneProcedure,
+			server.Name("notify_conversation_clone"),
+			server.ConnectUnary(),
+			server.Local(server.HTTPHandlerAction(agentModule.LocalNotifyConversationClone)),
+			server.Upstream(upstream.DirectAction(routeDeps, upstream.CompatRouteConfig{
+				Name: "notify_conversation_clone",
 			})),
 		),
 		server.POST("/aiserver.v1.AiService/ServerTime",

@@ -17,9 +17,10 @@ const orphanSubscriberGracePeriod = 30 * time.Second
 const terminalStreamRetentionPeriod = 30 * time.Second
 
 type StreamBroker struct {
-	mu      sync.RWMutex
-	streams map[string]*ActiveStream
-	nextID  atomic.Uint64
+	mu               sync.RWMutex
+	streams          map[string]*ActiveStream
+	nextSubscriberID atomic.Uint64
+	nextStreamID     atomic.Uint64
 }
 
 // NewStreamBroker 创建活动流注册表。
@@ -43,45 +44,61 @@ func (broker *StreamBroker) OpenStream(requestID string, conversationID string, 
 	defer broker.mu.Unlock()
 	if existing, ok := broker.streams[normalizedRequestID]; ok {
 		existing.mu.Lock()
-		existing.ConversationID = strings.TrimSpace(conversationID)
-		existing.TurnSeq = turnSeq
-		existing.ModelID = strings.TrimSpace(modelID)
-		existing.ModelName = strings.TrimSpace(modelName)
-		existing.Mode = normalizedMode
-		existing.LatestUserText = strings.TrimSpace(latestUserText)
-		if existing.Status == "" {
-			existing.Status = StreamStatusCreated
+		if isTerminalStreamStatus(existing.Status) {
+			broker.stopTerminalCleanupTimerLocked(existing)
+			existing.mu.Unlock()
+			delete(broker.streams, normalizedRequestID)
+		} else {
+			existing.ConversationID = strings.TrimSpace(conversationID)
+			existing.TurnSeq = turnSeq
+			existing.ModelID = strings.TrimSpace(modelID)
+			existing.ModelName = strings.TrimSpace(modelName)
+			existing.Mode = normalizedMode
+			existing.LatestUserText = strings.TrimSpace(latestUserText)
+			if existing.Status == "" {
+				existing.Status = StreamStatusCreated
+			}
+			if existing.PendingExecs == nil {
+				existing.PendingExecs = make(map[string]runtimecore.PendingExec)
+			}
+			if existing.PendingInteractions == nil {
+				existing.PendingInteractions = make(map[string]runtimecore.PendingInteraction)
+			}
+			if existing.RecentCompletedInteractions == nil {
+				existing.RecentCompletedInteractions = make(map[uint32]time.Time)
+			}
+			if existing.PartialToolCallIDs == nil {
+				existing.PartialToolCallIDs = make(map[string]struct{})
+			}
+			if existing.PatchEditQueues == nil {
+				existing.PatchEditQueues = make(map[string][]queuedPatchEditOperation)
+			}
+			if existing.BackgroundShells == nil {
+				existing.BackgroundShells = make(map[string]*BackgroundShellState)
+			}
+			if existing.BackgroundShellsByMessageID == nil {
+				existing.BackgroundShellsByMessageID = make(map[uint32]string)
+			}
+			if existing.BackgroundShellsByExecID == nil {
+				existing.BackgroundShellsByExecID = make(map[string]string)
+			}
+			if existing.BackgroundShellActions == nil {
+				existing.BackgroundShellActions = make(map[string]time.Time)
+			}
+			if existing.PendingKVAcks == nil {
+				existing.PendingKVAcks = make(map[uint32]*pendingKVAck)
+			}
+			if existing.PendingTerminalDeliveries == nil {
+				existing.PendingTerminalDeliveries = make(map[string]uint64)
+			}
+			existing.UpdatedAt = time.Now().UTC()
+			existing.mu.Unlock()
+			return existing, nil
 		}
-		if existing.PendingExecs == nil {
-			existing.PendingExecs = make(map[string]runtimecore.PendingExec)
-		}
-		if existing.PendingInteractions == nil {
-			existing.PendingInteractions = make(map[string]runtimecore.PendingInteraction)
-		}
-		if existing.PartialToolCallIDs == nil {
-			existing.PartialToolCallIDs = make(map[string]struct{})
-		}
-		if existing.PatchEditQueues == nil {
-			existing.PatchEditQueues = make(map[string][]queuedPatchEditOperation)
-		}
-		if existing.BackgroundShells == nil {
-			existing.BackgroundShells = make(map[string]*BackgroundShellState)
-		}
-		if existing.BackgroundShellsByMessageID == nil {
-			existing.BackgroundShellsByMessageID = make(map[uint32]string)
-		}
-		if existing.BackgroundShellsByExecID == nil {
-			existing.BackgroundShellsByExecID = make(map[string]string)
-		}
-		if existing.BackgroundShellActions == nil {
-			existing.BackgroundShellActions = make(map[string]time.Time)
-		}
-		existing.UpdatedAt = time.Now().UTC()
-		existing.mu.Unlock()
-		return existing, nil
 	}
 	now := time.Now().UTC()
 	stream := &ActiveStream{
+		InstanceID:                  broker.nextStreamID.Add(1),
 		RequestID:                   normalizedRequestID,
 		ConversationID:              strings.TrimSpace(conversationID),
 		TurnSeq:                     turnSeq,
@@ -98,10 +115,13 @@ func (broker *StreamBroker) OpenStream(requestID string, conversationID string, 
 		PatchEditQueues:             make(map[string][]queuedPatchEditOperation),
 		MCPToolServers:              make(map[string]string),
 		RecentCompletedExecs:        make(map[uint32]time.Time),
+		RecentCompletedInteractions: make(map[uint32]time.Time),
 		BackgroundShells:            make(map[string]*BackgroundShellState),
 		BackgroundShellsByMessageID: make(map[uint32]string),
 		BackgroundShellsByExecID:    make(map[string]string),
 		BackgroundShellActions:      make(map[string]time.Time),
+		PendingKVAcks:               make(map[uint32]*pendingKVAck),
+		PendingTerminalDeliveries:   make(map[string]uint64),
 		CreatedAt:                   now,
 		UpdatedAt:                   now,
 	}
@@ -120,32 +140,34 @@ func (broker *StreamBroker) Get(requestID string) (*ActiveStream, bool) {
 	return stream, ok
 }
 
-// Subscribe 为指定 request 注册一个新订阅者，并返回用于唤醒 backlog 消费的信号通道。
-func (broker *StreamBroker) Subscribe(requestID string) (string, <-chan struct{}, error) {
+// Subscribe 为指定 request 注册一个新订阅者，并返回对应流与 backlog 唤醒信号。
+func (broker *StreamBroker) Subscribe(requestID string) (*ActiveStream, string, <-chan struct{}, error) {
 	normalizedRequestID := strings.TrimSpace(requestID)
 	if normalizedRequestID == "" {
-		return "", nil, fmt.Errorf("request_id is required")
+		return nil, "", nil, fmt.Errorf("request_id is required")
 	}
-	stream, ok := broker.Get(normalizedRequestID)
-	if !ok || stream == nil {
-		// RunSSE 可能先于 BidiAppend 到达。此时先创建一个占位活动流，
-		// 等待后续上行把真实 conversation/model/mode 信息补齐。
-		var err error
-		stream, err = broker.OpenStream(normalizedRequestID, "", 0, "", "", agentv1.AgentMode_AGENT_MODE_AGENT, "")
-		if err != nil {
-			return "", nil, err
+	for {
+		broker.mu.Lock()
+		stream := broker.streams[normalizedRequestID]
+		if stream == nil {
+			broker.mu.Unlock()
+			// RunSSE 可能先于 BidiAppend 到达。此时先创建一个占位活动流，
+			// 等待后续上行把真实 conversation/model/mode 信息补齐。
+			if _, err := broker.OpenStream(normalizedRequestID, "", 0, "", "", agentv1.AgentMode_AGENT_MODE_AGENT, ""); err != nil {
+				return nil, "", nil, err
+			}
+			continue
 		}
+		subscriberID := fmt.Sprintf("sub-%d", broker.nextSubscriberID.Add(1))
+		subscriber := &StreamSubscriber{Signal: make(chan struct{}, subscriberSignalBufferSize)}
+		stream.mu.Lock()
+		broker.stopTerminalCleanupTimerLocked(stream)
+		stream.Subscribers[subscriberID] = subscriber
+		stream.UpdatedAt = time.Now().UTC()
+		stream.mu.Unlock()
+		broker.mu.Unlock()
+		return stream, subscriberID, subscriber.Signal, nil
 	}
-	subscriberID := fmt.Sprintf("sub-%d", broker.nextID.Add(1))
-	subscriber := &StreamSubscriber{Signal: make(chan struct{}, subscriberSignalBufferSize)}
-
-	stream.mu.Lock()
-	broker.stopTerminalCleanupTimerLocked(stream)
-	stream.Subscribers[subscriberID] = subscriber
-	stream.UpdatedAt = time.Now().UTC()
-	stream.mu.Unlock()
-
-	return subscriberID, subscriber.Signal, nil
 }
 
 func (broker *StreamBroker) stopTerminalCleanupTimerLocked(stream *ActiveStream) {
@@ -159,20 +181,37 @@ func (broker *StreamBroker) stopTerminalCleanupTimerLocked(stream *ActiveStream)
 	}
 }
 
-// Unsubscribe 移除并关闭指定订阅者，并返回移除后的剩余订阅者数量。
-func (broker *StreamBroker) Unsubscribe(requestID string, subscriberID string) int {
-	stream, ok := broker.Get(requestID)
-	if !ok || stream == nil {
-		return 0
+type streamUnsubscribeResult struct {
+	Remaining int
+	Terminal  bool
+	Retain    bool
+}
+
+// Unsubscribe 移除指定流实例上的订阅者，并登记该连接的终态交付结果。
+func (broker *StreamBroker) Unsubscribe(stream *ActiveStream, subscriberID string, terminalObserved bool, completionRegistered bool, terminalEpoch uint64) streamUnsubscribeResult {
+	if stream == nil {
+		return streamUnsubscribeResult{}
 	}
-	remaining := 0
+	result := streamUnsubscribeResult{}
 	stream.mu.Lock()
 	if _, ok := stream.Subscribers[strings.TrimSpace(subscriberID)]; ok {
 		delete(stream.Subscribers, strings.TrimSpace(subscriberID))
 	}
-	remaining = len(stream.Subscribers)
+	result.Remaining = len(stream.Subscribers)
+	result.Terminal = isTerminalStreamStatus(stream.Status)
+	if result.Terminal {
+		if terminalObserved && terminalEpoch == stream.TerminalEpoch && completionRegistered {
+			if stream.PendingTerminalDeliveries == nil {
+				stream.PendingTerminalDeliveries = make(map[string]uint64)
+			}
+			stream.PendingTerminalDeliveries[strings.TrimSpace(subscriberID)] = terminalEpoch
+		} else {
+			stream.TerminalReplayRequired = true
+		}
+	}
+	result.Retain = stream.TerminalReplayRequired || len(stream.PendingTerminalDeliveries) > 0
 	stream.mu.Unlock()
-	return remaining
+	return result
 }
 
 func (broker *StreamBroker) OtherConversationRequestIDs(conversationID string, keepRequestID string) []string {
@@ -219,6 +258,14 @@ func (broker *StreamBroker) scheduleTerminalCleanup(requestID string) bool {
 	if !ok || stream == nil {
 		return false
 	}
+	return broker.scheduleTerminalCleanupForStream(requestID, stream.InstanceID)
+}
+
+func (broker *StreamBroker) scheduleTerminalCleanupForStream(requestID string, instanceID uint64) bool {
+	stream, ok := broker.Get(requestID)
+	if !ok || stream == nil || stream.InstanceID != instanceID {
+		return false
+	}
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
 	if len(stream.Subscribers) > 0 {
@@ -234,15 +281,15 @@ func (broker *StreamBroker) scheduleTerminalCleanup(requestID string) bool {
 		stream.TerminalCleanupTimer.Stop()
 	}
 	stream.TerminalCleanupTimer = time.AfterFunc(terminalStreamRetentionPeriod, func() {
-		broker.runScheduledTerminalCleanup(requestID, sequence)
+		broker.runScheduledTerminalCleanup(requestID, instanceID, sequence)
 	})
 	stream.UpdatedAt = time.Now().UTC()
 	return true
 }
 
-func (broker *StreamBroker) runScheduledTerminalCleanup(requestID string, sequence uint64) {
+func (broker *StreamBroker) runScheduledTerminalCleanup(requestID string, instanceID uint64, sequence uint64) {
 	stream, ok := broker.Get(requestID)
-	if !ok || stream == nil {
+	if !ok || stream == nil || stream.InstanceID != instanceID {
 		return
 	}
 	stream.mu.Lock()
@@ -260,11 +307,15 @@ func (broker *StreamBroker) runScheduledTerminalCleanup(requestID string, sequen
 		return
 	}
 	stream.mu.Unlock()
-	broker.RemoveIfIdle(requestID)
+	broker.removeIfIdleForStream(requestID, instanceID)
 }
 
 // RemoveIfIdle 在没有订阅者时移除终态流，或移除仍为空壳的占位流。
 func (broker *StreamBroker) RemoveIfIdle(requestID string) bool {
+	return broker.removeIfIdleForStream(requestID, 0)
+}
+
+func (broker *StreamBroker) removeIfIdleForStream(requestID string, instanceID uint64) bool {
 	normalizedRequestID := strings.TrimSpace(requestID)
 	if normalizedRequestID == "" {
 		return false
@@ -273,6 +324,9 @@ func (broker *StreamBroker) RemoveIfIdle(requestID string) bool {
 	defer broker.mu.Unlock()
 	stream, ok := broker.streams[normalizedRequestID]
 	if !ok || stream == nil {
+		return false
+	}
+	if instanceID != 0 && stream.InstanceID != instanceID {
 		return false
 	}
 	stream.mu.Lock()
@@ -301,13 +355,21 @@ func (broker *StreamBroker) RemoveIfIdle(requestID string) bool {
 
 // Publish 把一个事件写入 backlog，并唤醒当前所有订阅者读取 backlog。
 func (broker *StreamBroker) Publish(requestID string, event StreamEvent) error {
-	stream, ok := broker.Get(requestID)
-	if !ok || stream == nil {
+	return broker.publishToStream(requestID, 0, event)
+}
+
+func (broker *StreamBroker) publishToStream(requestID string, instanceID uint64, event StreamEvent) error {
+	normalizedRequestID := strings.TrimSpace(requestID)
+	broker.mu.RLock()
+	stream, ok := broker.streams[normalizedRequestID]
+	if !ok || stream == nil || (instanceID != 0 && stream.InstanceID != instanceID) {
+		broker.mu.RUnlock()
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
 	if !event.End && isTerminalStreamStatus(stream.Status) {
 		stream.mu.Unlock()
+		broker.mu.RUnlock()
 		return nil
 	}
 	stream.Backlog = append(stream.Backlog, event)
@@ -317,6 +379,7 @@ func (broker *StreamBroker) Publish(requestID string, event StreamEvent) error {
 		subscribers = append(subscribers, subscriber)
 	}
 	stream.mu.Unlock()
+	broker.mu.RUnlock()
 
 	for _, subscriber := range subscribers {
 		if subscriber == nil {
@@ -336,6 +399,15 @@ func (broker *StreamBroker) ReadFromCursor(requestID string, cursor int) ([]Stre
 	if !ok || stream == nil {
 		return nil, fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
+	return broker.ReadFromStreamCursor(stream, cursor)
+}
+
+// ReadFromStreamCursor reads one immutable stream instance even when the same
+// request ID has already started a later lifecycle.
+func (broker *StreamBroker) ReadFromStreamCursor(stream *ActiveStream, cursor int) ([]StreamEvent, error) {
+	if stream == nil {
+		return nil, fmt.Errorf("request stream is not available")
+	}
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
 	if cursor < 0 {
@@ -347,33 +419,52 @@ func (broker *StreamBroker) ReadFromCursor(requestID string, cursor int) ([]Stre
 	return append([]StreamEvent(nil), stream.Backlog[cursor:]...), nil
 }
 
+// CompleteTerminalDelivery resolves one subscriber's Connect endstream write.
+func (broker *StreamBroker) CompleteTerminalDelivery(requestID string, instanceID uint64, subscriberID string, terminalEpoch uint64, delivered bool) {
+	stream, ok := broker.Get(requestID)
+	if !ok || stream == nil || stream.InstanceID != instanceID {
+		return
+	}
+	stream.mu.Lock()
+	pendingEpoch, pending := stream.PendingTerminalDeliveries[strings.TrimSpace(subscriberID)]
+	if !pending || pendingEpoch != terminalEpoch || stream.TerminalEpoch != terminalEpoch {
+		stream.mu.Unlock()
+		return
+	}
+	delete(stream.PendingTerminalDeliveries, strings.TrimSpace(subscriberID))
+	if !delivered {
+		stream.TerminalReplayRequired = true
+	}
+	subscriberCount := len(stream.Subscribers)
+	pendingCount := len(stream.PendingTerminalDeliveries)
+	replayRequired := stream.TerminalReplayRequired
+	stream.UpdatedAt = time.Now().UTC()
+	stream.mu.Unlock()
+	if subscriberCount != 0 || pendingCount != 0 {
+		return
+	}
+	if replayRequired {
+		broker.scheduleTerminalCleanupForStream(requestID, instanceID)
+	} else {
+		broker.removeIfIdleForStream(requestID, instanceID)
+	}
+}
+
 // Complete 把活动流标记为成功完成，并发布一个成功 endstream 事件。
 func (broker *StreamBroker) Complete(requestID string, terminalCode string, terminalMessage string) error {
 	stream, ok := broker.Get(requestID)
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
-	stream.mu.Lock()
-	if stream.Status == StreamStatusCanceled || stream.Status == StreamStatusFailed || stream.Status == StreamStatusCompleted {
-		stream.mu.Unlock()
-		return nil
-	}
-	broker.stopTerminalCleanupTimerLocked(stream)
-	stream.Status = StreamStatusCompleted
-	subscriberCount := len(stream.Subscribers)
-	stream.UpdatedAt = time.Now().UTC()
-	stream.mu.Unlock()
-	if err := broker.Publish(requestID, StreamEvent{
+	return broker.CompleteStream(stream, terminalCode, terminalMessage)
+}
+
+func (broker *StreamBroker) CompleteStream(stream *ActiveStream, terminalCode string, terminalMessage string) error {
+	return broker.finishStream(stream, StreamStatusCompleted, StreamEvent{
 		End:                  true,
 		TerminalErrorCode:    strings.TrimSpace(terminalCode),
 		TerminalErrorMessage: strings.TrimSpace(terminalMessage),
-	}); err != nil {
-		return err
-	}
-	if subscriberCount == 0 {
-		broker.scheduleTerminalCleanup(requestID)
-	}
-	return nil
+	}, nil, false)
 }
 
 // Fail 把活动流标记为失败，并发布一个失败 endstream 事件。
@@ -382,23 +473,16 @@ func (broker *StreamBroker) Fail(requestID string, terminalCode string, terminal
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
-	stream.mu.Lock()
-	broker.stopTerminalCleanupTimerLocked(stream)
-	stream.Status = StreamStatusFailed
-	subscriberCount := len(stream.Subscribers)
-	stream.UpdatedAt = time.Now().UTC()
-	stream.mu.Unlock()
-	if err := broker.Publish(requestID, StreamEvent{
+	return broker.FailStream(stream, terminalCode, terminalMessage)
+}
+
+func (broker *StreamBroker) FailStream(stream *ActiveStream, terminalCode string, terminalMessage string) error {
+	cause := fmt.Errorf("stream failed: %s", firstNonEmpty(strings.TrimSpace(terminalMessage), strings.TrimSpace(terminalCode), "unknown"))
+	return broker.finishStream(stream, StreamStatusFailed, StreamEvent{
 		End:                  true,
 		TerminalErrorCode:    strings.TrimSpace(terminalCode),
 		TerminalErrorMessage: strings.TrimSpace(terminalMessage),
-	}); err != nil {
-		return err
-	}
-	if subscriberCount == 0 {
-		broker.scheduleTerminalCleanup(requestID)
-	}
-	return nil
+	}, cause, false)
 }
 
 // Cancel 主动取消活动流，并发布 canceled endstream。
@@ -407,28 +491,86 @@ func (broker *StreamBroker) Cancel(requestID string, terminalMessage string) err
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
+	return broker.CancelStream(stream, terminalMessage)
+}
+
+func (broker *StreamBroker) CancelStream(stream *ActiveStream, terminalMessage string) error {
+	message := firstNonEmpty(strings.TrimSpace(terminalMessage), "[canceled] User aborted request")
+	return broker.finishStream(stream, StreamStatusCanceled, StreamEvent{
+		End:                  true,
+		TerminalErrorCode:    "canceled",
+		TerminalErrorMessage: message,
+	}, fmt.Errorf("stream canceled: %s", message), true)
+}
+
+func (broker *StreamBroker) finishStream(stream *ActiveStream, status StreamStatus, event StreamEvent, waiterCause error, cancelProvider bool) error {
+	if stream == nil {
+		return fmt.Errorf("request stream is not available")
+	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
-	if stream.ProviderCancel != nil {
+	if cancelProvider && stream.ProviderCancel != nil {
 		stream.ProviderCancel()
 		stream.ProviderCancel = nil
 	}
-	stream.ProviderActive = false
-	stream.Status = StreamStatusCanceled
+	if cancelProvider {
+		stream.ProviderActive = false
+	}
+	stream.Status = status
+	stream.TerminalEpoch++
+	if stream.TerminalEpoch == 0 {
+		stream.TerminalEpoch++
+	}
+	event.End = true
+	event.TerminalEpoch = stream.TerminalEpoch
+	stream.PendingTerminalDeliveries = make(map[string]uint64)
+	stream.TerminalReplayRequired = false
+	if waiterCause != nil {
+		cancelStreamWaitersLocked(stream, waiterCause)
+	}
+	stream.Backlog = append(stream.Backlog, event)
 	subscriberCount := len(stream.Subscribers)
+	subscribers := make([]*StreamSubscriber, 0, subscriberCount)
+	for _, subscriber := range stream.Subscribers {
+		subscribers = append(subscribers, subscriber)
+	}
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
-	if err := broker.Publish(requestID, StreamEvent{
-		End:                  true,
-		TerminalErrorCode:    "canceled",
-		TerminalErrorMessage: firstNonEmpty(strings.TrimSpace(terminalMessage), "[canceled] User aborted request"),
-	}); err != nil {
-		return err
+	for _, subscriber := range subscribers {
+		if subscriber == nil {
+			continue
+		}
+		select {
+		case subscriber.Signal <- struct{}{}:
+		default:
+		}
 	}
 	if subscriberCount == 0 {
-		broker.scheduleTerminalCleanup(requestID)
+		broker.scheduleTerminalCleanupForStream(stream.RequestID, stream.InstanceID)
 	}
 	return nil
+}
+
+// cancelStreamWaitersLocked releases setup and KV barriers after terminal state.
+// The caller must hold stream.mu.
+func cancelStreamWaitersLocked(stream *ActiveStream, cause error) {
+	if stream == nil {
+		return
+	}
+	if stream.RunSetupActive {
+		stream.RunSetupCancelRequested = true
+	}
+	if stream.RunSetupCancel != nil {
+		stream.RunSetupCancel()
+	}
+	for id, pending := range stream.PendingKVAcks {
+		delete(stream.PendingKVAcks, id)
+		pending.complete(cause)
+	}
 }
 
 // firstNonEmpty 返回第一个非空白字符串。

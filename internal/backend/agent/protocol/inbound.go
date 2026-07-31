@@ -37,13 +37,33 @@ func NormalizeRequestID(requestID string) string {
 
 // DecodeAgentClientMessage 解析 hex 文本为 AgentClientMessage，并返回消息类型标签。
 func DecodeAgentClientMessage(hexData string) (*agentv1.AgentClientMessage, string, error) {
+	message, kind, _, err := DecodeAgentClientMessagePayload(hexData, nil)
+	return message, kind, err
+}
+
+// DecodeAgentClientMessagePayload accepts both the legacy hex field and the
+// binary field used by newer Cursor clients. Binary takes precedence when set.
+func DecodeAgentClientMessagePayload(hexData string, binaryData []byte) (*agentv1.AgentClientMessage, string, []byte, error) {
+	if len(binaryData) > 0 {
+		payload := append([]byte(nil), binaryData...)
+		message, kind, err := DecodeAgentClientMessageBytes(payload)
+		return message, kind, payload, err
+	}
 	trimmed := strings.TrimSpace(hexData)
 	if trimmed == "" {
-		return nil, "", nil
+		return nil, "", nil, nil
 	}
 	payload, err := hex.DecodeString(trimmed)
 	if err != nil {
-		return nil, "", fmt.Errorf("bidi append data is not valid hex: %w", err)
+		return nil, "", nil, fmt.Errorf("bidi append data is not valid hex: %w", err)
+	}
+	message, kind, err := DecodeAgentClientMessageBytes(payload)
+	return message, kind, payload, err
+}
+
+func DecodeAgentClientMessageBytes(payload []byte) (*agentv1.AgentClientMessage, string, error) {
+	if len(payload) == 0 {
+		return nil, "", nil
 	}
 	clientMessage := &agentv1.AgentClientMessage{}
 	if err := proto.Unmarshal(payload, clientMessage); err != nil {

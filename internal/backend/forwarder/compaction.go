@@ -452,7 +452,7 @@ func (service *Service) handleCompactionEvent(stream *ActiveStream, payload *str
 		}); err != nil {
 			return service.failStream(stream, "unknown", err)
 		}
-		if err := service.broker.Complete(stream.RequestID, "", ""); err != nil {
+		if err := service.broker.CompleteStream(stream, "", ""); err != nil {
 			return service.failStream(stream, "unknown", err)
 		}
 		service.setTurnPhase(stream, TurnPhaseCompleted)
@@ -505,7 +505,7 @@ func (service *Service) finishManualCompactionNoop(stream *ActiveStream) error {
 	}); err != nil {
 		return err
 	}
-	return service.broker.Complete(stream.RequestID, "", "")
+	return service.broker.CompleteStream(stream, "", "")
 }
 
 func (service *Service) completeManualCompactionTurn(stream *ActiveStream) error {
@@ -1673,7 +1673,7 @@ func (service *Service) generateCompactionSummary(ctx context.Context, stream *A
 			if strings.TrimSpace(accumulated) == "" {
 				return nil
 			}
-			return service.broker.Publish(stream.RequestID, StreamEvent{
+			return service.broker.publishToStream(stream.RequestID, stream.InstanceID, StreamEvent{
 				Message: buildSummaryMessage(accumulated),
 			})
 		case modeladapter.ModelEventKindThinkingDelta, modeladapter.ModelEventKindThinkingCompleted:
@@ -1740,6 +1740,18 @@ func encodeConversationSummaryBytes(summary string) []byte {
 		return nil
 	}
 	payload, err := proto.Marshal(&agentv1.ConversationSummary{Summary: text})
+	if err != nil {
+		return nil
+	}
+	return payload
+}
+
+func encodeConversationSummaryArchiveBytes(summary string) []byte {
+	text := strings.TrimSpace(summary)
+	if text == "" {
+		return nil
+	}
+	payload, err := proto.Marshal(&agentv1.ConversationSummaryArchive{Summary: text})
 	if err != nil {
 		return nil
 	}
