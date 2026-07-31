@@ -52,12 +52,11 @@ func (service *Service) NameTab(ctx context.Context, req *connect.Request[aiserv
 	modelID, modelSource, _ := service.resolveCommitMessageModelID(ctx)
 	accumulated := ""
 	err := service.provider.StartStream(ctx, ProviderRequest{
-		RequestID:      requestID,
-		RunID:          requestID,
-		ModelCallID:    requestID + "-model",
-		ModelID:        modelID,
-		Mode:           agentv1.AgentMode_AGENT_MODE_AGENT,
-		ThinkingEffort: "disabled",
+		RequestID:   requestID,
+		RunID:       requestID,
+		ModelCallID: requestID + "-model",
+		ModelID:     modelID,
+		Mode:        agentv1.AgentMode_AGENT_MODE_AGENT,
 		Messages: []modeladapter.Message{
 			{Role: "system", Content: conversationTitleSystemPrompt},
 			{Role: "user", Content: buildConversationTitleUserPrompt(userMessage)},
