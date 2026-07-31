@@ -78,6 +78,12 @@ func (store *ConversationFileStore) CreateConversation(conversationID string, mo
 					return err
 				}
 				conversation.Mode = alias
+				conversation.ParentConversationID = strings.TrimSpace(parentConversationID)
+				conversation.ParentToolCallID = strings.TrimSpace(parentToolCallID)
+				conversation.RootConversationID = strings.TrimSpace(rootConversationID)
+				if conversation.RootConversationID == "" {
+					conversation.RootConversationID = strings.TrimSpace(conversationID)
+				}
 			}
 			return nil
 		}
@@ -211,26 +217,42 @@ func (store *ConversationFileStore) SaveConversationWithEntries(conversationID s
 
 // UpdateConversationMeta 更新 state.json；context.json 保持不变。
 func (store *ConversationFileStore) UpdateConversationMeta(conversationID string, update func(*ConversationFile) error) (*ConversationFile, error) {
+	conversation, _, err := store.updateConversationMetaIfChanged(conversationID, func(item *ConversationFile) (bool, error) {
+		if update == nil {
+			return true, nil
+		}
+		return true, update(item)
+	})
+	return conversation, err
+}
+
+// UpdateConversationMetaIfChanged 仅在元数据实际变化时写 state.json。
+func (store *ConversationFileStore) UpdateConversationMetaIfChanged(conversationID string, update func(*ConversationFile) (bool, error)) (*ConversationFile, bool, error) {
+	return store.updateConversationMetaIfChanged(conversationID, update)
+}
+
+func (store *ConversationFileStore) updateConversationMetaIfChanged(conversationID string, update func(*ConversationFile) (bool, error)) (*ConversationFile, bool, error) {
 	if store == nil {
-		return nil, fmt.Errorf("conversation file store is nil")
+		return nil, false, fmt.Errorf("conversation file store is nil")
 	}
 	normalizedConversationID, err := validateConversationID(conversationID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := os.MkdirAll(store.conversationDir(normalizedConversationID), 0o755); err != nil {
-		return nil, fmt.Errorf("create conversation directory: %w", err)
+		return nil, false, fmt.Errorf("create conversation directory: %w", err)
 	}
 	release, err := acquireConversationLock(store.lockPath(normalizedConversationID))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer release()
 
 	conversation, err := store.readConversationLocked(normalizedConversationID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	created := conversation == nil
 	if conversation == nil {
 		conversation = &ConversationFile{
 			SchemaVersion:      conversationSchemaVersion,
@@ -242,15 +264,21 @@ func (store *ConversationFileStore) UpdateConversationMeta(conversationID string
 			CreatedAt:          time.Now().UTC(),
 		}
 	}
+	changed := created
 	if update != nil {
-		if err := update(conversation); err != nil {
-			return nil, err
+		updated, err := update(conversation)
+		if err != nil {
+			return nil, false, err
 		}
+		changed = changed || updated
+	}
+	if !changed {
+		return cloneConversationFile(conversation), false, nil
 	}
 	if err := store.writeConversationMetaLocked(normalizedConversationID, conversation); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return cloneConversationFile(conversation), nil
+	return cloneConversationFile(conversation), true, nil
 }
 
 // ReplaceEntries 原子替换 context.json，并同步 state.json 中的 sequence/version 状态。
@@ -804,6 +832,7 @@ func cloneConversationFile(conversation *ConversationFile) *ConversationFile {
 		return nil
 	}
 	cloned := *conversation
+	cloned.WorkspacePaths = cloneStringSlice(conversation.WorkspacePaths)
 	cloned.CurrentPlans = clonePlanRegistryEntries(conversation.CurrentPlans)
 	cloned.CurrentTodos = cloneTodoItems(conversation.CurrentTodos)
 	cloned.LatestRequestPrefix = cloneConversationRequestPrefix(conversation.LatestRequestPrefix)

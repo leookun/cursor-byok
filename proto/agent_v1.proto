@@ -5301,6 +5301,8 @@ message TypeAction {
 message UpdateConversationMetadataRequest {
   string conversation_id = 1;
   optional string name = 2;
+  optional bool only_set_name_if_empty = 3;
+  repeated string workspace_paths = 4;
 }
 
 // Copied from: local:agent.v1.UpdateConversationMetadataResponse (var: z7)
