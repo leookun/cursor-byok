@@ -47,6 +47,10 @@ func newAIHandler(service *Service) http.Handler {
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceWriteGitCommitMessageProcedure, service.WriteGitCommitMessage),
 	)
 	mux.Handle(
+		aiserverv1connect.AiServiceNameTabProcedure,
+		connect.NewUnaryHandler(aiserverv1connect.AiServiceNameTabProcedure, service.NameTab),
+	)
+	mux.Handle(
 		aiserverv1connect.AiServiceCreateExperimentalIndexProcedure,
 		connect.NewUnaryHandler(aiserverv1connect.AiServiceCreateExperimentalIndexProcedure, service.CreateExperimentalIndex),
 	)
