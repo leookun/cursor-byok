@@ -245,6 +245,22 @@ func buildCheckpointMessage(state *agentv1.ConversationStateStructure) *agentv1.
 	}
 }
 
+func buildSetCheckpointBlobMessage(id uint32, blob CheckpointBlob) *agentv1.AgentServerMessage {
+	return &agentv1.AgentServerMessage{
+		Message: &agentv1.AgentServerMessage_KvServerMessage{
+			KvServerMessage: &agentv1.KvServerMessage{
+				Id: id,
+				Message: &agentv1.KvServerMessage_SetBlobArgs{
+					SetBlobArgs: &agentv1.SetBlobArgs{
+						BlobId:   append([]byte(nil), blob.ID...),
+						BlobData: append([]byte(nil), blob.Data...),
+					},
+				},
+			},
+		},
+	}
+}
+
 // buildExecAbortMessage 构造对客户端执行桥的 abort 控制消息。
 func buildExecAbortMessage(pending runtimecore.PendingExec) *agentv1.AgentServerMessage {
 	return &agentv1.AgentServerMessage{

@@ -36,7 +36,7 @@ type runRewindMatch struct {
 }
 
 func (service *Service) decideRunRewind(intent InboundIntent, conversation *ConversationFile) runRewindDecision {
-	decision := runRewindDecision{ClientTurnCount: -1}
+	decision := runRewindDecision{}
 	if !shouldEvaluateRunRewind(intent) {
 		return decision
 	}
@@ -121,7 +121,7 @@ func selectRunRewindMatch(matches []runRewindMatch, clientTurnCount int, hasClie
 	if len(matches) == 0 {
 		return runRewindMatch{}, "no_match"
 	}
-	if hasClientTurnCount && clientTurnCount >= 0 {
+	if hasClientTurnCount {
 		targetTurnSeq := int64(clientTurnCount) + 1
 		for _, match := range matches {
 			if match.Entry.TurnSeq == targetTurnSeq {
@@ -224,6 +224,7 @@ func (service *Service) applyRunRewindToConversation(conversation *ConversationF
 	conversation.Entries = nil
 	conversation.NextEntrySeq = 1
 	conversation.NextTurnSeq = 1
+	conversation.ImportedTurnIDs = rewindImportedTurnPrefix(conversation.ImportedTurnIDs, decision)
 	appendEntriesInPlace(conversation, appendReplacementRunEntries(decision.PrefixEntries, entries))
 	applyRunRewindConversationState(conversation, intent, turnSeq)
 	deriveConversationLoopState(conversation)
@@ -269,8 +270,28 @@ func applyRunRewindMetadata(conversation *ConversationFile, source *Conversation
 		if source.TokenDetailsMaxTokens > 0 {
 			conversation.TokenDetailsMaxTokens = source.TokenDetailsMaxTokens
 		}
+		decision := runRewindDecision{TargetTurnSeq: turnSeq}
+		if intent.ConversationState != nil {
+			decision.HasClientTurnCount = true
+			decision.ClientTurnCount = len(intent.ConversationState.GetTurns())
+		}
+		conversation.ImportedTurnIDs = rewindImportedTurnPrefix(source.ImportedTurnIDs, decision)
 	}
 	applyRunRewindConversationState(conversation, intent, turnSeq)
+}
+
+func rewindImportedTurnPrefix(importedTurnIDs [][]byte, decision runRewindDecision) [][]byte {
+	keep := decision.TargetTurnSeq - 1
+	if decision.HasClientTurnCount {
+		keep = int64(decision.ClientTurnCount)
+	}
+	if keep <= 0 || len(importedTurnIDs) == 0 {
+		return nil
+	}
+	if keep > int64(len(importedTurnIDs)) {
+		keep = int64(len(importedTurnIDs))
+	}
+	return cloneByteSlices(importedTurnIDs[:keep])
 }
 
 func (service *Service) logRunRewindDecision(requestID string, conversationID string, eventName string, decision runRewindDecision) {
