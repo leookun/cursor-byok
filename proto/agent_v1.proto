@@ -132,6 +132,55 @@ message AgentSkillMetadata {
   repeated string globs = 12;
 }
 
+// Copied from: local:agent.v1.AgentStoreConflictArgs (var: $0)
+message AgentStoreConflictArgs {
+  optional AgentStoreConflictCursor cursor = 1;
+  optional bool advance = 2;
+}
+
+// Copied from: local:agent.v1.AgentStoreConflictCursor (var: X0)
+message AgentStoreConflictCursor {
+  string journal_epoch = 1;
+  uint64 seq = 2;
+  string last_event_id = 3;
+}
+
+// Copied from: local:agent.v1.AgentStoreConflictError (var: Q0)
+message AgentStoreConflictError {
+  string error = 1;
+}
+
+// Copied from: local:agent.v1.AgentStoreConflictEvent (var: J0)
+message AgentStoreConflictEvent {
+  uint32 v = 1;
+  string event_id = 2;
+  string journal_epoch = 3;
+  uint64 seq = 4;
+  uint64 ts_ms = 5;
+  string kind = 6;
+  optional string store_id = 7;
+  optional string original_rel_path = 8;
+  optional string conflict_rel_path = 9;
+  optional string original_abs_path = 10;
+  optional string conflict_abs_path = 11;
+  optional uint64 preserved_bytes = 12;
+}
+
+// Copied from: local:agent.v1.AgentStoreConflictResult (var: Z0)
+message AgentStoreConflictResult {
+  oneof result {
+    AgentStoreConflictSuccess success = 1;
+    AgentStoreConflictError error = 2;
+  }
+}
+
+// Copied from: local:agent.v1.AgentStoreConflictSuccess (var: Y0)
+message AgentStoreConflictSuccess {
+  repeated AgentStoreConflictEvent events = 1;
+  AgentStoreConflictCursor next_cursor = 2;
+  bool gap = 3;
+}
+
 // Copied from: local:agent.v1.AiAttributionArgs (var: lS)
 message AiAttributionArgs {
   repeated string file_paths = 5;
@@ -564,6 +613,30 @@ message ClientContinuationConfig {
 
 // Copied from: local:agent.v1.ClientHeartbeat (var: N7)
 message ClientHeartbeat {
+}
+
+// Copied from: local:agent.v1.CloudSubagentParentAgentType (var: y_t)
+enum CloudSubagentParentAgentType {
+  CLOUD_SUBAGENT_PARENT_AGENT_TYPE_UNSPECIFIED = 0;
+  CLOUD_SUBAGENT_PARENT_AGENT_TYPE_LOCAL = 1;
+  CLOUD_SUBAGENT_PARENT_AGENT_TYPE_CLOUD = 2;
+}
+
+// Copied from: local:agent.v1.CloudSubagentParentSpawnKind (var: er)
+enum CloudSubagentParentSpawnKind {
+  CLOUD_SUBAGENT_PARENT_SPAWN_KIND_UNSPECIFIED = 0;
+  CLOUD_SUBAGENT_PARENT_SPAWN_KIND_TASK = 1;
+  CLOUD_SUBAGENT_PARENT_SPAWN_KIND_EVENT_SUBSCRIPTION = 2;
+}
+
+// Copied from: local:agent.v1.CloudSubagentParentReference (var: Awt)
+message CloudSubagentParentReference {
+  string parent_agent_id = 1;
+  string parent_tool_call_id = 2;
+  CloudSubagentParentAgentType parent_agent_type = 3;
+  optional string subagent_type_name = 5;
+  optional CloudSubagentParentSpawnKind parent_spawn_kind = 6;
+  optional string parent_spawn_id = 7;
 }
 
 // Copied from: local:agent.v1.CloudSubagentReference (var: n1)
@@ -2607,6 +2680,23 @@ message ModelDetails {
     AzureCredentials azure_credentials = 9;
     BedrockCredentials bedrock_credentials = 10;
   }
+}
+
+// Copied from: local:agent.v1.MountedAgentStoreKind (var: u)
+enum MountedAgentStoreKind {
+  MOUNTED_AGENT_STORE_KIND_UNSPECIFIED = 0;
+  MOUNTED_AGENT_STORE_KIND_SELF = 1;
+  MOUNTED_AGENT_STORE_KIND_PEER = 2;
+  MOUNTED_AGENT_STORE_KIND_SHARE = 3;
+  MOUNTED_AGENT_STORE_KIND_PRINCIPAL = 4;
+}
+
+// Copied from: local:agent.v1.MountedAgentStore (var: E)
+message MountedAgentStore {
+  string path = 1;
+  MountedAgentStoreKind kind = 2;
+  optional string alias = 3;
+  bool read_only = 4;
 }
 
 // Copied from: local:agent.v1.MouseButton (var: AB)

@@ -22,17 +22,21 @@ const (
 	ModeMultitask Mode = "multitask"
 	// ModeSubagent 表示子代理只读会话的静态资产。
 	ModeSubagent Mode = "subagent"
+	// ModeProjects 表示 Projects 长会话模式的静态资产。
+	ModeProjects Mode = "projects"
+	// ModeOrchestrator 表示根编排器代理的静态资产。
+	ModeOrchestrator Mode = "orchestrator"
 )
 
 // assetFS 保存按模式组织的静态 prompt 与 tools 资产。
 //
-//go:embed common_prefix.md ask/prompt.md ask/tools.json plan/prompt.md plan/system_reminder.txt plan/tools.json agent/prompt.md agent/tools.json debug/prompt.md debug/tools.json debug/system_reminder_initial.txt debug/system_reminder_continuing.txt multitask/prompt.md multitask/tools.json subagent/prompt.md subagent/tools.json compaction/prompt.md commit/prompt.md
+//go:embed common_prefix.md ask/prompt.md ask/tools.json plan/prompt.md plan/system_reminder.txt plan/tools.json agent/prompt.md agent/tools.json debug/prompt.md debug/tools.json debug/system_reminder_initial.txt debug/system_reminder_continuing.txt multitask/prompt.md multitask/tools.json subagent/prompt.md subagent/tools.json projects/prompt.md projects/tools.json orchestrator/prompt.md orchestrator/tools.json compaction/prompt.md commit/prompt.md
 var assetFS embed.FS
 
 // normalizeMode 校验并归一化传入的模式值。
 func normalizeMode(mode Mode) (Mode, error) {
 	switch mode {
-	case ModeAsk, ModePlan, ModeAgent, ModeDebug, ModeMultitask, ModeSubagent:
+	case ModeAsk, ModePlan, ModeAgent, ModeDebug, ModeMultitask, ModeSubagent, ModeProjects, ModeOrchestrator:
 		return mode, nil
 	default:
 		return "", fmt.Errorf("unsupported prompt mode: %q", mode)

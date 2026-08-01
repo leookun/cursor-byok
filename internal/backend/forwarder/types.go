@@ -433,7 +433,8 @@ func isSupportedActiveMode(mode agentv1.AgentMode) bool {
 		agentv1.AgentMode_AGENT_MODE_ASK,
 		agentv1.AgentMode_AGENT_MODE_PLAN,
 		agentv1.AgentMode_AGENT_MODE_DEBUG,
-		agentv1.AgentMode_AGENT_MODE_MULTITASK:
+		agentv1.AgentMode_AGENT_MODE_MULTITASK,
+		agentv1.AgentMode_AGENT_MODE_PROJECT:
 		return true
 	default:
 		return false
@@ -469,6 +470,8 @@ func modeAlias(mode agentv1.AgentMode) (string, error) {
 		return "debug", nil
 	case agentv1.AgentMode_AGENT_MODE_MULTITASK:
 		return "multitask", nil
+	case agentv1.AgentMode_AGENT_MODE_PROJECT:
+		return "projects", nil
 	default:
 		return "", fmt.Errorf("unsupported mode alias: %s", normalizeMode(mode).String())
 	}
@@ -487,6 +490,8 @@ func parseModeAlias(raw string) (agentv1.AgentMode, error) {
 		return agentv1.AgentMode_AGENT_MODE_DEBUG, nil
 	case "multitask":
 		return agentv1.AgentMode_AGENT_MODE_MULTITASK, nil
+	case "projects":
+		return agentv1.AgentMode_AGENT_MODE_PROJECT, nil
 	default:
 		return agentv1.AgentMode_AGENT_MODE_UNSPECIFIED, fmt.Errorf("unsupported mode alias: %q", strings.TrimSpace(raw))
 	}
@@ -504,6 +509,8 @@ func parseTargetModeID(raw string) (agentv1.AgentMode, error) {
 		return agentv1.AgentMode_AGENT_MODE_DEBUG, nil
 	case "multitask":
 		return agentv1.AgentMode_AGENT_MODE_MULTITASK, nil
+	case "projects":
+		return agentv1.AgentMode_AGENT_MODE_PROJECT, nil
 	default:
 		return agentv1.AgentMode_AGENT_MODE_UNSPECIFIED, fmt.Errorf("unsupported target mode id: %q", strings.TrimSpace(raw))
 	}

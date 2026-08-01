@@ -683,5 +683,105 @@
       }
     },
     "type": "function"
+  },
+  {
+    "function": {
+      "description": "Create an autonomous background agent that runs independently and reports back when done.\n\nUse this to delegate self-contained units of work that can run in parallel with your own. The background agent gets its own conversation and returns a final summary via a task notification.\n\nFork from an existing agent when the new agent should inherit its context.",
+      "name": "create-agent",
+      "parameters": {
+        "properties": {
+          "attachments": {
+            "description": "Optional array of file paths to attach to the agent's context.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fork": {
+            "description": "Optional task_id of a parent agent to fork context from.",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "The full instructions for the background agent to execute.",
+            "type": "string"
+          },
+          "responding_to_message_ids": {
+            "description": "Optional array of message IDs this agent is responding to.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "run_in_background": {
+            "description": "Whether to run the agent asynchronously in the background.",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "A short title for the background agent.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "prompt"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Send a follow-up message to an existing background agent.\n\nUse this to steer, extend, or ask questions of an agent you previously created with create-agent.",
+      "name": "send-message-to-agent",
+      "parameters": {
+        "properties": {
+          "agent_id": {
+            "description": "The ID of the target background agent.",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "The follow-up message or new instructions for the agent.",
+            "type": "string"
+          },
+          "responding_to_message_ids": {
+            "description": "Optional array of message IDs this message is responding to.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_id",
+          "prompt"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Wait for a background agent or task to reach a terminal state (or a timeout).\n\nReturns the task's result if it completed, or a still-running status otherwise. Use after create-agent/Task when you need the subagent's result before continuing.",
+      "name": "AWAIT",
+      "parameters": {
+        "properties": {
+          "block_until_ms": {
+            "description": "Optional maximum time in milliseconds to block waiting for completion.",
+            "type": "number"
+          },
+          "task_id": {
+            "description": "The ID of the task or background agent to wait for.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
   }
 ]

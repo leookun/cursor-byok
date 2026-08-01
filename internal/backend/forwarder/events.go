@@ -377,6 +377,30 @@ func buildStartedToolCall(invocation runtimecore.ToolInvocation) *agentv1.ToolCa
 				},
 			},
 		}
+	case "create-agent":
+		// create-agent 需要在客户端先注册 task_tool_call，
+		// 后续 force_background_subagent_args 才能按 tool_call_id 找到它。
+		payload, _ := decodeJSONObject(invocation.ArgsJSON)
+		title := strings.TrimSpace(stringValue(valueByAlias(payload, "title", "description")))
+		taskArgs := buildTaskArgsFromMap(payload)
+		if taskArgs.Description == "" {
+			taskArgs.Description = title
+		}
+		return &agentv1.ToolCall{
+			Tool: &agentv1.ToolCall_TaskToolCall{
+				TaskToolCall: &agentv1.TaskToolCall{
+					Args: taskArgs,
+				},
+			},
+		}
+	case "send-message-to-agent":
+		return &agentv1.ToolCall{
+			Tool: &agentv1.ToolCall_TaskToolCall{
+				TaskToolCall: &agentv1.TaskToolCall{
+					Args: buildTaskArgsFromJSON(invocation.ArgsJSON),
+				},
+			},
+		}
 	case "Ls":
 		var input struct {
 			Path   string   `json:"path"`

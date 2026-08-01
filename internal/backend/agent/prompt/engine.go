@@ -771,6 +771,8 @@ func mapPromptMode(mode agentv1.AgentMode) (promptassets.Mode, error) {
 		return promptassets.ModeDebug, nil
 	case agentv1.AgentMode_AGENT_MODE_MULTITASK:
 		return promptassets.ModeMultitask, nil
+	case agentv1.AgentMode_AGENT_MODE_PROJECT:
+		return promptassets.ModeProjects, nil
 	default:
 		return "", fmt.Errorf("unsupported prompt compile mode: %s", mode.String())
 	}
