@@ -137,8 +137,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 54,
-          "column": 1
+          "line": 53,
+          "column": 48
         }
       ]
     },
@@ -383,8 +383,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 68,
-          "column": 1
+          "line": 67,
+          "column": 48
         }
       ]
     },
@@ -657,8 +657,8 @@
         },
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 164,
-          "column": 1
+          "line": 163,
+          "column": 11
         }
       ]
     },
@@ -2637,8 +2637,8 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 146,
-          "column": 1
+          "line": 145,
+          "column": 53
         }
       ]
     },
@@ -2760,8 +2760,8 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 80,
-          "column": 1
+          "line": 79,
+          "column": 48
         }
       ]
     },
@@ -2837,8 +2837,8 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 149,
-          "column": 1
+          "line": 148,
+          "column": 81
         }
       ]
     },
