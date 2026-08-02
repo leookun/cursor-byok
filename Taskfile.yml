@@ -178,6 +178,16 @@ tasks:
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
+  proxy-debugger:
+    summary: 启动独立 Cursor 协议调试代理
+    cmds:
+      - go run ./cmd/cursor-proxy-debugger
+
+  proxy-debugger:build:
+    summary: 构建独立 Cursor 协议调试代理
+    cmds:
+      - go build -o ./bin/cursor-proxy-debugger ./cmd/cursor-proxy-debugger
+
   ads:install:
     summary: 安装广告页依赖
     dir: '{{.TASKFILE_DIR}}/ads-page'

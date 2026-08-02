@@ -171,20 +171,6 @@ func (manager *Manager) LegacyRuntimeSnapshot(_ context.Context) (legacyruntime.
 	}, nil
 }
 
-func (manager *Manager) RouteMode(hasUpstreamURL bool) string {
-	if !hasUpstreamURL {
-		return DefaultRoutingMode
-	}
-	if manager == nil {
-		return DefaultRoutingMode
-	}
-	mode := normalizeRoutingMode(manager.Current().Routing.Mode)
-	if mode == "" {
-		return DefaultRoutingMode
-	}
-	return mode
-}
-
 func (manager *Manager) setCurrent(cfg Config) {
 	next := cfg
 	manager.current.Store(&next)

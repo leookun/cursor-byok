@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Cursor 协议调试器</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <strong data-i18n="app.title">Cursor 协议调试器</strong>
+        </div>
+        <div class="runtime-status" aria-live="polite">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status-text" data-i18n="status.connecting">正在连接</span>
+          <code id="proxy-address"></code>
+        </div>
+        <div class="toolbar-actions">
+          <label class="locale-picker">
+            <span class="visually-hidden" data-i18n="language.label">界面语言</span>
+            <select id="locale-select" aria-label="界面语言" title="界面语言" data-i18n-aria-label="language.label" data-i18n-title="language.label">
+              <option value="zh-CN">中文</option>
+              <option value="en-US">EN</option>
+            </select>
+          </label>
+          <a class="button secondary" href="/api/ca.crt" title="下载代理 CA 证书" data-i18n="actions.caCertificate" data-i18n-title="actions.downloadCA">CA 证书</a>
+          <button id="pause-button" class="icon-button" type="button" title="暂停界面更新" aria-label="暂停界面更新" data-i18n-title="actions.pause" data-i18n-aria-label="actions.pause">Ⅱ</button>
+          <button id="clear-button" class="button danger" type="button" data-i18n="actions.clear">清空</button>
+        </div>
+      </header>
+
+      <section class="filterbar" aria-label="请求过滤器" data-i18n-aria-label="filters.region">
+        <div class="search-box url-filter">
+          <span aria-hidden="true">⌕</span>
+          <input id="search-input" type="search" placeholder="过滤 URL、请求类型或状态" data-i18n-placeholder="filters.urlPlaceholder" autocomplete="off" />
+        </div>
+        <div class="search-box request-id-filter">
+          <span aria-hidden="true">⌕</span>
+          <input id="request-id-input" type="search" placeholder="按 Request ID 过滤" data-i18n-placeholder="filters.requestIdPlaceholder" autocomplete="off" />
+        </div>
+        <div id="endpoint-filter" class="segmented-control" role="group" aria-label="接口过滤" data-i18n-aria-label="filters.endpoint">
+          <button class="active" type="button" data-value="all" data-i18n="filters.all">全部</button>
+          <button type="button" data-value="runsse">RunSSE</button>
+          <button type="button" data-value="bidiappend">BidiAppend</button>
+        </div>
+        <div id="sort-order" class="segmented-control sort-control" role="group" aria-label="排序方向" data-i18n-aria-label="filters.sort">
+          <button type="button" data-value="asc" data-i18n="filters.ascending">正序</button>
+          <button class="active" type="button" data-value="desc" data-i18n="filters.descending">倒序</button>
+        </div>
+        <span id="request-count" class="request-count">0 条</span>
+      </section>
+
+      <main id="workspace" class="workspace">
+        <section class="request-list-pane">
+          <table class="request-table">
+            <thead>
+              <tr>
+                <th class="status-column"></th>
+                <th class="index-column">#</th>
+                <th data-i18n="table.url">网址</th>
+                <th class="request-id-column">Request ID</th>
+                <th class="kind-column" data-i18n="table.message">消息</th>
+                <th class="method-column" data-i18n="table.method">方法</th>
+                <th class="code-column" data-i18n="table.status">状态</th>
+                <th class="size-column" data-i18n="table.response">响应</th>
+                <th class="time-column" data-i18n="table.duration">耗时</th>
+              </tr>
+            </thead>
+            <tbody id="request-list"></tbody>
+          </table>
+          <div id="empty-state" class="empty-state" data-i18n="empty.waitingForCursor">等待来自 Cursor 的请求</div>
+        </section>
+
+        <div id="horizontal-splitter" class="horizontal-splitter" role="separator" aria-label="调整详情区域高度" data-i18n-aria-label="splitter.resize"></div>
+
+        <section id="detail-pane" class="detail-pane">
+          <div id="selection-summary" class="selection-summary">
+            <span class="method-badge">POST</span>
+            <span class="status-badge" data-i18n="selection.waiting">等待选择</span>
+            <code data-i18n="selection.prompt">选择一条请求查看详情</code>
+          </div>
+          <div class="detail-columns">
+            <section class="payload-panel" data-side="request">
+              <div class="panel-header">
+                <strong data-i18n="panel.request">请求</strong>
+                <nav class="tabs" aria-label="请求详情" data-i18n-aria-label="panel.requestDetails">
+                  <button type="button" data-tab="headers" data-i18n="tabs.headers">标头</button>
+                  <button type="button" data-tab="body" class="active" data-i18n="tabs.body">正文</button>
+                  <button type="button" data-tab="frames" data-i18n="tabs.frames">帧</button>
+                  <button type="button" data-tab="raw" data-i18n="tabs.raw">原始</button>
+                </nav>
+                <button class="copy-button" type="button" data-copy-side="request" title="复制" data-i18n="actions.copy" data-i18n-title="actions.copy">复制</button>
+              </div>
+              <div id="request-content" class="panel-content"></div>
+            </section>
+            <section class="payload-panel" data-side="response">
+              <div class="panel-header">
+                <strong data-i18n="panel.response">响应</strong>
+                <nav class="tabs" aria-label="响应详情" data-i18n-aria-label="panel.responseDetails">
+                  <button type="button" data-tab="headers" data-i18n="tabs.headers">标头</button>
+                  <button type="button" data-tab="body" data-i18n="tabs.body">正文</button>
+                  <button type="button" data-tab="frames" class="active" data-i18n="tabs.frames">帧</button>
+                  <button type="button" data-tab="raw" data-i18n="tabs.raw">原始</button>
+                </nav>
+                <button class="copy-button" type="button" data-copy-side="response" title="复制" data-i18n="actions.copy" data-i18n-title="actions.copy">复制</button>
+              </div>
+              <div id="response-content" class="panel-content"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <footer class="statusbar">
+        <span id="connection-label" data-i18n="connection.live">实时连接中</span>
+        <span id="traffic-summary">↑ 0 B　↓ 0 B</span>
+        <span id="target-host"></span>
+      </footer>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

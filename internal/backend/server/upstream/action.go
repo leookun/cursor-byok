@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -19,13 +20,41 @@ type CompatRouteConfig struct {
 	ConsoleLog    bool
 }
 
-func DirectAction(deps Dependencies, cfg CompatRouteConfig) server.HandlerFunc {
+func ForwardAction(deps Dependencies, cfg CompatRouteConfig) server.HandlerFunc {
 	return func(ctx *server.Context) error {
 		reqCtx, route, err := newCompatRouteObjects(ctx, deps, cfg)
 		if err != nil {
 			return err
 		}
 		return handleDirect(reqCtx, route)
+	}
+}
+
+// AuthenticatedForwardAction forwards a Cursor control-plane request with the
+// independent desktop account after the local-mode identity rewrite has run.
+func AuthenticatedForwardAction(deps Dependencies, cfg CompatRouteConfig, authorizationProvider AuthorizationProvider) server.HandlerFunc {
+	return func(ctx *server.Context) error {
+		reqCtx, _, err := newCompatRouteObjects(ctx, deps, cfg)
+		if err != nil {
+			return err
+		}
+		if reqCtx == nil || reqCtx.Request == nil {
+			return fmt.Errorf("Cursor 控制面请求上下文无效")
+		}
+		if authorizationProvider == nil {
+			return fmt.Errorf("Cursor 账号服务未初始化")
+		}
+		authorization, err := authorizationProvider.Authorization(reqCtx.Request.Context())
+		if err != nil {
+			return err
+		}
+		_, err = ForwardToUpstream(reqCtx, ForwardOptions{
+			PatchHeaders: func(headers http.Header) {
+				headers.Set("Authorization", authorization)
+				headers.Set("x-cursor-checksum", BuildCursorChecksum(authorization))
+			},
+		})
+		return err
 	}
 }
 
@@ -133,7 +162,6 @@ func newCompatRouteObjects(ctx *server.Context, deps Dependencies, cfg CompatRou
 		Headers:        ctx.Request.Header.Clone(),
 		ContentType:    strings.TrimSpace(ctx.Request.Header.Get("content-type")),
 		RequestBody:    body,
-		Mode:           ctx.Mode,
 		Deps:           &deps,
 		HTTPRequestID:  resolveHTTPRequestID(ctx.Request),
 	}

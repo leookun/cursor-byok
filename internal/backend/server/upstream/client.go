@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"cursor/gen/aiserverv1"
-	"cursor/internal/backend/server"
 	"cursor/internal/logger"
 	"cursor/internal/netproxy"
 	legacyruntime "cursor/internal/runtime"
@@ -87,7 +86,7 @@ func buildUpstreamRequest(reqCtx *RequestContext, body []byte, options ForwardOp
 	}
 	upstreamRequest.Host = reqCtx.TargetURL.Host
 
-	if reqCtx.Mode == server.ModeLocal && shouldRewriteHost(reqCtx.TargetURL.Hostname()) {
+	if shouldRewriteHost(reqCtx.TargetURL.Hostname()) {
 		auth := formatBearerAuthorization(legacyruntime.LocalRelayToken)
 		if auth == "" {
 			return nil, nil, legacyruntime.ErrInvalidSystemSetting

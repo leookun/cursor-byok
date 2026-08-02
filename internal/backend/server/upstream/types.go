@@ -20,6 +20,13 @@ type SystemSettingService interface {
 	ResolveModelAdapters(context.Context) ([]legacyruntime.ModelAdapterConfig, error)
 }
 
+// AuthorizationProvider supplies the independent Cursor account used only by
+// official control-plane requests such as Plugins, Skills, and MCP registry.
+type AuthorizationProvider interface {
+	Authorization(context.Context) (string, error)
+	SignedIn() bool
+}
+
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -41,7 +48,6 @@ type RequestContext struct {
 	Headers        http.Header
 	ContentType    string
 	RequestBody    []byte
-	Mode           server.ExecutionMode
 	Deps           *Dependencies
 	HTTPRequestID  string
 }

@@ -24,6 +24,9 @@ type ModelAdapterTestResult = client.ModelAdapterTestResult
 // ModelAdapterTestResultsPayload 定义测速结果事件载荷。
 type ModelAdapterTestResultsPayload = client.ModelAdapterTestResultsPayload
 
+// CursorAccountStatus 是可安全展示给桌面前端的独立 Cursor 账号状态。
+type CursorAccountStatus = client.CursorAccountStatus
+
 // LicenseActionRequest 定义了当前模块中的 LicenseActionRequest 类型。
 type LicenseActionRequest = client.LicenseActionRequest
 
@@ -89,6 +92,21 @@ func (s *ProxyService) LoadUserConfig() (UserConfig, error) {
 // SaveUserConfig 用于处理与 SaveUserConfig 相关的逻辑。
 func (s *ProxyService) SaveUserConfig(cfg UserConfig) error {
 	return s.core.SaveUserConfig(cfg)
+}
+
+// GetCursorAccountStatus 返回 cursor-byok 独立 Cursor 账号的脱敏状态。
+func (s *ProxyService) GetCursorAccountStatus() CursorAccountStatus {
+	return s.core.GetCursorAccountStatus()
+}
+
+// StartCursorAccountLogin 打开官方浏览器登录并异步等待结果。
+func (s *ProxyService) StartCursorAccountLogin() (CursorAccountStatus, error) {
+	return s.core.StartCursorAccountLogin()
+}
+
+// DisconnectCursorAccount 只断开 cursor-byok 自己的账号。
+func (s *ProxyService) DisconnectCursorAccount() (CursorAccountStatus, error) {
+	return s.core.DisconnectCursorAccount()
 }
 
 // TestModelAdapter 用于处理与 TestModelAdapter 相关的逻辑。

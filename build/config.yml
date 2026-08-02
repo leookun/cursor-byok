@@ -8,7 +8,7 @@ info:
   description: "Cursor助手"
   copyright: "© 2026, Cursor助手"
   comments: "Cursor助手"
-  version: "0.0.42"
+  version: "0.0.43"
 
 dev_mode:
   root_path: .
