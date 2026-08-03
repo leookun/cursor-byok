@@ -1002,10 +1002,15 @@ func (service *Service) handleExecControl(intent InboundIntent) error {
 		return fmt.Errorf("pending exec not found for control message")
 	}
 	pending = service.applyExecControlProgress(stream, pending, intent.ExecClientControlMessage)
-	if isHiddenPatchEditExecKind(pending.ExecKind) {
-		return service.handleHiddenPatchEditExecControl(stream, pending, intent.ExecClientControlMessage)
-	}
-	if isHiddenWriteExecKind(pending.ExecKind) {
+	if isHiddenPatchEditExecKind(pending.ExecKind) || isHiddenWriteExecKind(pending.ExecKind) {
+		if shouldRecoverNonStreamingExecOnStreamClose(intent.ExecClientControlMessage, pending) {
+			markExecTransportClosed(stream, pending)
+			service.scheduleNonStreamingExecRecovery(intent.RequestID, pending)
+			return nil
+		}
+		if isHiddenPatchEditExecKind(pending.ExecKind) {
+			return service.handleHiddenPatchEditExecControl(stream, pending, intent.ExecClientControlMessage)
+		}
 		return service.handleHiddenWriteExecControl(stream, pending, intent.ExecClientControlMessage)
 	}
 	result, err := service.execBridge.ApplyExecClientControl(intent.ExecClientControlMessage, pending)
@@ -1134,6 +1139,22 @@ func (service *Service) scheduleNonStreamingExecRecovery(requestID string, pendi
 func (service *Service) recoverNonStreamingExecAfterStreamClose(stream *ActiveStream, pending runtimecore.PendingExec) error {
 	if stream == nil {
 		return nil
+	}
+	if isHiddenPatchEditExecKind(pending.ExecKind) {
+		payload, err := decodePendingPatchEditPayload(pending.ArgsJSON)
+		if err != nil {
+			return err
+		}
+		markExecCompleted(stream, pending)
+		return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildEditErrorResult(payload.ResolvedPath, "PatchEdit transport closed before terminal result arrived"))
+	}
+	if isHiddenWriteExecKind(pending.ExecKind) {
+		payload, err := decodePendingWritePayload(pending.ArgsJSON)
+		if err != nil {
+			return err
+		}
+		markExecCompleted(stream, pending)
+		return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildEditErrorResult(payload.ResolvedPath, "Write transport closed before terminal result arrived"))
 	}
 	markExecCompleted(stream, pending)
 	toolName := strings.TrimSpace(deriveToolNameFromPendingExec(pending))
