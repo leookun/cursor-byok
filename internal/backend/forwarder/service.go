@@ -1920,10 +1920,44 @@ func (service *Service) appendToolResult(stream *ActiveStream, toolCallID string
 		}
 		payload = encoded
 	}
+	reasoningContent = toolResultReasoningFallback(stream, toolCallID, reasoningContent)
 	_, err := service.appendConversationEntries(stream, stream.ConversationID, []HistoryEntry{
 		newToolResultEntry(stream.TurnSeq, stream.RequestID, toolCallID, toolName, string(argsJSON), resultText, reasoningContent, payload),
 	})
 	return err
+}
+
+func toolResultReasoningFallback(stream *ActiveStream, toolCallID string, reasoningContent string) string {
+	if strings.TrimSpace(reasoningContent) == "" || stream == nil {
+		return reasoningContent
+	}
+	trimmedToolCallID := strings.TrimSpace(toolCallID)
+	if trimmedToolCallID == "" {
+		return reasoningContent
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.CheckpointConversation == nil {
+		return reasoningContent
+	}
+	var latestToolCallPayload json.RawMessage
+	for _, entry := range stream.CheckpointConversation.Entries {
+		if strings.TrimSpace(entry.Kind) != "tool_call" || strings.TrimSpace(entry.ToolCallID) != trimmedToolCallID {
+			continue
+		}
+		latestToolCallPayload = entry.Payload
+	}
+	if len(latestToolCallPayload) == 0 {
+		return reasoningContent
+	}
+	var payload toolCallEntryPayload
+	if json.Unmarshal(latestToolCallPayload, &payload) != nil {
+		return reasoningContent
+	}
+	if strings.TrimSpace(payload.ReasoningContent) != "" || strings.TrimSpace(payload.ReasoningSignature) != "" || strings.TrimSpace(payload.ReasoningSignatureSource) != "" {
+		return ""
+	}
+	return reasoningContent
 }
 
 func (service *Service) publishToolCallCompleted(requestID string, toolCallID string, modelCallID string, toolCall *agentv1.ToolCall) error {

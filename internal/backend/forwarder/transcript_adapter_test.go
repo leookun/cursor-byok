@@ -60,6 +60,32 @@ func TestProjectCursorTranscriptJSONLMatchesCursorContract(t *testing.T) {
 	}
 }
 
+func TestProjectCursorTranscriptJSONLKeepsSharedReasoningOnOnlyOneTool(t *testing.T) {
+	firstTool := transcriptTestEditToolCall(t, "first.txt")
+	secondTool := transcriptTestEditToolCall(t, "second.txt")
+	conversation := transcriptTestConversation([]HistoryEntry{
+		transcriptTestUserMessageEntry(t, 1, "request-1", "inspect both files"),
+		newToolCallEntry(1, "request-1", "call-1", "Edit", "Planning two reads.", "", firstTool),
+		newToolCallEntry(1, "request-1", "call-2", "Edit", "", "", secondTool),
+		newMetadataEntry(1, "request-1", "turn_completed", nil),
+	})
+
+	data, err := projectCursorTranscriptJSONL(conversation)
+	if err != nil {
+		t.Fatalf("projectCursorTranscriptJSONL() error = %v", err)
+	}
+	lines := decodeCursorTranscriptLines(t, data)
+	if len(lines) != 3 {
+		t.Fatalf("transcript lines = %d, want user and two tools\n%s", len(lines), data)
+	}
+	if len(lines[1].Message.Content) != 2 || lines[1].Message.Content[0].Type != "text" || lines[1].Message.Content[0].Text != "Planning two reads." {
+		t.Fatalf("first tool content = %#v", lines[1].Message.Content)
+	}
+	if len(lines[2].Message.Content) != 1 || lines[2].Message.Content[0].Type != "tool_use" {
+		t.Fatalf("second tool repeated reasoning = %#v", lines[2].Message.Content)
+	}
+}
+
 func TestConversationFileStoreSyncsCursorTranscript(t *testing.T) {
 	historyRoot := filepath.Join(t.TempDir(), "history")
 	transcriptsFolder := filepath.Join(t.TempDir(), "agent-transcripts")
