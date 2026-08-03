@@ -482,8 +482,20 @@ func (store *ConversationFileStore) writeContextLocked(conversationID string, co
 	return writeJSONFileAtomic(store.contextPath(conversationID), context)
 }
 
+func conversationTranscriptSyncReady(conversation *ConversationFile) bool {
+	if conversation == nil {
+		return false
+	}
+	switch strings.TrimSpace(conversation.CurrentLoopStatus) {
+	case "running", "waiting_tool", "checkpointing":
+		return false
+	default:
+		return true
+	}
+}
+
 func (store *ConversationFileStore) syncCursorTranscriptBestEffort(conversationID string, conversation *ConversationFile) {
-	if store == nil || conversation == nil {
+	if store == nil || conversation == nil || !conversationTranscriptSyncReady(conversation) {
 		return
 	}
 	folder := normalizeAgentTranscriptsFolder(conversation.AgentTranscriptsFolder)
@@ -496,7 +508,7 @@ func (store *ConversationFileStore) syncCursorTranscriptBestEffort(conversationI
 }
 
 func (store *ConversationFileStore) syncCursorTranscript(conversationID string, conversation *ConversationFile, transcriptsFolder string) error {
-	return store.syncCursorTranscriptWithLatestStatus(conversationID, conversation, transcriptsFolder, false)
+	return store.syncCursorTranscriptWithLatestStatus(conversationID, conversation, transcriptsFolder, true)
 }
 
 func (store *ConversationFileStore) syncCursorTranscriptWithLatestStatus(conversationID string, conversation *ConversationFile, transcriptsFolder string, includeLatestStatus bool) error {

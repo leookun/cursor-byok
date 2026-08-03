@@ -70,6 +70,7 @@ func TestConversationFileStoreSyncsCursorTranscript(t *testing.T) {
 	persisted, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, []HistoryEntry{
 		transcriptTestUserMessageEntry(t, 1, "request-1", "hello"),
 		newAssistantTextEntry(1, "request-1", "hi", "", ""),
+		newMetadataEntry(1, "request-1", "turn_completed", nil),
 	})
 	if err != nil {
 		t.Fatalf("SaveConversationWithEntries() error = %v", err)
@@ -84,7 +85,7 @@ func TestConversationFileStoreSyncsCursorTranscript(t *testing.T) {
 		t.Fatalf("read synced transcript: %v", err)
 	}
 	lines := decodeCursorTranscriptLines(t, data)
-	if len(lines) != 2 || lines[0].Role != "user" || lines[1].Role != "assistant" {
+	if len(lines) != 3 || lines[0].Role != "user" || lines[1].Role != "assistant" || lines[2].Type != "turn_ended" || lines[2].Status != "success" {
 		t.Fatalf("synced transcript = %s", data)
 	}
 
@@ -94,6 +95,46 @@ func TestConversationFileStoreSyncsCursorTranscript(t *testing.T) {
 	}
 	if reloaded.AgentTranscriptsFolder != transcriptsFolder {
 		t.Fatalf("reloaded transcript folder = %q", reloaded.AgentTranscriptsFolder)
+	}
+}
+
+func TestConversationFileStoreDefersCursorTranscriptSyncUntilTurnEnds(t *testing.T) {
+	historyRoot := filepath.Join(t.TempDir(), "history")
+	transcriptsFolder := filepath.Join(t.TempDir(), "agent-transcripts")
+	store := NewConversationFileStore(historyRoot)
+	conversation := transcriptTestConversation(nil)
+	conversation.AgentTranscriptsFolder = transcriptsFolder
+
+	persisted, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, []HistoryEntry{
+		transcriptTestUserMessageEntry(t, 1, "request-1", "hello"),
+		newAssistantTextEntry(1, "request-1", "streaming response", "", ""),
+	})
+	if err != nil {
+		t.Fatalf("SaveConversationWithEntries() for active turn error = %v", err)
+	}
+
+	path := filepath.Join(transcriptsFolder, conversation.ConversationID, conversation.ConversationID+".jsonl")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active turn unexpectedly synced transcript; stat error = %v", err)
+	}
+
+	_, _, err = store.AppendEntries(conversation.ConversationID, []HistoryEntry{
+		newMetadataEntry(1, "request-1", "turn_completed", nil),
+	})
+	if err != nil {
+		t.Fatalf("AppendEntries() terminal metadata error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read terminal transcript: %v", err)
+	}
+	lines := decodeCursorTranscriptLines(t, data)
+	if len(lines) != 3 || lines[2].Type != "turn_ended" || lines[2].Status != "success" {
+		t.Fatalf("terminal transcript = %s", data)
+	}
+	if persisted.CurrentLoopStatus == "" {
+		t.Fatal("active conversation did not retain a loop state")
 	}
 }
 
