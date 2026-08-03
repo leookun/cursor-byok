@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"cursor/gen/agentv1"
 	"cursor/gen/aiserverv1"
 	"cursor/internal/logger"
 	"cursor/internal/netproxy"
@@ -426,6 +427,30 @@ func newProtoMessage(typeName string) (proto.Message, error) {
 		return &aiserverv1.GetUsageLimitStatusAndActiveGrantsResponse{}, nil
 	case "aiserver.v1.IsOnNewPricingResponse":
 		return &aiserverv1.IsOnNewPricingResponse{}, nil
+	case "aiserver.v1.GetTeamAdminSettingsResponse":
+		return &aiserverv1.GetTeamAdminSettingsResponse{}, nil
+	case "aiserver.v1.GetTeamReposResponse":
+		return &aiserverv1.GetTeamReposResponse{}, nil
+	case "aiserver.v1.ListMarketplacesResponse":
+		return &aiserverv1.ListMarketplacesResponse{}, nil
+	case "aiserver.v1.GetUsableModelsResponse":
+		return &agentv1.GetUsableModelsResponse{}, nil
+	case "aiserver.v1.GetDefaultModelForCliResponse":
+		return &agentv1.GetDefaultModelForCliResponse{}, nil
+	case "aiserver.v1.GetDefaultModelResponse":
+		return &aiserverv1.GetDefaultModelResponse{}, nil
+	case "aiserver.v1.GetGlobalCommandsResponse":
+		return &aiserverv1.GetGlobalCommandsResponse{}, nil
+	case "aiserver.v1.GetEffectiveUserPluginsResponse":
+		return &aiserverv1.GetEffectiveUserPluginsResponse{}, nil
+	case "aiserver.v1.RegisterMarketplaceAndPluginsResponse":
+		return &aiserverv1.RegisterMarketplaceAndPluginsResponse{}, nil
+	case "aiserver.v1.GetCliDownloadUrlResponse":
+		return &aiserverv1.GetCliDownloadUrlResponse{}, nil
+	case "aiserver.v1.SubmitLogsResponse":
+		return &aiserverv1.SubmitLogsResponse{}, nil
+	case "aiserver.v1.TrackEventsResponse":
+		return &aiserverv1.TrackEventsResponse{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported proto message type %q", typeName)
 	}
