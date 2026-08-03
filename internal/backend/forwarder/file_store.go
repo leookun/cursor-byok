@@ -526,7 +526,6 @@ func (store *ConversationFileStore) syncCursorTranscriptWithLatestStatus(convers
 	if len(data) == 0 {
 		return nil
 	}
-	data = preserveCursorAppendedTurnEnded(path, data)
 	return writeCursorTranscriptAtomic(path, data)
 }
 
@@ -545,7 +544,7 @@ func (store *ConversationFileStore) SyncAllCursorTranscriptsBestEffort() {
 			log.Printf("forwarder transcript backfill load failed conversation_id=%s err=%v", conversationID, err)
 			continue
 		}
-		if conversation == nil || conversation.AgentTranscriptsFolder == "" {
+		if conversation == nil || conversation.AgentTranscriptsFolder == "" || !conversationTranscriptSyncReady(conversation) {
 			continue
 		}
 		info, err := os.Stat(conversation.AgentTranscriptsFolder)

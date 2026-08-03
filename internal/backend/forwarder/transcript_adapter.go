@@ -371,55 +371,6 @@ func cursorTranscriptPath(transcriptsFolder string, conversationID string) (stri
 	return filepath.Join(folder, id, id+".jsonl"), nil
 }
 
-func preserveCursorAppendedTurnEnded(path string, projected []byte) []byte {
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		return projected
-	}
-	lastLine := lastNonEmptyJSONLLine(existing)
-	if len(lastLine) == 0 {
-		return projected
-	}
-	var terminal cursorTranscriptLine
-	if json.Unmarshal(lastLine, &terminal) != nil || terminal.Type != "turn_ended" {
-		return projected
-	}
-	if countTranscriptTurnEnded(existing) <= countTranscriptTurnEnded(projected) {
-		return projected
-	}
-	result := append([]byte(nil), projected...)
-	if len(result) > 0 && result[len(result)-1] != '\n' {
-		result = append(result, '\n')
-	}
-	result = append(result, lastLine...)
-	return append(result, '\n')
-}
-
-func lastNonEmptyJSONLLine(data []byte) []byte {
-	lines := bytes.Split(data, []byte{'\n'})
-	for index := len(lines) - 1; index >= 0; index-- {
-		if line := bytes.TrimSpace(lines[index]); len(line) > 0 {
-			return append([]byte(nil), line...)
-		}
-	}
-	return nil
-}
-
-func countTranscriptTurnEnded(data []byte) int {
-	count := 0
-	for _, line := range bytes.Split(data, []byte{'\n'}) {
-		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) == 0 {
-			continue
-		}
-		var item cursorTranscriptLine
-		if json.Unmarshal(trimmed, &item) == nil && item.Type == "turn_ended" {
-			count++
-		}
-	}
-	return count
-}
-
 func writeCursorTranscriptAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
