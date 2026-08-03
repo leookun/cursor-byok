@@ -92,6 +92,15 @@ tasks:
           DMG_NAME: macos-intel.dmg
           SCAN: '{{.SCAN}}'
 
+  build:windows:binary:
+    summary: Build a Windows executable without creating a ZIP archive
+    cmds:
+      - task: windows:build
+        vars:
+          ARCH: '{{.ARCH | default .CURRENT_WINDOWS_ARCH}}'
+          OUTPUT: '{{.OUTPUT}}'
+          SCAN: '{{.SCAN}}'
+
   build:windows:current:
     internal: true
     cmds:
@@ -177,6 +186,16 @@ tasks:
     summary: 启动开发模式（前台，终端会保持占用）
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  proxy-debugger:
+    summary: 启动独立 Cursor 协议调试代理
+    cmds:
+      - go run ./cmd/cursor-proxy-debugger
+
+  proxy-debugger:build:
+    summary: 构建独立 Cursor 协议调试代理
+    cmds:
+      - go build -o ./bin/cursor-proxy-debugger ./cmd/cursor-proxy-debugger
 
   ads:install:
     summary: 安装广告页依赖

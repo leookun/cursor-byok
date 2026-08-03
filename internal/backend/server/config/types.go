@@ -15,7 +15,6 @@ const (
 	DefaultBackendListenAddr                = "127.0.0.1:18090"
 	DefaultProxyListenAddr                  = "127.0.0.1:18080"
 	DefaultFrontendBaseURL                  = "http://127.0.0.1"
-	DefaultRoutingMode                      = "local"
 	DefaultProviderStreamIdleTimeoutSeconds = 240
 	MinProviderStreamIdleTimeoutSeconds     = 30
 )
@@ -43,10 +42,6 @@ type ModelAdapterConfig struct {
 	ThinkingBudgetTokens        int    `json:"thinkingBudgetTokens" yaml:"thinkingBudgetTokens"`
 }
 
-type RoutingConfig struct {
-	Mode string `json:"mode" yaml:"mode"`
-}
-
 type HomeMetricsConfig struct {
 	IncludeCacheWriteInHitRate bool `json:"includeCacheWriteInHitRate" yaml:"includeCacheWriteInHitRate"`
 }
@@ -57,7 +52,6 @@ type Config struct {
 	BackendListenAddr         string               `json:"backendListenAddr" yaml:"backendListenAddr"`
 	ProxyListenAddr           string               `json:"proxyListenAddr" yaml:"proxyListenAddr"`
 	ModelAdapters             []ModelAdapterConfig `json:"modelAdapters" yaml:"modelAdapters"`
-	Routing                   RoutingConfig        `json:"routing" yaml:"routing"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
 }
@@ -69,9 +63,6 @@ func DefaultConfig() Config {
 		BackendListenAddr:         DefaultBackendListenAddr,
 		ProxyListenAddr:           DefaultProxyListenAddr,
 		ModelAdapters:             []ModelAdapterConfig{},
-		Routing: RoutingConfig{
-			Mode: DefaultRoutingMode,
-		},
 	}
 }
 
@@ -91,10 +82,6 @@ func NormalizeConfig(input Config) (Config, error) {
 	output.ProxyListenAddr = proxyListenAddr
 	output.HomeMetrics.IncludeCacheWriteInHitRate = input.HomeMetrics.IncludeCacheWriteInHitRate
 	output.LastAgentModelHash = strings.TrimSpace(input.LastAgentModelHash)
-	output.Routing.Mode = normalizeRoutingMode(input.Routing.Mode)
-	if output.Routing.Mode == "" {
-		output.Routing.Mode = DefaultRoutingMode
-	}
 	adapters, err := NormalizeModelAdapterConfigs(input.ModelAdapters)
 	if err != nil {
 		return Config{}, err
@@ -276,17 +263,6 @@ func normalizeModelAdapterType(value string) string {
 		return "openai"
 	case "anthropic":
 		return "anthropic"
-	default:
-		return ""
-	}
-}
-
-func normalizeRoutingMode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "local":
-		return "local"
-	case "upstream":
-		return "upstream"
 	default:
 		return ""
 	}

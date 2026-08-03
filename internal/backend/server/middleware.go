@@ -1,14 +1,12 @@
 package server
 
 import (
-	"cursor/internal/logger"
 	"errors"
 	"fmt"
 	"net/http"
 	"runtime/debug"
 	"strings"
 
-	serverconfig "cursor/internal/backend/server/config"
 	legacyruntime "cursor/internal/runtime"
 )
 
@@ -34,16 +32,6 @@ func ServerContext() Middleware {
 			if err := ctx.ParseUpstreamURL(); err != nil {
 				return err
 			}
-			return next(ctx)
-		}
-	}
-}
-
-func PolicyMiddleware(configs *serverconfig.Manager) Middleware {
-	return func(next HandlerFunc) HandlerFunc {
-		return func(ctx *Context) error {
-			ctx.Mode = parseExecutionMode(configs.RouteMode(ctx.UpstreamURL != nil))
-			logger.Infof("ctx.Mode=%s upstream=%t", ctx.Mode, ctx.UpstreamURL != nil)
 			return next(ctx)
 		}
 	}

@@ -17,7 +17,6 @@ type Route struct {
 	Protocol   ProtocolClass
 	Middleware []Middleware
 	Local      HandlerFunc
-	Upstream   HandlerFunc
 }
 
 type App struct {
@@ -129,12 +128,6 @@ func Local(action HandlerFunc) RouteOption {
 	}
 }
 
-func Upstream(action HandlerFunc) RouteOption {
-	return func(route *Route) {
-		route.Upstream = action
-	}
-}
-
 func (app *App) registerRoute(route Route) {
 	handler := app.buildRouteHandler(route)
 	if route.Method == "" {
@@ -148,12 +141,6 @@ func (app *App) buildRouteHandler(route Route) http.HandlerFunc {
 	chain := append([]Middleware{}, app.globalMiddlewares...)
 	chain = append(chain, route.Middleware...)
 	final := Chain(chain...)(func(ctx *Context) error {
-		if shouldUseUpstreamAction(ctx, route) && route.Upstream != nil {
-			return route.Upstream(ctx)
-		}
-		if shouldUseUpstreamAction(ctx, route) && ctx.UpstreamURL != nil {
-			return fmt.Errorf("route %s is missing upstream action while request targets upstream %s", route.Name, ctx.UpstreamURL.String())
-		}
 		if route.Local != nil {
 			return route.Local(ctx)
 		}
@@ -166,14 +153,6 @@ func (app *App) buildRouteHandler(route Route) http.HandlerFunc {
 			writeServerError(trackedWriter, err)
 		}
 	}
-}
-
-func shouldUseUpstreamAction(ctx *Context, route Route) bool {
-	_ = route
-	if ctx == nil {
-		return false
-	}
-	return ctx.Mode == ModeUpstream
 }
 
 func Chain(middlewares ...Middleware) Middleware {

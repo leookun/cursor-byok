@@ -23,6 +23,29 @@ description: 本地模式实现指南
 客户端是：/Users/leokun/Library/Application\ Support/Cursor 
 客户端 bundle 是：/Applications/Cursor.app/Contents/Resources/app/extensions/cursor-always-local/dist/main.js
 
+## 可选抓包调试工具
+
+仓库提供了独立的 Cursor 协议抓包调试器。开发者在手动排查协议问题时，可以运行：
+
+```bash
+go run ./cmd/cursor-proxy-debugger
+```
+
+默认代理地址是 `http://127.0.0.1:9090`，调试界面是 `http://127.0.0.1:9091`。该工具可以辅助查看：
+
+- `agent.v1.AgentService/RunSSE`
+- `aiserver.v1.BidiService/BidiAppend`
+- Connect 帧、gzip 压缩内容、Protobuf 解码结果和原始二进制数据
+- 同一 `request_id` 对应的上下行消息
+
+开发者启动工具后，需要自行完成以下配置：
+
+1. 在 Cursor 的代理设置中，将代理修改为工具启动时显示的代理地址，默认是 `http://127.0.0.1:9090`。
+2. 在 Cursor 的 Network 设置中开启 HTTP/1.1。
+3. 从 `http://127.0.0.1:9091/api/ca.crt` 下载代理 CA 证书，并确保 Cursor 信任该证书。
+
+这只是供开发者手动使用的辅助工具，不属于自动化 Debug 流程。不要因为加载此指南就自动启动代理、修改 Cursor 或系统设置、安装证书，或操作 Cursor 发起请求。只有开发者明确表示已经启用抓包时，才把调试界面中的数据作为当前运行证据。调试结束后，提醒开发者恢复原来的 Cursor 代理和 Network 设置。
+
 ## Cursor 客户端格式化快照
 
 - 如果用户要求提取、格式化、刷新或规范化 Cursor.app 快照流程，使用 `cursor-app-formatted` skill。

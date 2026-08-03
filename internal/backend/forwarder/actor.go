@@ -23,6 +23,7 @@ const (
 	TurnPhaseWaitingExternal TurnPhase = "waiting_external"
 	TurnPhaseAwaitingUser    TurnPhase = "awaiting_user"
 	TurnPhaseCompacting      TurnPhase = "compacting"
+	TurnPhaseCheckpointing   TurnPhase = "checkpointing"
 	TurnPhaseCompleted       TurnPhase = "completed"
 	TurnPhaseFailed          TurnPhase = "failed"
 	TurnPhaseCanceled        TurnPhase = "canceled"
@@ -66,6 +67,7 @@ const (
 	streamTimerNonStreamingRecovery streamTimerKind = "non_streaming_recovery"
 	streamTimerShellForeground      streamTimerKind = "shell_foreground"
 	streamTimerShellTransportClose  streamTimerKind = "shell_transport_close"
+	streamTimerCheckpointBlobs      streamTimerKind = "checkpoint_blobs"
 	streamTimerOrphanCancel         streamTimerKind = "orphan_cancel"
 )
 
@@ -318,6 +320,9 @@ func (service *Service) handleStreamCommand(stream *ActiveStream, command stream
 	case streamCommandCancel:
 		return service.handleCancelIntent(command.Intent)
 	case streamCommandMetadata:
+		if strings.TrimSpace(command.Intent.Kind) == "kv_result" {
+			return service.handleCheckpointBlobResult(stream, command.Intent.KVClientMessage)
+		}
 		return service.handleMetadataIntent(command.Intent)
 	case streamCommandExecResult:
 		return service.handleExecResult(command.Intent)
@@ -459,6 +464,44 @@ func providerTokenMatches(stream *ActiveStream, token uint64) bool {
 	return stream.CurrentProviderToken == token
 }
 
+type providerReasoningPayload struct {
+	Content         string
+	Signature       string
+	SignatureSource string
+	ItemID          string
+	Status          string
+	Summary         json.RawMessage
+}
+
+// takeProviderOutputForTool transfers a provider pass's pending text and reasoning
+// to exactly one history entry. A provider may emit several tool invocations in one
+// pass, but its reasoning is a shared prefix rather than per-tool content.
+func takeProviderOutputForTool(stream *ActiveStream) (string, providerReasoningPayload) {
+	if stream == nil {
+		return "", providerReasoningPayload{}
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	output := providerReasoningPayload{
+		Content:         stream.ProviderAccumulatedReasoning,
+		Signature:       stream.ProviderAccumulatedReasoningSignature,
+		SignatureSource: stream.ProviderAccumulatedReasoningSignatureSource,
+		ItemID:          stream.ProviderAccumulatedReasoningItemID,
+		Status:          stream.ProviderAccumulatedReasoningStatus,
+		Summary:         append(json.RawMessage(nil), stream.ProviderAccumulatedReasoningSummary...),
+	}
+	text := stream.ProviderAccumulatedText
+	stream.ProviderAccumulatedText = ""
+	stream.ProviderAccumulatedReasoning = ""
+	stream.ProviderAccumulatedReasoningSignature = ""
+	stream.ProviderAccumulatedReasoningSignatureSource = ""
+	stream.ProviderAccumulatedReasoningItemID = ""
+	stream.ProviderAccumulatedReasoningStatus = ""
+	stream.ProviderAccumulatedReasoningSummary = nil
+	stream.UpdatedAt = time.Now().UTC()
+	return text, output
+}
+
 func (service *Service) applyProviderModelEvent(stream *ActiveStream, event modeladapter.ModelEvent) error {
 	if stream == nil {
 		return nil
@@ -468,13 +511,6 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 	conversationID := stream.ConversationID
 	turnSeq := stream.TurnSeq
 	modelCallID := stream.CurrentModelCallID
-	accumulatedText := stream.ProviderAccumulatedText
-	accumulatedReasoning := stream.ProviderAccumulatedReasoning
-	accumulatedReasoningSignature := stream.ProviderAccumulatedReasoningSignature
-	accumulatedReasoningSignatureSource := stream.ProviderAccumulatedReasoningSignatureSource
-	accumulatedReasoningItemID := stream.ProviderAccumulatedReasoningItemID
-	accumulatedReasoningStatus := stream.ProviderAccumulatedReasoningStatus
-	accumulatedReasoningSummary := append([]byte(nil), stream.ProviderAccumulatedReasoningSummary...)
 	stream.mu.Unlock()
 
 	switch event.Kind {
@@ -524,7 +560,7 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 			stream.mu.Unlock()
 		}
 		if shouldEmitSyntheticThinking {
-			if err := service.broker.Publish(requestID, StreamEvent{Message: buildThinkingDeltaMessage("Thinking is encrypted. Please wait a moment.", event.ThinkingStyle)}); err != nil {
+			if err := service.broker.Publish(requestID, StreamEvent{Message: buildThinkingDeltaMessage("The reasoning process is encrypted. Please wait a moment. (This message does not affect any functionality; it only indicates the current reasoning status.)", event.ThinkingStyle)}); err != nil {
 				return err
 			}
 		}
@@ -561,32 +597,24 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 			Message: buildToolCallDeltaMessage(event.ToolCallID, modelCallID, event.ToolCallDelta),
 		})
 	case modeladapter.ModelEventKindToolLikeCompleted:
-		reasoningForTool := accumulatedReasoning
-		reasoningSignatureForTool := accumulatedReasoningSignature
-		reasoningSignatureSourceForTool := accumulatedReasoningSignatureSource
-		reasoningItemIDForTool := accumulatedReasoningItemID
-		reasoningStatusForTool := accumulatedReasoningStatus
-		reasoningSummaryForTool := append([]byte(nil), accumulatedReasoningSummary...)
-		if strings.TrimSpace(accumulatedText) != "" {
-			if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, false); err != nil {
+		textForTool, reasoningForTool := takeProviderOutputForTool(stream)
+		if strings.TrimSpace(textForTool) != "" {
+			if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, textForTool, reasoningForTool.Content, reasoningForTool.Signature, reasoningForTool.SignatureSource, reasoningForTool.ItemID, reasoningForTool.Status, reasoningForTool.Summary, false); err != nil {
 				return err
 			}
+			reasoningForTool = providerReasoningPayload{}
 		}
 		if event.ToolInvocation == nil {
 			return fmt.Errorf("tool invocation is required")
 		}
 		invocation := *event.ToolInvocation
-		invocation.ReasoningContent = reasoningForTool
-		invocation.ReasoningSignature = reasoningSignatureForTool
-		invocation.ReasoningSignatureSource = reasoningSignatureSourceForTool
-		invocation.ReasoningProviderItemID = reasoningItemIDForTool
-		invocation.ReasoningProviderStatus = reasoningStatusForTool
-		invocation.ReasoningProviderSummary = reasoningSummaryForTool
+		invocation.ReasoningContent = reasoningForTool.Content
+		invocation.ReasoningSignature = reasoningForTool.Signature
+		invocation.ReasoningSignatureSource = reasoningForTool.SignatureSource
+		invocation.ReasoningProviderItemID = reasoningForTool.ItemID
+		invocation.ReasoningProviderStatus = reasoningForTool.Status
+		invocation.ReasoningProviderSummary = reasoningForTool.Summary
 		invocation.ModelCallID = modelCallID
-		stream.mu.Lock()
-		stream.ProviderAccumulatedText = ""
-		stream.UpdatedAt = time.Now().UTC()
-		stream.mu.Unlock()
 		return service.handleToolInvocation(stream, invocation)
 	case modeladapter.ModelEventKindTurnFinished:
 		stream.mu.Lock()
@@ -1003,6 +1031,8 @@ func (service *Service) handleTimerEvent(stream *ActiveStream, payload *streamTi
 			return nil
 		}
 		return service.recoverShellWithoutTerminal(stream, current, shellRecoveryReasonTransportClosed)
+	case streamTimerCheckpointBlobs:
+		return service.handleCheckpointBlobTimeout(stream)
 	case streamTimerOrphanCancel:
 		stream.mu.Lock()
 		subscriberCount := len(stream.Subscribers)

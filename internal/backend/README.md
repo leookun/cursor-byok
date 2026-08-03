@@ -1,6 +1,6 @@
 # Backend 架构说明
 
-`internal/backend` 当前支持本地助手模式与直连上游模式。
+`internal/backend` 只支持本地助手模式。
 
 关于 backend agent「最小事实集合」的第一阶段研究文档，见 [`../../docs/backend-agent-minimum-facts-phase1.md`](../../docs/backend-agent-minimum-facts-phase1.md)。
 
@@ -34,7 +34,6 @@ internal/backend/
     errors.go
     local.go
     middleware.go
-    policy.go
     route.go
     url.go
 
@@ -134,7 +133,7 @@ history/
 ## 请求流
 
 1. 请求进入 backend 根路由。
-2. `PolicyMiddleware` 根据 `routing.mode` 与 `X-Server-Upstream-URL` 选择本地或上游分支。
+2. `ServerContext` 解析 MITM 带入的原始目标地址，路由始终执行本地 action。
 3. `BidiAppend` / `RunSSE` 进入 `forwarder`。
 4. `forwarder` 先把当前 loop 状态写入 `state.json`，再把已发生语义事件追加到 `context.json`。
 5. 发给 LLM 的 prompt 只由 `context.json` 投射生成；`state.json` 不保存可投射历史。
