@@ -177,6 +177,7 @@ type ActiveStream struct {
 	PendingExecs                map[string]runtimecore.PendingExec
 	PendingInteractions         map[string]runtimecore.PendingInteraction
 	PartialToolCallIDs          map[string]struct{}
+	CompletedToolCallIDs        map[string]time.Time
 	PatchEditQueues             map[string][]queuedPatchEditOperation
 	MCPToolServers              map[string]string
 	WorkspacePaths              []string
