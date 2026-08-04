@@ -2215,6 +2215,9 @@ func (service *Service) finishSuccessfulTurnAfterCheckpoint(stream *ActiveStream
 	if stream == nil {
 		return nil
 	}
+	if !claimTerminalEvent(stream) {
+		return nil
+	}
 	requestID := firstNonEmpty(strings.TrimSpace(completion.RequestID), strings.TrimSpace(stream.RequestID))
 	usage := completion.Usage
 	if err := service.broker.Publish(requestID, StreamEvent{
@@ -2357,6 +2360,9 @@ func (service *Service) failStream(stream *ActiveStream, terminalCode string, ca
 	if stream == nil {
 		return nil
 	}
+	if !claimTerminalEvent(stream) {
+		return nil
+	}
 	errorText := "unknown error"
 	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
 		errorText = strings.TrimSpace(cause.Error())
@@ -2372,7 +2378,7 @@ func (service *Service) failStream(stream *ActiveStream, terminalCode string, ca
 			"error": errorText,
 		}),
 	})
-	return service.failActiveStream(
+	return service.failActiveStreamClaimed(
 		stream,
 		stream.ConversationID,
 		stream.RequestID,
@@ -2395,6 +2401,16 @@ func resolveTerminalCode(fallback string, cause error) string {
 }
 
 func (service *Service) failActiveStream(stream *ActiveStream, conversationID string, requestID string, modelCallID string, terminalCode string, terminalMessage string) error {
+	if stream == nil {
+		return nil
+	}
+	if !claimTerminalEvent(stream) {
+		return nil
+	}
+	return service.failActiveStreamClaimed(stream, conversationID, requestID, modelCallID, terminalCode, terminalMessage)
+}
+
+func (service *Service) failActiveStreamClaimed(stream *ActiveStream, conversationID string, requestID string, modelCallID string, terminalCode string, terminalMessage string) error {
 	if stream == nil {
 		return nil
 	}
@@ -3169,6 +3185,9 @@ func buildPendingToolCalls(pendingExecs []runtimecore.PendingExec, pendingIntera
 
 	items := make([]pendingToolCallReplay, 0, len(pendingExecs)+len(pendingInteractions))
 	for _, pending := range pendingExecs {
+		if isHiddenWriteExecKind(pending.ExecKind) || isHiddenPatchEditExecKind(pending.ExecKind) {
+			continue
+		}
 		raw, ok := encodePendingExecAsAssistantOutput(pending)
 		if !ok {
 			continue

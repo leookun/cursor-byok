@@ -1,7 +1,7 @@
 package forwarder
 
 import (
-	"encoding/json"
+	"strings"
 	"testing"
 
 	"cursor/gen/agentv1"
@@ -318,18 +318,50 @@ func hiddenEditCompletionCount(stream *ActiveStream, toolCallID string) int {
 	return count
 }
 
-func TestHiddenEditFixturePayloadsAreValidJSON(t *testing.T) {
-	payloads := []any{
-		pendingWritePayload{VisibleArgs: writeOperationArgs{Path: `C:\\workspace\\file.go`}},
-		pendingPatchEditPayload{ToolName: patchEditToolName, ResolvedPath: `C:\\workspace\\file.go`},
+func TestHiddenEditCheckpointReplayDoesNotReopenEditingUI(t *testing.T) {
+	hiddenWritePayload, err := (pendingWritePayload{
+		VisibleArgs:  writeOperationArgs{Path: `C:\\workspace\\file.go`, Contents: "after"},
+		ResolvedPath: `C:\\workspace\\file.go`,
+	}).MarshalJSON()
+	if err != nil {
+		t.Fatalf("marshal hidden Write payload: %v", err)
 	}
-	for _, payload := range payloads {
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatalf("marshal %T: %v", payload, err)
-		}
-		if len(encoded) == 0 {
-			t.Fatalf("empty JSON for %T", payload)
-		}
+	hiddenPatchPayload, err := (pendingPatchEditPayload{
+		ToolName:     patchEditToolName,
+		ResolvedPath: `C:\\workspace\\file.go`,
+	}).MarshalJSON()
+	if err != nil {
+		t.Fatalf("marshal hidden PatchEdit payload: %v", err)
+	}
+
+	pending := buildPendingToolCalls([]runtimecore.PendingExec{
+		{
+			ExecID:     "write-post-read",
+			MessageID:  1,
+			ToolCallID: "edit-write-1",
+			ExecKind:   writePostReadExecKind,
+			ArgsJSON:   hiddenWritePayload,
+		},
+		{
+			ExecID:     "patch-post-read",
+			MessageID:  2,
+			ToolCallID: "edit-patch-1",
+			ExecKind:   patchEditPostReadExecKindName,
+			ArgsJSON:   hiddenPatchPayload,
+		},
+		{
+			ExecID:     "shell",
+			MessageID:  3,
+			ToolCallID: "shell-1",
+			ExecKind:   "shell",
+			ArgsJSON:   []byte(`{"command":"git status"}`),
+		},
+	}, nil)
+
+	if len(pending) != 1 || !strings.Contains(pending[0], "shell-1") {
+		t.Fatalf("checkpoint pending tool replay = %#v, want only non-hidden shell", pending)
+	}
+	if strings.Contains(strings.Join(pending, "\n"), "edit-write-1") || strings.Contains(strings.Join(pending, "\n"), "edit-patch-1") {
+		t.Fatalf("checkpoint replay still contains hidden Edit implementation execs: %#v", pending)
 	}
 }
