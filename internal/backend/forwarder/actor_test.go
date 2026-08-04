@@ -1,11 +1,13 @@
 package forwarder
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"cursor/gen/agentv1"
+	modeladapter "cursor/internal/backend/agent/model"
 )
 
 func TestTakeProviderOutputForToolConsumesReasoningOnce(t *testing.T) {
@@ -71,6 +73,112 @@ func TestProjectorKeepsSharedReasoningOnOnlyOneOfMultipleToolCalls(t *testing.T)
 	}
 	if len(messages[1].ToolCalls) != 1 || len(messages[3].ToolCalls) != 1 {
 		t.Fatalf("tool calls were not retained: %#v", messages)
+	}
+}
+
+func TestCompletedEditIgnoresLatePartialAndDeltaEvents(t *testing.T) {
+	broker := NewStreamBroker()
+	stream, err := broker.OpenStream("request-1", "conversation-1", 1, "model", "model", agentv1.AgentMode_AGENT_MODE_AGENT, "edit file")
+	if err != nil {
+		t.Fatalf("OpenStream() error = %v", err)
+	}
+	service := &Service{broker: broker}
+	completed := buildCompletedEditToolCall("file.txt", buildSuccessfulEditResult("file.txt", "before", "after", "@@ -1 +1 @@\n-before\n+after\n", 1, 1, ""))
+	if err := service.publishToolCallCompleted(stream.RequestID, "edit-1", "model-call-1", completed); err != nil {
+		t.Fatalf("publishToolCallCompleted() error = %v", err)
+	}
+
+	partial := modeladapter.ModelEvent{
+		Kind:       modeladapter.ModelEventKindPartialToolCall,
+		ToolCallID: "edit-1",
+		ToolCall:   &agentv1.ToolCall{Tool: &agentv1.ToolCall_EditToolCall{EditToolCall: &agentv1.EditToolCall{Args: &agentv1.EditArgs{Path: "file.txt"}}}},
+	}
+	if err := service.applyProviderModelEvent(stream, partial); err != nil {
+		t.Fatalf("applyProviderModelEvent(partial) error = %v", err)
+	}
+	delta := modeladapter.ModelEvent{
+		Kind:       modeladapter.ModelEventKindToolCallDelta,
+		ToolCallID: "edit-1",
+		ToolCallDelta: &agentv1.ToolCallDelta{Delta: &agentv1.ToolCallDelta_EditToolCallDelta{
+			EditToolCallDelta: &agentv1.EditToolCallDelta{StreamContentDelta: "late"},
+		}},
+	}
+	if err := service.applyProviderModelEvent(stream, delta); err != nil {
+		t.Fatalf("applyProviderModelEvent(delta) error = %v", err)
+	}
+
+	events, err := broker.ReadFromCursor(stream.RequestID, 0)
+	if err != nil {
+		t.Fatalf("ReadFromCursor() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want only completion", len(events))
+	}
+	completion := events[0].Message.GetInteractionUpdate().GetToolCallCompleted()
+	if completion == nil || completion.GetCallId() != "edit-1" || completion.GetToolCall().GetEditToolCall().GetResult().GetSuccess() == nil {
+		t.Fatalf("event = %#v, want completed edit with success", events[0].Message)
+	}
+}
+
+func TestUnfinishedEditForwardsPartialAndDeltaEvents(t *testing.T) {
+	broker := NewStreamBroker()
+	stream, err := broker.OpenStream("request-1", "conversation-1", 1, "model", "model", agentv1.AgentMode_AGENT_MODE_AGENT, "edit file")
+	if err != nil {
+		t.Fatalf("OpenStream() error = %v", err)
+	}
+	service := &Service{broker: broker}
+	partial := modeladapter.ModelEvent{
+		Kind:       modeladapter.ModelEventKindPartialToolCall,
+		ToolCallID: "edit-1",
+		ToolCall:   &agentv1.ToolCall{Tool: &agentv1.ToolCall_EditToolCall{EditToolCall: &agentv1.EditToolCall{Args: &agentv1.EditArgs{Path: "file.txt"}}}},
+	}
+	if err := service.applyProviderModelEvent(stream, partial); err != nil {
+		t.Fatalf("applyProviderModelEvent(partial) error = %v", err)
+	}
+	if err := service.applyProviderModelEvent(stream, modeladapter.ModelEvent{
+		Kind:       modeladapter.ModelEventKindToolCallDelta,
+		ToolCallID: "edit-1",
+		ToolCallDelta: &agentv1.ToolCallDelta{Delta: &agentv1.ToolCallDelta_EditToolCallDelta{
+			EditToolCallDelta: &agentv1.EditToolCallDelta{StreamContentDelta: "content"},
+		}},
+	}); err != nil {
+		t.Fatalf("applyProviderModelEvent(delta) error = %v", err)
+	}
+	events, err := broker.ReadFromCursor(stream.RequestID, 0)
+	if err != nil {
+		t.Fatalf("ReadFromCursor() error = %v", err)
+	}
+	if len(events) != 2 || events[0].Message.GetInteractionUpdate().GetPartialToolCall() == nil || events[1].Message.GetInteractionUpdate().GetToolCallDelta() == nil {
+		t.Fatalf("events = %#v, want partial then delta", events)
+	}
+}
+
+func TestCompletedEditHistoryRetainsBoundedVisibleDiff(t *testing.T) {
+	before := strings.Repeat("before\n", projectedPatchEditReplayLimit)
+	after := strings.Repeat("after\n", projectedPatchEditReplayLimit)
+	diffString, linesAdded, linesRemoved := computeEditDiff(before, after)
+	result := buildSuccessfulEditResult("file.txt", before, after, diffString, linesAdded, linesRemoved, "")
+
+	for _, test := range []struct {
+		name      string
+		compactor func(string, *agentv1.EditResult) *agentv1.EditResult
+		limit     int
+	}{
+		{name: "Write", compactor: compactWriteHistoryEditResult, limit: projectedEditReplayLimit},
+		{name: "PatchEdit", compactor: compactPatchEditHistoryEditResult, limit: projectedPatchEditReplayLimit},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compacted := test.compactor("file.txt", result).GetSuccess()
+			if compacted == nil {
+				t.Fatal("compacted result is not success")
+			}
+			if compacted.GetPath() != "file.txt" || compacted.GetDiffString() == "" || compacted.GetLinesAdded() != linesAdded || compacted.GetLinesRemoved() != linesRemoved {
+				t.Fatalf("compacted diff = %#v, want visible diff metadata", compacted)
+			}
+			if len(compacted.GetBeforeFullFileContent()) > test.limit || len(compacted.GetAfterFullFileContent()) > test.limit || len(compacted.GetDiffString()) > test.limit {
+				t.Fatalf("compacted content exceeded %d bytes", test.limit)
+			}
+		})
 	}
 }
 

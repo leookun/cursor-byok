@@ -1,7 +1,8 @@
 package forwarder
 
 import (
-	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"cursor/gen/agentv1"
@@ -86,6 +87,49 @@ func TestHiddenEditStreamCloseRecoveryCompletesVisibleTool(t *testing.T) {
 	}
 }
 
+func TestHiddenEditPostReadPublishesVisibleDiff(t *testing.T) {
+	for _, tool := range hiddenEditLifecycleTools() {
+		t.Run(tool.name, func(t *testing.T) {
+			service, stream, pending := testHiddenEditControlFixture(t, tool.execKinds[2], tool.marshalState)
+			if err := service.handleExecResult(InboundIntent{
+				RequestID:         stream.RequestID,
+				ExecClientMessage: hiddenEditReadSuccessMessage(pending, `C:\\workspace\\file.go`, "after"),
+			}); err != nil {
+				t.Fatalf("handleExecResult(post-read success) error = %v", err)
+			}
+
+			assertHiddenEditPending(t, stream, pending.ExecID, false)
+			assertHiddenEditSuccessDiff(t, stream, pending.ToolCallID, `C:\\workspace\\file.go`, "before", "after")
+		})
+	}
+}
+
+func TestHiddenEditTerminalResultWinsAfterStreamClose(t *testing.T) {
+	for _, tool := range hiddenEditLifecycleTools() {
+		t.Run(tool.name, func(t *testing.T) {
+			service, stream, pending := testHiddenEditControlFixture(t, tool.execKinds[2], tool.marshalState)
+			if err := service.handleExecControl(InboundIntent{
+				RequestID:                stream.RequestID,
+				ExecClientControlMessage: hiddenEditStreamCloseMessage(pending),
+			}); err != nil {
+				t.Fatalf("handleExecControl(stream_close) error = %v", err)
+			}
+			if err := service.handleExecResult(InboundIntent{
+				RequestID:         stream.RequestID,
+				ExecClientMessage: hiddenEditReadSuccessMessage(pending, `C:\\workspace\\file.go`, "after"),
+			}); err != nil {
+				t.Fatalf("handleExecResult(post-read after stream_close) error = %v", err)
+			}
+
+			assertHiddenEditPending(t, stream, pending.ExecID, false)
+			assertHiddenEditSuccessDiff(t, stream, pending.ToolCallID, `C:\\workspace\\file.go`, "before", "after")
+			if completions := hiddenEditCompletionCount(stream, pending.ToolCallID); completions != 1 {
+				t.Fatalf("completion count = %d, want 1", completions)
+			}
+		})
+	}
+}
+
 func TestHiddenEditLateResultAfterRecoveryIsIgnored(t *testing.T) {
 	tools := hiddenEditLifecycleTools()
 	for _, tool := range tools {
@@ -104,6 +148,71 @@ func TestHiddenEditLateResultAfterRecoveryIsIgnored(t *testing.T) {
 			}
 		})
 	}
+}
+
+func hiddenEditStreamCloseMessage(pending runtimecore.PendingExec) *agentv1.ExecClientControlMessage {
+	return &agentv1.ExecClientControlMessage{
+		Message: &agentv1.ExecClientControlMessage_StreamClose{
+			StreamClose: &agentv1.ExecClientStreamClose{Id: pending.MessageID},
+		},
+	}
+}
+
+func hiddenEditReadSuccessMessage(pending runtimecore.PendingExec, path string, content string) *agentv1.ExecClientMessage {
+	return &agentv1.ExecClientMessage{
+		Id:     pending.MessageID,
+		ExecId: pending.ExecID,
+		Message: &agentv1.ExecClientMessage_ReadResult{
+			ReadResult: &agentv1.ReadResult{
+				Result: &agentv1.ReadResult_Success{
+					Success: &agentv1.ReadSuccess{
+						Path:   path,
+						Output: &agentv1.ReadSuccess_Content{Content: content},
+					},
+				},
+			},
+		},
+	}
+}
+
+func assertHiddenEditSuccessDiff(t *testing.T, stream *ActiveStream, toolCallID string, path string, before string, after string) {
+	t.Helper()
+	completed := hiddenEditCompletedToolCall(stream, toolCallID)
+	if completed == nil {
+		t.Fatalf("tool call %q did not publish a completed tool call", toolCallID)
+	}
+	success := completed.GetEditToolCall().GetResult().GetSuccess()
+	if success == nil {
+		t.Fatalf("tool call %q result = %#v, want edit success", toolCallID, completed.GetEditToolCall().GetResult())
+	}
+	if success.GetPath() != path {
+		t.Fatalf("success path = %q, want %q", success.GetPath(), path)
+	}
+	if success.GetBeforeFullFileContent() != before || success.GetAfterFullFileContent() != after {
+		t.Fatalf("success content = (%q, %q), want (%q, %q)", success.GetBeforeFullFileContent(), success.GetAfterFullFileContent(), before, after)
+	}
+	if success.GetDiffString() == "" || success.GetLinesAdded() == 0 || success.GetLinesRemoved() == 0 {
+		t.Fatalf("success diff = (%q, +%d, -%d), want non-empty visible diff", success.GetDiffString(), success.GetLinesAdded(), success.GetLinesRemoved())
+	}
+}
+
+func hiddenEditCompletedToolCall(stream *ActiveStream, toolCallID string) *agentv1.ToolCall {
+	if stream == nil {
+		return nil
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	var latest *agentv1.ToolCall
+	for _, event := range stream.Backlog {
+		if event.Message == nil || event.Message.GetInteractionUpdate() == nil {
+			continue
+		}
+		completed := event.Message.GetInteractionUpdate().GetToolCallCompleted()
+		if completed != nil && completed.GetCallId() == toolCallID {
+			latest = completed.GetToolCall()
+		}
+	}
+	return latest
 }
 
 func hiddenEditLifecycleTools() []hiddenEditLifecycleTool {
@@ -126,11 +235,16 @@ func hiddenEditLifecycleTools() []hiddenEditLifecycleTool {
 			execKinds: []string{patchEditReadExecKindName, patchEditWriteExecKindName, patchEditPostReadExecKindName},
 			control:   (*Service).handleHiddenPatchEditExecControl,
 			marshalState: func() ([]byte, error) {
+				diffString, linesAdded, linesRemoved := computeEditDiff("before", "after")
 				return (pendingPatchEditPayload{
 					ToolName:      patchEditToolName,
 					ResolvedPath:  `C:\\workspace\\file.go`,
 					BeforeContent: "before",
 					AfterContent:  "after",
+					DiffString:    diffString,
+					LinesAdded:    linesAdded,
+					LinesRemoved:  linesRemoved,
+					Message:       "PatchEdit applied",
 				}).MarshalJSON()
 			},
 		},
@@ -205,18 +319,88 @@ func hiddenEditCompletionCount(stream *ActiveStream, toolCallID string) int {
 	return count
 }
 
-func TestHiddenEditFixturePayloadsAreValidJSON(t *testing.T) {
-	payloads := []any{
-		pendingWritePayload{VisibleArgs: writeOperationArgs{Path: `C:\\workspace\\file.go`}},
-		pendingPatchEditPayload{ToolName: patchEditToolName, ResolvedPath: `C:\\workspace\\file.go`},
+func TestComputeEditDiffCountsNewFileLines(t *testing.T) {
+	lines := make([]string, 102)
+	for index := range lines {
+		lines[index] = fmt.Sprintf("line-%03d", index+1)
 	}
-	for _, payload := range payloads {
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatalf("marshal %T: %v", payload, err)
-		}
-		if len(encoded) == 0 {
-			t.Fatalf("empty JSON for %T", payload)
-		}
+	content := strings.Join(lines, "\n") + "\n"
+
+	diffString, linesAdded, linesRemoved := computeEditDiff("", content)
+	if linesAdded != 102 || linesRemoved != 0 {
+		t.Fatalf("new file diff lines = (+%d, -%d), want (+102, -0)", linesAdded, linesRemoved)
+	}
+	if diffString == "" {
+		t.Fatal("new file diff string is empty")
+	}
+
+	result := buildSuccessfulWriteResult(`C:\\workspace\\new.go`, "", content)
+	success := result.GetSuccess()
+	if success == nil {
+		t.Fatal("new file result is not an edit success")
+	}
+	if success.GetLinesAdded() != linesAdded || success.GetLinesRemoved() != linesRemoved || success.GetDiffString() != diffString {
+		t.Fatalf("new file result diff = (%q, +%d, -%d), want (%q, +%d, -%d)", success.GetDiffString(), success.GetLinesAdded(), success.GetLinesRemoved(), diffString, linesAdded, linesRemoved)
+	}
+}
+
+func TestHiddenEditCancelCompletesVisiblePostReadEdit(t *testing.T) {
+	for _, tool := range hiddenEditLifecycleTools() {
+		t.Run(tool.name, func(t *testing.T) {
+			service, stream, pending := testHiddenEditControlFixture(t, tool.execKinds[2], tool.marshalState)
+			if err := service.handleCancelIntent(InboundIntent{Kind: "cancel", RequestID: stream.RequestID}); err != nil {
+				t.Fatalf("handleCancelIntent() error = %v", err)
+			}
+			assertHiddenEditPending(t, stream, pending.ExecID, false)
+			assertHiddenEditSuccessDiff(t, stream, pending.ToolCallID, `C:\\workspace\\file.go`, "before", "after")
+		})
+	}
+}
+
+func TestHiddenEditCheckpointReplayDoesNotReopenEditingUI(t *testing.T) {
+	hiddenWritePayload, err := (pendingWritePayload{
+		VisibleArgs:  writeOperationArgs{Path: `C:\\workspace\\file.go`, Contents: "after"},
+		ResolvedPath: `C:\\workspace\\file.go`,
+	}).MarshalJSON()
+	if err != nil {
+		t.Fatalf("marshal hidden Write payload: %v", err)
+	}
+	hiddenPatchPayload, err := (pendingPatchEditPayload{
+		ToolName:     patchEditToolName,
+		ResolvedPath: `C:\\workspace\\file.go`,
+	}).MarshalJSON()
+	if err != nil {
+		t.Fatalf("marshal hidden PatchEdit payload: %v", err)
+	}
+
+	pending := buildPendingToolCalls([]runtimecore.PendingExec{
+		{
+			ExecID:     "write-post-read",
+			MessageID:  1,
+			ToolCallID: "edit-write-1",
+			ExecKind:   writePostReadExecKind,
+			ArgsJSON:   hiddenWritePayload,
+		},
+		{
+			ExecID:     "patch-post-read",
+			MessageID:  2,
+			ToolCallID: "edit-patch-1",
+			ExecKind:   patchEditPostReadExecKindName,
+			ArgsJSON:   hiddenPatchPayload,
+		},
+		{
+			ExecID:     "shell",
+			MessageID:  3,
+			ToolCallID: "shell-1",
+			ExecKind:   "shell",
+			ArgsJSON:   []byte(`{"command":"git status"}`),
+		},
+	}, nil)
+
+	if len(pending) != 1 || !strings.Contains(pending[0], "shell-1") {
+		t.Fatalf("checkpoint pending tool replay = %#v, want only non-hidden shell", pending)
+	}
+	if strings.Contains(strings.Join(pending, "\n"), "edit-write-1") || strings.Contains(strings.Join(pending, "\n"), "edit-patch-1") {
+		t.Fatalf("checkpoint replay still contains hidden Edit implementation execs: %#v", pending)
 	}
 }

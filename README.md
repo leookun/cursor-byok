@@ -20,7 +20,7 @@ https://t.me/cursor_byok
 ## 路线图
 
 [正式版路线图](https://github.com/leookun/cursor-byok/discussions/32)
-[详细使用教程](https://dcne38qm5vlg.feishu.cn/wiki/JeP7wdGnziBXuikNaF5czWbrn8c)
+[详细使用教程](https://docs.leokun.cn)
 
 ## 后续
 
@@ -34,16 +34,3 @@ https://t.me/cursor_byok
 - 降低接入成本，让已有模型额度可以被更充分地利用
 
 最终希望做到：让你的模型 API 可以自由接入到你想使用的任何工具中。
-
-
-
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=leookun%2Fcursor-byok&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=leookun/cursor-byok&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=leookun/cursor-byok&type=timeline&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=leookun/cursor-byok&type=timeline&legend=top-left" />
- </picture>
-</a>

@@ -60,6 +60,37 @@ func TestProjectCursorTranscriptJSONLMatchesCursorContract(t *testing.T) {
 	}
 }
 
+func TestProjectCursorTranscriptJSONLCoalescesContinuationRuns(t *testing.T) {
+	conversation := transcriptTestConversation([]HistoryEntry{
+		transcriptTestUserMessageEntry(t, 1, "request-1", "fix the filter"),
+		newAssistantTextEntry(1, "request-1", "I found the cause.", "", ""),
+		newMetadataEntry(1, "request-1", "turn_completed", nil),
+		newAssistantTextEntry(2, "request-2", "The regression is fixed.", "", ""),
+		newMetadataEntry(2, "request-2", "turn_completed", nil),
+	})
+
+	data, err := projectCursorTranscriptJSONLWithLatestStatus(conversation, true)
+	if err != nil {
+		t.Fatalf("projectCursorTranscriptJSONLWithLatestStatus() error = %v", err)
+	}
+	lines := decodeCursorTranscriptLines(t, data)
+	if len(lines) != 4 {
+		t.Fatalf("transcript lines = %d, want 4\n%s", len(lines), data)
+	}
+	if lines[0].Role != "user" || transcriptLineText(lines[0]) != "fix the filter" {
+		t.Fatalf("user line = %#v", lines[0])
+	}
+	if lines[1].Role != "assistant" || transcriptLineText(lines[1]) != "I found the cause." {
+		t.Fatalf("first assistant line = %#v", lines[1])
+	}
+	if lines[2].Role != "assistant" || transcriptLineText(lines[2]) != "The regression is fixed." {
+		t.Fatalf("continuation assistant line = %#v", lines[2])
+	}
+	if lines[3].Type != "turn_ended" || lines[3].Status != "success" {
+		t.Fatalf("terminal line = %#v", lines[3])
+	}
+}
+
 func TestProjectCursorTranscriptJSONLKeepsSharedReasoningOnOnlyOneTool(t *testing.T) {
 	firstTool := transcriptTestEditToolCall(t, "first.txt")
 	secondTool := transcriptTestEditToolCall(t, "second.txt")
@@ -164,6 +195,34 @@ func TestConversationFileStoreDefersCursorTranscriptSyncUntilTurnEnds(t *testing
 	}
 }
 
+func TestConversationFileStoreStartupBackfillSkipsActiveTurn(t *testing.T) {
+	historyRoot := filepath.Join(t.TempDir(), "history")
+	transcriptsFolder := filepath.Join(t.TempDir(), "agent-transcripts")
+	if err := os.MkdirAll(transcriptsFolder, 0o755); err != nil {
+		t.Fatalf("create transcript root: %v", err)
+	}
+	store := NewConversationFileStore(historyRoot)
+	conversation := transcriptTestConversation(nil)
+	conversation.AgentTranscriptsFolder = transcriptsFolder
+	_, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, []HistoryEntry{
+		transcriptTestUserMessageEntry(t, 1, "request-1", "change the file"),
+		newToolCallEntry(1, "request-1", "call-1", "Edit", "", "", transcriptTestEditToolCall(t, "file.txt")),
+	})
+	if err != nil {
+		t.Fatalf("SaveConversationWithEntries() error = %v", err)
+	}
+
+	path := filepath.Join(transcriptsFolder, conversation.ConversationID, conversation.ConversationID+".jsonl")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active turn unexpectedly synced transcript; stat error = %v", err)
+	}
+
+	store.SyncAllCursorTranscriptsBestEffort()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("startup backfill unexpectedly synced active turn; stat error = %v", err)
+	}
+}
+
 func TestConversationFileStoreBackfillsTranscriptOnStartup(t *testing.T) {
 	historyRoot := filepath.Join(t.TempDir(), "history")
 	transcriptsFolder := filepath.Join(t.TempDir(), "agent-transcripts")
@@ -213,19 +272,43 @@ func TestNormalizeAgentTranscriptsFolderRejectsUnexpectedPaths(t *testing.T) {
 	}
 }
 
-func TestPreserveCursorAppendedTurnEnded(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "conversation.jsonl")
-	existing := []byte("{\"role\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n{\"type\":\"turn_ended\",\"status\":\"success\"}\n")
-	if err := os.WriteFile(path, existing, 0o644); err != nil {
-		t.Fatalf("write existing transcript: %v", err)
+func TestConversationFileStoreReplacesCursorAppendedTurnEnded(t *testing.T) {
+	historyRoot := filepath.Join(t.TempDir(), "history")
+	transcriptsFolder := filepath.Join(t.TempDir(), "agent-transcripts")
+	store := NewConversationFileStore(historyRoot)
+	conversation := transcriptTestConversation(nil)
+	conversation.AgentTranscriptsFolder = transcriptsFolder
+
+	_, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, []HistoryEntry{
+		transcriptTestUserMessageEntry(t, 1, "request-1", "hello"),
+		newAssistantTextEntry(1, "request-1", "done", "", ""),
+		newMetadataEntry(1, "request-1", "turn_completed", nil),
+	})
+	if err != nil {
+		t.Fatalf("SaveConversationWithEntries() error = %v", err)
 	}
-	projected := []byte("{\"role\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n{\"role\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n")
-	preserved := preserveCursorAppendedTurnEnded(path, projected)
-	if countTranscriptTurnEnded(preserved) != 1 {
-		t.Fatalf("preserved transcript = %s", preserved)
+
+	path := filepath.Join(transcriptsFolder, conversation.ConversationID, conversation.ConversationID+".jsonl")
+	stale := []byte("{\"role\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n{\"role\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}\n{\"type\":\"turn_ended\",\"status\":\"success\"}\n{\"type\":\"turn_ended\",\"status\":\"aborted\",\"error\":\"User aborted request\"}\n")
+	if err := os.WriteFile(path, stale, 0o644); err != nil {
+		t.Fatalf("write stale transcript: %v", err)
 	}
-	if !strings.HasSuffix(string(preserved), "{\"type\":\"turn_ended\",\"status\":\"success\"}\n") {
-		t.Fatalf("terminal line not preserved: %s", preserved)
+
+	persisted, err := store.LoadConversation(conversation.ConversationID)
+	if err != nil {
+		t.Fatalf("LoadConversation() error = %v", err)
+	}
+	if err := store.syncCursorTranscript(conversation.ConversationID, persisted, transcriptsFolder); err != nil {
+		t.Fatalf("syncCursorTranscript() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read synced transcript: %v", err)
+	}
+	lines := decodeCursorTranscriptLines(t, data)
+	if len(lines) != 3 || lines[2].Type != "turn_ended" || lines[2].Status != "success" {
+		t.Fatalf("synced transcript retained stale terminal state: %s", data)
 	}
 }
 

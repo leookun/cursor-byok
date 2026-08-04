@@ -61,6 +61,9 @@ func (broker *StreamBroker) OpenStream(requestID string, conversationID string, 
 		if existing.PartialToolCallIDs == nil {
 			existing.PartialToolCallIDs = make(map[string]struct{})
 		}
+		if existing.CompletedToolCallIDs == nil {
+			existing.CompletedToolCallIDs = make(map[string]time.Time)
+		}
 		if existing.PatchEditQueues == nil {
 			existing.PatchEditQueues = make(map[string][]queuedPatchEditOperation)
 		}
@@ -95,6 +98,7 @@ func (broker *StreamBroker) OpenStream(requestID string, conversationID string, 
 		PendingExecs:                  make(map[string]runtimecore.PendingExec),
 		PendingInteractions:           make(map[string]runtimecore.PendingInteraction),
 		PartialToolCallIDs:            make(map[string]struct{}),
+		CompletedToolCallIDs:          make(map[string]time.Time),
 		PatchEditQueues:               make(map[string][]queuedPatchEditOperation),
 		MCPToolServers:                make(map[string]string),
 		RecentCompletedExecs:          make(map[uint32]time.Time),
@@ -385,6 +389,10 @@ func (broker *StreamBroker) Fail(requestID string, terminalCode string, terminal
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	stream.Status = StreamStatusFailed
 	subscriberCount := len(stream.Subscribers)
@@ -410,6 +418,10 @@ func (broker *StreamBroker) Cancel(requestID string, terminalMessage string) err
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	if stream.ProviderCancel != nil {
 		stream.ProviderCancel()

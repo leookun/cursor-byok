@@ -656,17 +656,7 @@ func summarizePatchEditResult(path string, result *agentv1.EditResult) string {
 }
 
 func compactPatchEditHistoryEditResult(path string, result *agentv1.EditResult) *agentv1.EditResult {
-	success := result.GetSuccess()
-	if success == nil {
-		return editResultWithoutPath(result)
-	}
-	return &agentv1.EditResult{
-		Result: &agentv1.EditResult_Success{
-			Success: &agentv1.EditSuccess{
-				Path: firstNonEmpty(success.GetPath(), path),
-			},
-		},
-	}
+	return compactEditHistoryResult(path, result, projectedPatchEditReplayLimit)
 }
 
 func boundedPatchEditDiffString(diffString string) string {

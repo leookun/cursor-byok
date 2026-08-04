@@ -193,6 +193,18 @@ func DefaultModelNudgeMockBuilder(reqCtx *RequestContext) (map[string]any, error
 	return buildDefaultModelNudgeDataPayload(reqCtx)
 }
 
+func UsableModelsMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
+	return buildUsableModelsPayload(reqCtx)
+}
+
+func DefaultModelForCliMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
+	return buildDefaultModelForCliPayload(reqCtx)
+}
+
+func DefaultModelMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
+	return buildDefaultModelPayload(reqCtx)
+}
+
 func BootstrapStatsigMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
 	return buildBootstrapStatsigPayload(reqCtx)
 }
@@ -211,6 +223,18 @@ func DashboardTeamsMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
 
 func DashboardManagedSkillsMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
 	return buildDashboardManagedSkillsPayload(reqCtx)
+}
+
+// EmptyMockBuilder возвращает пустой proto-ответ для ручек, где клиенту
+// достаточно успешного "пусто": нет team-настроек, нет репозиториев,
+// нет маркетплейсов/плагинов/команд, телеметрия принята без обработки.
+func EmptyMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
+// SubmitLogsMockBuilder подтверждает приём логов телеметрии без обработки.
+func SubmitLogsMockBuilder(reqCtx *RequestContext) (map[string]any, error) {
+	return map[string]any{"success": true}, nil
 }
 
 func DashboardGetMeMockBuilder(reqCtx *RequestContext) (map[string]any, error) {

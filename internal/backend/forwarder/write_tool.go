@@ -412,20 +412,7 @@ func summarizeWriteHistoryResult(path string, result *agentv1.EditResult) string
 }
 
 func compactWriteHistoryEditResult(path string, result *agentv1.EditResult) *agentv1.EditResult {
-	if result == nil {
-		return buildEditErrorResult("", "write result missing")
-	}
-	success := result.GetSuccess()
-	if success == nil {
-		return editResultWithoutPath(result)
-	}
-	return &agentv1.EditResult{
-		Result: &agentv1.EditResult_Success{
-			Success: &agentv1.EditSuccess{
-				Path: firstNonEmpty(success.GetPath(), path),
-			},
-		},
-	}
+	return compactEditHistoryResult(path, result, projectedEditReplayLimit)
 }
 
 func boundedWriteDiffString(diffString string) string {
