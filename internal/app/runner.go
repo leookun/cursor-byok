@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"flag"
 	"io/fs"
 	"net"
 	goruntime "runtime"
@@ -14,6 +15,7 @@ import (
 
 	"cursor/internal/ads"
 	"cursor/internal/appdata"
+	"cursor/internal/autostart"
 	serverconfig "cursor/internal/backend/server/config"
 	"cursor/internal/buildinfo"
 	"cursor/internal/cursor"
@@ -66,6 +68,9 @@ func Run(resources EmbeddedResources) error {
 	logger.Init()
 	netproxy.InstallDefaultTransport()
 
+	headless := flag.Bool("headless", false, "启动时不显示窗口，仅在后台运行")
+	flag.Parse()
+
 	embeddedCACertPEM := certs.EmbeddedCACertPEM()
 	logEmbeddedCAInfo(embeddedCACertPEM)
 
@@ -73,6 +78,8 @@ func Run(resources EmbeddedResources) error {
 	if err != nil {
 		return err
 	}
+
+	configStore := serverconfig.NewStore(appdata.ConfigFilePath(), appdata.LogsRootPath())
 
 	defaultBackendBaseURL := "http://" + serverconfig.DefaultBackendListenAddr
 	proxyServer, err := mitm.NewProxyServer(serverconfig.DefaultProxyListenAddr, defaultBackendBaseURL, "", "", certManager)
@@ -86,6 +93,8 @@ func Run(resources EmbeddedResources) error {
 	}
 	metricsService := bridge.NewMetricsService()
 	windowService := bridge.NewWindowService()
+	autoStartManager := autostart.NewManager(configStore, appName)
+	windowService.SetAutoStartManager(autoStartManager)
 	adCore := ads.NewService(ads.Options{
 		StoreRoot:    appdata.AdsRootPath(),
 		HTTPClient:   netproxy.NewHTTPClient(30 * time.Second),
@@ -214,7 +223,7 @@ func Run(resources EmbeddedResources) error {
 		DisableResize:       false,
 		Frameless:           goruntime.GOOS == "windows",
 		URL:                 "/",
-		Hidden:              false,
+		Hidden:              *headless,
 		HideOnEscape:        false,
 		MinimiseButtonState: application.ButtonEnabled,
 		MaximiseButtonState: application.ButtonEnabled,
@@ -369,6 +378,10 @@ func Run(resources EmbeddedResources) error {
 		logger.Infof("应用版本：v%s", buildinfo.CurrentVersion())
 		updateManager.Start()
 		startAdRefreshLoop(adRefreshCtx)
+
+		// 同步自启动状态（确保 OS 条目与配置一致）
+		autoStartManager.SyncOnStartup(app.Context())
+
 		go func() {
 			logger.Infof("application started, begin auto start service in background")
 			if _, err := proxyService.StartProxy(); err != nil {

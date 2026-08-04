@@ -1,14 +1,17 @@
 package bridge
 
 import (
-	"cursor/internal/buildinfo"
-	"cursor/internal/client"
-	"cursor/internal/updater"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	goruntime "runtime"
 	"sync"
+
+	"cursor/internal/autostart"
+	"cursor/internal/buildinfo"
+	"cursor/internal/client"
+	"cursor/internal/updater"
 
 	"github.com/leaanthony/u"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -25,6 +28,7 @@ type modelEditorContext struct {
 type WindowService struct {
 	app               *application.App
 	updater           *updater.Manager
+	autostartManager  *autostart.Manager
 	modelConfigWindow *application.WebviewWindow
 	modelEditorWindow *application.WebviewWindow
 	editorCtx         *modelEditorContext
@@ -48,6 +52,50 @@ func (s *WindowService) SetUpdater(manager *updater.Manager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.updater = manager
+}
+
+// SetAutoStartManager 关联自启动管理器。
+func (s *WindowService) SetAutoStartManager(manager *autostart.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.autostartManager = manager
+}
+
+// AutoStartState 返回自启动状态。
+type AutoStartState struct {
+	AutoStart       bool `json:"autoStart"`
+	AutoStartSilent bool `json:"autoStartSilent"`
+}
+
+// GetAutoStartState 返回当前自启动配置状态。
+func (s *WindowService) GetAutoStartState() (AutoStartState, error) {
+	s.mu.RLock()
+	manager := s.autostartManager
+	s.mu.RUnlock()
+	if manager == nil {
+		return AutoStartState{}, nil
+	}
+	ctx := context.Background()
+	state, err := manager.GetState(ctx)
+	if err != nil {
+		return AutoStartState{}, err
+	}
+	return AutoStartState{
+		AutoStart:       state.AutoStart,
+		AutoStartSilent: state.AutoStartSilent,
+	}, nil
+}
+
+// SetAutoStart 更新自启动配置并同步操作系统自启动条目。
+func (s *WindowService) SetAutoStart(enabled bool, silent bool) error {
+	s.mu.RLock()
+	manager := s.autostartManager
+	s.mu.RUnlock()
+	if manager == nil {
+		return fmt.Errorf("自启动管理器未初始化")
+	}
+	ctx := context.Background()
+	return manager.SetState(ctx, enabled, silent)
 }
 
 // GetAppVersion 返回当前应用版本号。

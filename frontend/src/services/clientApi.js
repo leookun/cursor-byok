@@ -16,6 +16,7 @@ import { GetHomeMetricsSummary } from "@bindings/cursor/internal/bridge/metricss
 import {
   CheckForUpdates,
   GetAppVersion,
+  GetAutoStartState,
   GetFooterAuthorInfo,
   InstallReadyUpdate,
   GetModelEditorContext,
@@ -24,6 +25,7 @@ import {
   OpenHistoryWindow,
   OpenModelConfigWindow,
   OpenModelEditorWindow,
+  SetAutoStart,
 } from "@bindings/cursor/internal/bridge/windowservice.js";
 import { Call } from "@wailsio/runtime";
 
@@ -160,4 +162,12 @@ export function getModelAdapterTestResults() {
   return withApiLogging("GetModelAdapterTestResults", undefined, () =>
     Call.ByName(`${PROXY_SERVICE_NAME}.GetModelAdapterTestResults`),
   );
+}
+
+export function getAutoStartState() {
+  return withApiLogging("GetAutoStartState", undefined, () => GetAutoStartState());
+}
+
+export function setAutoStart(enabled, silent) {
+  return withApiLogging("SetAutoStart", { enabled, silent }, () => SetAutoStart(enabled, silent));
 }

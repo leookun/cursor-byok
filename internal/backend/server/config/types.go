@@ -14,7 +14,6 @@ import (
 const (
 	DefaultBackendListenAddr                = "127.0.0.1:18090"
 	DefaultProxyListenAddr                  = "127.0.0.1:18080"
-	DefaultFrontendBaseURL                  = "http://127.0.0.1"
 	DefaultProviderStreamIdleTimeoutSeconds = 240
 	MinProviderStreamIdleTimeoutSeconds     = 30
 )
@@ -54,6 +53,8 @@ type Config struct {
 	ModelAdapters             []ModelAdapterConfig `json:"modelAdapters" yaml:"modelAdapters"`
 	HomeMetrics               HomeMetricsConfig    `json:"homeMetrics" yaml:"homeMetrics"`
 	LastAgentModelHash        string               `json:"lastAgentModelHash" yaml:"lastAgentModelHash"`
+	AutoStart                 bool                 `json:"autoStart" yaml:"autoStart"`
+	AutoStartSilent           bool                 `json:"autoStartSilent" yaml:"autoStartSilent"`
 }
 
 func DefaultConfig() Config {

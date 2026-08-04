@@ -14,6 +14,7 @@ import {
   openModelConfig,
   openModelEditor,
   saveUserConfig,
+  setAutoStart,
   startProxyService,
   stopProxyService,
   testModelAdapter,
@@ -521,6 +522,8 @@ function normalizeConfig(source) {
       includeCacheWriteInHitRate: asBoolean(homeMetrics.includeCacheWriteInHitRate),
     },
     lastAgentModelHash: asString(raw.lastAgentModelHash),
+    autoStart: asBoolean(raw.autoStart),
+    autoStartSilent: asBoolean(raw.autoStartSilent),
   };
 }
 
@@ -561,6 +564,8 @@ function buildConfigPayload(source = appState) {
     modelAdapters: normalized.modelAdapters.map(({ id, ...adapter }) => adapter),
     homeMetrics: normalized.homeMetrics,
     lastAgentModelHash: normalized.lastAgentModelHash,
+    autoStart: normalized.autoStart,
+    autoStartSilent: normalized.autoStartSilent,
   };
 }
 
@@ -574,6 +579,8 @@ function applyConfigToState(config, { modelAdaptersOnly = false } = {}) {
   appState.configBackendListenAddr = normalized.backendListenAddr;
   appState.configProxyListenAddr = normalized.proxyListenAddr;
   appState.includeCacheWriteInHitRate = normalized.homeMetrics.includeCacheWriteInHitRate;
+  appState.autoStart = normalized.autoStart;
+  appState.autoStartSilent = normalized.autoStartSilent;
   return normalized;
 }
 
@@ -815,6 +822,11 @@ export const appState = reactive({
   netProxyHttps: asString(cachedState.netProxyHttps),
   netProxyPacIgnored: asBoolean(cachedState.netProxyPacIgnored),
   netProxyDescription: asString(cachedState.netProxyDescription),
+
+  autoStart: asBoolean(cachedState.autoStart),
+  autoStartSilent: asBoolean(cachedState.autoStartSilent),
+  autoStartBusy: false,
+  autoStartSilentBusy: false,
 
   configSaving: false,
   homeMetrics: createEmptyHomeMetrics(),
@@ -1106,6 +1118,36 @@ export async function saveIncludeCacheWriteInHitRate(value) {
     appState.includeCacheWriteInHitRate = previousValue;
   }
   return result;
+}
+
+export async function saveAutoStart(enabled, silent) {
+  if (appState.autoStartBusy || appState.autoStartSilentBusy) {
+    return { ok: false, error: "操作中，请稍后再试" };
+  }
+  const previousAutoStart = appState.autoStart;
+  const previousAutoStartSilent = appState.autoStartSilent;
+
+  if (enabled !== previousAutoStart) {
+    appState.autoStartBusy = true;
+  }
+  if (silent !== previousAutoStartSilent) {
+    appState.autoStartSilentBusy = true;
+  }
+  appState.autoStart = enabled;
+  appState.autoStartSilent = silent;
+
+  try {
+    await setAutoStart(enabled, silent);
+    appState.autoStartBusy = false;
+    appState.autoStartSilentBusy = false;
+    return { ok: true, error: "" };
+  } catch (error) {
+    appState.autoStart = previousAutoStart;
+    appState.autoStartSilent = previousAutoStartSilent;
+    appState.autoStartBusy = false;
+    appState.autoStartSilentBusy = false;
+    return { ok: false, error: toUserError(error) };
+  }
 }
 
 export async function reloadUserConfig(options = {}) {

@@ -3,6 +3,7 @@ import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import HomeMetricsCard from "@/components/HomeMetricsCard.vue";
 import CursorAccountCard from "@/components/CursorAccountCard.vue";
+import Switch from "@/components/ui/Switch.vue";
 import { showModal } from "@/composables/useModal";
 import { getAdRuntime } from "@/services/clientApi";
 import {
@@ -10,6 +11,7 @@ import {
   appViewState,
   openConfigWindow,
   openModelConfigWindow,
+  saveAutoStart,
   syncHomeMetrics,
   syncServiceState,
   toUserError,
@@ -123,6 +125,20 @@ async function handleOpenModelConfig() {
   }
 }
 
+async function handleAutoStartChange(enabled) {
+  const result = await saveAutoStart(enabled, appState.autoStartSilent);
+  if (!result.ok) {
+    await showActionError("设置失败", result.error);
+  }
+}
+
+async function handleAutoStartSilentChange(enabled) {
+  const result = await saveAutoStart(appState.autoStart, enabled);
+  if (!result.ok) {
+    await showActionError("设置失败", result.error);
+  }
+}
+
 onMounted(() => {
   unsubscribeAdUpdated = Events.On(AD_UPDATED_EVENT, handleAdUpdated);
   void syncAdRuntimeQuietly();
@@ -182,6 +198,30 @@ onBeforeUnmount(() => {
           <Button variant="default" @click="handleOpenConfig">设置文件夹</Button>
           <Button variant="primary" @click="handleOpenModelConfig">模型配置</Button>
         </div>
+      </div>
+    </Card>
+
+    <Card>
+      <div class="flex flex-col gap-3">
+        <Switch
+          :label="$ls('de38b92ad247d857', '开机自启')"
+          :description="$ls('cec665e12942d471', '登录系统时自动启动 Cursor 助手')"
+          :enabled="appState.autoStart"
+          :busy="appState.autoStartBusy"
+          :enabled-text="$ls('8a4ef3e48e4e8a5a', '已开启')"
+          :disabled-text="$ls('6744b4c6a9aa0038', '已关闭')"
+          @change="handleAutoStartChange"
+        />
+        <Switch
+          v-if="appState.autoStart"
+          :label="$ls('2e92dd4e5797d9e4', '静默后台启动')"
+          :description="$ls('3d63e5048bde6319', '启动时不显示窗口，仅在系统托盘运行')"
+          :enabled="appState.autoStartSilent"
+          :busy="appState.autoStartSilentBusy"
+          :enabled-text="$ls('8a4ef3e48e4e8a5a', '已开启')"
+          :disabled-text="$ls('6744b4c6a9aa0038', '已关闭')"
+          @change="handleAutoStartSilentChange"
+        />
       </div>
     </Card>
   </div>
