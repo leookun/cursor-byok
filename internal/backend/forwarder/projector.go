@@ -620,6 +620,7 @@ func projectCheckpointTurnBlobs(conversation *ConversationFile, blobs *checkpoin
 		var turnRequestID string
 		stepIDs := make([][]byte, 0, len(entries))
 		seenToolCalls := make(map[string]struct{})
+		toolCallStepIndexes := make(map[string]int)
 		openToolCalls := make(map[string]struct{})
 		for _, entry := range entries {
 			if turnRequestID == "" {
@@ -699,6 +700,7 @@ func projectCheckpointTurnBlobs(conversation *ConversationFile, blobs *checkpoin
 				stepIDs = append(stepIDs, stepID)
 				if toolCallID := strings.TrimSpace(payload.ToolCallID); toolCallID != "" {
 					seenToolCalls[toolCallID] = struct{}{}
+					toolCallStepIndexes[toolCallID] = len(stepIDs) - 1
 					openToolCalls[toolCallID] = struct{}{}
 				}
 			case "tool_result":
@@ -706,11 +708,27 @@ func projectCheckpointTurnBlobs(conversation *ConversationFile, blobs *checkpoin
 				if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 					return nil, err
 				}
-				if toolCallID := strings.TrimSpace(payload.ToolCallID); toolCallID != "" {
-					if _, ok := seenToolCalls[toolCallID]; ok {
-						delete(openToolCalls, toolCallID)
+				toolCallID := strings.TrimSpace(payload.ToolCallID)
+				if toolCallStepIndex, found := toolCallStepIndexes[toolCallID]; found {
+					delete(openToolCalls, toolCallID)
+					if len(payload.ToolCall) == 0 {
 						continue
 					}
+					toolCall := &agentv1.ToolCall{}
+					if err := protojson.Unmarshal(payload.ToolCall, toolCall); err != nil {
+						return nil, err
+					}
+					if !shouldPersistToolResultName(firstNonEmpty(strings.TrimSpace(payload.ToolName), inferToolName(toolCall))) {
+						continue
+					}
+					stepID, err := addCheckpointStepBlob(blobs, &agentv1.ConversationStep{
+						Message: &agentv1.ConversationStep_ToolCall{ToolCall: toolCall},
+					})
+					if err != nil {
+						return nil, err
+					}
+					stepIDs[toolCallStepIndex] = stepID
+					continue
 				}
 				if strings.TrimSpace(payload.ReasoningContent) != "" {
 					stepID, err := addCheckpointStepBlob(blobs, &agentv1.ConversationStep{

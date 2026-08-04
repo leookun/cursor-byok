@@ -79,6 +79,69 @@ func TestProjectCheckpointProjectionBuildsBlobBackedTurns(t *testing.T) {
 	}
 }
 
+func TestCheckpointReloadPreservesCompletedEditWhileTurnContinues(t *testing.T) {
+	startedToolCall := testEditToolCall(t, "file.txt")
+	completedToolCall, err := protojson.Marshal(&agentv1.ToolCall{
+		Tool: &agentv1.ToolCall_EditToolCall{
+			EditToolCall: &agentv1.EditToolCall{
+				Args: &agentv1.EditArgs{Path: "file.txt"},
+				Result: buildSuccessfulEditResult("file.txt", "before", "after", "@@ -1 +1 @@\n-before\n+after\n", 1, 1, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal completed edit tool call: %v", err)
+	}
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(testConversation([]HistoryEntry{
+		testUserMessageEntry(t, 1, "request-1", "edit the file and continue"),
+		newToolCallEntry(1, "request-1", "edit-1", "PatchEdit", "", "", startedToolCall),
+		newToolResultEntry(1, "request-1", "edit-1", "PatchEdit", `{"path":"file.txt"}`, "edited", "", completedToolCall),
+		newAssistantTextEntry(1, "request-1", "continuing with the next task", "", ""),
+	}))
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	completed := checkpointEditToolCall(t, projection)
+	if completed.GetResult().GetSuccess() == nil {
+		t.Fatalf("reload checkpoint edit result = %#v, want completed success", completed.GetResult())
+	}
+	if completed.GetResult().GetSuccess().GetAfterFullFileContent() != "after" {
+		t.Fatalf("reload checkpoint after content = %q, want %q", completed.GetResult().GetSuccess().GetAfterFullFileContent(), "after")
+	}
+	if completed.GetResult().GetSuccess().GetBeforeFullFileContent() != "before" || completed.GetResult().GetSuccess().GetDiffString() == "" || completed.GetResult().GetSuccess().GetLinesAdded() != 1 || completed.GetResult().GetSuccess().GetLinesRemoved() != 1 {
+		t.Fatalf("reload checkpoint diff = %#v, want preserved visible diff", completed.GetResult().GetSuccess())
+	}
+}
+
+func checkpointEditToolCall(t *testing.T, projection *CheckpointProjection) *agentv1.EditToolCall {
+	t.Helper()
+	if projection == nil || projection.State == nil {
+		t.Fatal("checkpoint projection is nil")
+	}
+	blobByID := make(map[string][]byte, len(projection.Blobs))
+	for _, blob := range projection.Blobs {
+		blobByID[string(blob.ID)] = blob.Data
+	}
+	for _, turnID := range projection.State.GetTurns() {
+		turnData := blobByID[string(turnID)]
+		turn := &agentv1.ConversationTurnStructure{}
+		if err := proto.Unmarshal(turnData, turn); err != nil {
+			t.Fatalf("decode turn blob: %v", err)
+		}
+		for _, stepID := range turn.GetAgentConversationTurn().GetSteps() {
+			step := &agentv1.ConversationStep{}
+			if err := proto.Unmarshal(blobByID[string(stepID)], step); err != nil {
+				t.Fatalf("decode step blob: %v", err)
+			}
+			if edit := step.GetToolCall().GetEditToolCall(); edit != nil {
+				return edit
+			}
+		}
+	}
+	t.Fatal("checkpoint did not include edit tool call")
+	return nil
+}
+
 func TestProjectLegacyCheckpointLargeModelHistoryUsesRootReplay(t *testing.T) {
 	entries := make([]HistoryEntry, 0, 400)
 	for turn := int64(1); turn <= 200; turn++ {
