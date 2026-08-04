@@ -76,37 +76,33 @@ func projectCursorTranscriptJSONLWithLatestStatus(conversation *ConversationFile
 		return nil, nil
 	}
 	lines := make([]cursorTranscriptLine, 0, len(conversation.Entries))
-	maxTurnSeq := int64(0)
-	for _, entry := range conversation.Entries {
-		if entry.TurnSeq > maxTurnSeq {
-			maxTurnSeq = entry.TurnSeq
-		}
-	}
-	currentTurnSeq := int64(0)
 	pendingTurnStatus := cursorTranscriptLine{}
+	hasProjectedUserTurn := false
 	flushTurnStatus := func() {
-		if currentTurnSeq > 0 && (includeLatestStatus || currentTurnSeq < maxTurnSeq) && pendingTurnStatus.Type != "" {
+		if hasProjectedUserTurn && pendingTurnStatus.Type != "" {
 			lines = append(lines, pendingTurnStatus)
 		}
 		pendingTurnStatus = cursorTranscriptLine{}
 	}
 	for _, entry := range conversation.Entries {
-		if entry.TurnSeq > 0 && entry.TurnSeq != currentTurnSeq {
-			flushTurnStatus()
-			currentTurnSeq = entry.TurnSeq
-		}
 		projected, ok, err := projectCursorTranscriptEntry(entry)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
+			if strings.TrimSpace(entry.Kind) == "user_message" {
+				flushTurnStatus()
+				hasProjectedUserTurn = true
+			}
 			lines = append(lines, projected)
 		}
 		if status, ok := cursorTranscriptTurnStatus(entry); ok {
 			pendingTurnStatus = status
 		}
 	}
-	flushTurnStatus()
+	if includeLatestStatus {
+		flushTurnStatus()
+	}
 
 	if len(lines) == 0 {
 		return nil, nil

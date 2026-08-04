@@ -60,6 +60,37 @@ func TestProjectCursorTranscriptJSONLMatchesCursorContract(t *testing.T) {
 	}
 }
 
+func TestProjectCursorTranscriptJSONLCoalescesContinuationRuns(t *testing.T) {
+	conversation := transcriptTestConversation([]HistoryEntry{
+		transcriptTestUserMessageEntry(t, 1, "request-1", "fix the filter"),
+		newAssistantTextEntry(1, "request-1", "I found the cause.", "", ""),
+		newMetadataEntry(1, "request-1", "turn_completed", nil),
+		newAssistantTextEntry(2, "request-2", "The regression is fixed.", "", ""),
+		newMetadataEntry(2, "request-2", "turn_completed", nil),
+	})
+
+	data, err := projectCursorTranscriptJSONLWithLatestStatus(conversation, true)
+	if err != nil {
+		t.Fatalf("projectCursorTranscriptJSONLWithLatestStatus() error = %v", err)
+	}
+	lines := decodeCursorTranscriptLines(t, data)
+	if len(lines) != 4 {
+		t.Fatalf("transcript lines = %d, want 4\n%s", len(lines), data)
+	}
+	if lines[0].Role != "user" || transcriptLineText(lines[0]) != "fix the filter" {
+		t.Fatalf("user line = %#v", lines[0])
+	}
+	if lines[1].Role != "assistant" || transcriptLineText(lines[1]) != "I found the cause." {
+		t.Fatalf("first assistant line = %#v", lines[1])
+	}
+	if lines[2].Role != "assistant" || transcriptLineText(lines[2]) != "The regression is fixed." {
+		t.Fatalf("continuation assistant line = %#v", lines[2])
+	}
+	if lines[3].Type != "turn_ended" || lines[3].Status != "success" {
+		t.Fatalf("terminal line = %#v", lines[3])
+	}
+}
+
 func TestProjectCursorTranscriptJSONLKeepsSharedReasoningOnOnlyOneTool(t *testing.T) {
 	firstTool := transcriptTestEditToolCall(t, "first.txt")
 	secondTool := transcriptTestEditToolCall(t, "second.txt")
