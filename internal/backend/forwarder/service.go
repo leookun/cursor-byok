@@ -857,8 +857,14 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 	stream.CurrentCompactionToken++
 	stream.PendingProviderAction = providerActionNone
 	stream.PendingCompaction = nil
+	stream.PatchEditQueues = make(map[string][]queuedPatchEditOperation)
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
+	for _, pending := range pendingExecs {
+		if err := service.completePendingEditAfterCancel(stream, pending); err != nil {
+			return err
+		}
+	}
 	if hasCheckpoint {
 		cancelReason := firstNonEmpty(intent.CancelReason, "user aborted")
 		cancelEntry := newMetadataEntry(stream.TurnSeq, intent.RequestID, "control", map[string]any{
@@ -897,6 +903,32 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 		return nil
 	}
 	return service.finishCanceledTurnAfterCheckpoint(stream, terminalMessage)
+}
+
+func (service *Service) completePendingEditAfterCancel(stream *ActiveStream, pending runtimecore.PendingExec) error {
+	if stream == nil || (!isHiddenWriteExecKind(pending.ExecKind) && !isHiddenPatchEditExecKind(pending.ExecKind)) {
+		return nil
+	}
+	if isHiddenPatchEditExecKind(pending.ExecKind) {
+		payload, err := decodePendingPatchEditPayload(pending.ArgsJSON)
+		if err != nil {
+			return err
+		}
+		markExecCompleted(stream, pending)
+		if strings.TrimSpace(pending.ExecKind) == patchEditPostReadExecKindName {
+			return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildFinalEditSuccessResult(payload.ResolvedPath, payload.AfterContent, patchEditPayloadAsEditPayload(payload)))
+		}
+		return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildEditErrorResult(payload.ResolvedPath, "PatchEdit canceled before terminal result arrived"))
+	}
+	payload, err := decodePendingWritePayload(pending.ArgsJSON)
+	if err != nil {
+		return err
+	}
+	markExecCompleted(stream, pending)
+	if strings.TrimSpace(pending.ExecKind) == writePostReadExecKind {
+		return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildSuccessfulWriteResult(payload.ResolvedPath, payload.BeforeContent, payload.AfterContent))
+	}
+	return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildEditErrorResult(payload.ResolvedPath, "Write canceled before terminal result arrived"))
 }
 
 // handleExecResult 处理客户端返回的执行桥结果，并在终态时把 tool_result 写回 history。
@@ -1685,6 +1717,14 @@ func (service *Service) handleToolInvocation(stream *ActiveStream, invocation ru
 	invocation = service.rewriteDirectMCPToolInvocation(stream, invocation)
 	invocation = service.normalizeCallMCPToolInvocation(stream, invocation)
 	trimmedToolName := strings.TrimSpace(invocation.ToolName)
+	if completedToolCall(stream, invocation.CallID) {
+		service.debug.LogRuntime(context.Background(), stream.RequestID, stream.ConversationID, "tool_lifecycle_late_invocation_ignored", map[string]any{
+			"tool_call_id": strings.TrimSpace(invocation.CallID),
+			"tool_name":    trimmedToolName,
+			"model_call_id": strings.TrimSpace(invocation.ModelCallID),
+		})
+		return nil
+	}
 	stream.mu.Lock()
 	mode := stream.Mode
 	subagentTypeName := ""
@@ -1982,12 +2022,41 @@ func toolResultReasoningFallback(stream *ActiveStream, toolCallID string, reason
 }
 
 func (service *Service) publishToolCallCompleted(requestID string, toolCallID string, modelCallID string, toolCall *agentv1.ToolCall) error {
-	if strings.TrimSpace(requestID) == "" || strings.TrimSpace(toolCallID) == "" {
+	trimmedRequestID := strings.TrimSpace(requestID)
+	trimmedToolCallID := strings.TrimSpace(toolCallID)
+	if trimmedRequestID == "" || trimmedToolCallID == "" {
 		return nil
 	}
-	return service.broker.Publish(requestID, StreamEvent{
-		Message: buildToolCallCompletedMessage(toolCallID, modelCallID, toolCall),
+	stream, found := service.broker.Get(trimmedRequestID)
+	if found && stream != nil {
+		stream.mu.Lock()
+		if stream.CompletedToolCallIDs == nil {
+			stream.CompletedToolCallIDs = make(map[string]time.Time)
+		}
+		stream.CompletedToolCallIDs[trimmedToolCallID] = time.Now().UTC()
+		stream.UpdatedAt = time.Now().UTC()
+		conversationID := stream.ConversationID
+		stream.mu.Unlock()
+		service.debug.LogRuntime(context.Background(), trimmedRequestID, conversationID, "tool_lifecycle_completed", map[string]any{
+			"tool_call_id": trimmedToolCallID,
+			"model_call_id": strings.TrimSpace(modelCallID),
+			"tool_name":    inferToolName(toolCall),
+		})
+	}
+	return service.broker.Publish(trimmedRequestID, StreamEvent{
+		Message: buildToolCallCompletedMessage(trimmedToolCallID, modelCallID, toolCall),
 	})
+}
+
+func completedToolCall(stream *ActiveStream, toolCallID string) bool {
+	trimmedToolCallID := strings.TrimSpace(toolCallID)
+	if stream == nil || trimmedToolCallID == "" {
+		return false
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	_, completed := stream.CompletedToolCallIDs[trimmedToolCallID]
+	return completed
 }
 
 func (service *Service) applyExecProgress(stream *ActiveStream, pending runtimecore.PendingExec, message *agentv1.ExecClientMessage) runtimecore.PendingExec {

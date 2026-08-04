@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -573,6 +574,10 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 		if toolCallID == "" || event.ToolCall == nil {
 			return nil
 		}
+		if completedToolCall(stream, toolCallID) {
+			service.logLateToolLifecycleEvent(stream, "partial", toolCallID, modelCallID, inferToolName(event.ToolCall))
+			return nil
+		}
 		displayToolCall := service.rewriteTaskToolCallModelForDisplay(stream, event.ToolCall)
 		stream.mu.Lock()
 		if stream.PartialToolCallIDs == nil {
@@ -581,6 +586,7 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 		stream.PartialToolCallIDs[toolCallID] = struct{}{}
 		stream.UpdatedAt = time.Now().UTC()
 		stream.mu.Unlock()
+		service.logToolLifecycleEvent(stream, "partial_forwarded", toolCallID, modelCallID, inferToolName(displayToolCall))
 		if inferToolName(displayToolCall) == "GenerateImage" {
 			return service.broker.Publish(requestID, StreamEvent{
 				Message: buildToolCallStartedMessage(toolCallID, modelCallID, displayToolCall),
@@ -590,11 +596,17 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 			Message: buildPartialToolCallMessage(toolCallID, modelCallID, displayToolCall, event.ArgsTextDelta),
 		})
 	case modeladapter.ModelEventKindToolCallDelta:
-		if strings.TrimSpace(event.ToolCallID) == "" || event.ToolCallDelta == nil {
+		toolCallID := strings.TrimSpace(event.ToolCallID)
+		if toolCallID == "" || event.ToolCallDelta == nil {
 			return nil
 		}
+		if completedToolCall(stream, toolCallID) {
+			service.logLateToolLifecycleEvent(stream, "delta", toolCallID, modelCallID, "")
+			return nil
+		}
+		service.logToolLifecycleEvent(stream, "delta_forwarded", toolCallID, modelCallID, "")
 		return service.broker.Publish(requestID, StreamEvent{
-			Message: buildToolCallDeltaMessage(event.ToolCallID, modelCallID, event.ToolCallDelta),
+			Message: buildToolCallDeltaMessage(toolCallID, modelCallID, event.ToolCallDelta),
 		})
 	case modeladapter.ModelEventKindToolLikeCompleted:
 		textForTool, reasoningForTool := takeProviderOutputForTool(stream)
@@ -641,6 +653,29 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 	default:
 		return nil
 	}
+}
+
+func (service *Service) logToolLifecycleEvent(stream *ActiveStream, eventName string, toolCallID string, modelCallID string, toolName string) {
+	if service == nil || stream == nil {
+		return
+	}
+	service.debug.LogRuntime(context.Background(), stream.RequestID, stream.ConversationID, "tool_lifecycle_"+strings.TrimSpace(eventName), map[string]any{
+		"tool_call_id":  strings.TrimSpace(toolCallID),
+		"model_call_id": strings.TrimSpace(modelCallID),
+		"tool_name":     strings.TrimSpace(toolName),
+	})
+}
+
+func (service *Service) logLateToolLifecycleEvent(stream *ActiveStream, eventType string, toolCallID string, modelCallID string, toolName string) {
+	if service == nil || stream == nil {
+		return
+	}
+	service.debug.LogRuntime(context.Background(), stream.RequestID, stream.ConversationID, "tool_lifecycle_late_event_ignored", map[string]any{
+		"event_type":    strings.TrimSpace(eventType),
+		"tool_call_id":  strings.TrimSpace(toolCallID),
+		"model_call_id": strings.TrimSpace(modelCallID),
+		"tool_name":     strings.TrimSpace(toolName),
+	})
 }
 
 func (service *Service) rewriteTaskToolCallModelForDisplay(stream *ActiveStream, toolCall *agentv1.ToolCall) *agentv1.ToolCall {
