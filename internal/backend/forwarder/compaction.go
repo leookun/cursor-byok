@@ -446,16 +446,10 @@ func (service *Service) handleCompactionEvent(stream *ActiveStream, payload *str
 		if err := service.completeManualCompactionTurn(stream); err != nil {
 			return service.failStream(stream, "unknown", err)
 		}
-		if err := service.broker.Publish(stream.RequestID, StreamEvent{
-			Message: buildTurnEndedMessage(0, 0, 0, 0),
-		}); err != nil {
-			return service.failStream(stream, "unknown", err)
-		}
-		if err := service.broker.Complete(stream.RequestID, "", ""); err != nil {
-			return service.failStream(stream, "unknown", err)
-		}
-		service.setTurnPhase(stream, TurnPhaseCompleted)
-		return nil
+		return service.finishSuccessfulTurnAfterCheckpoint(stream, pendingTurnCompletion{
+			RequestID: stream.RequestID,
+			Usage:     turnUsageSnapshot{},
+		})
 	}
 	return service.requestProviderAction(stream, providerActionResume)
 }
@@ -499,12 +493,10 @@ func (service *Service) finishManualCompactionNoop(stream *ActiveStream) error {
 	if err := service.completeManualCompactionTurn(stream); err != nil {
 		return err
 	}
-	if err := service.broker.Publish(stream.RequestID, StreamEvent{
-		Message: buildTurnEndedMessage(0, 0, 0, 0),
-	}); err != nil {
-		return err
-	}
-	return service.broker.Complete(stream.RequestID, "", "")
+	return service.finishSuccessfulTurnAfterCheckpoint(stream, pendingTurnCompletion{
+		RequestID: stream.RequestID,
+		Usage:     turnUsageSnapshot{},
+	})
 }
 
 func (service *Service) completeManualCompactionTurn(stream *ActiveStream) error {

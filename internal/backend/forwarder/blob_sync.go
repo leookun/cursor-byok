@@ -353,6 +353,9 @@ func (service *Service) finishCanceledTurnAfterCheckpoint(stream *ActiveStream, 
 	if stream == nil {
 		return nil
 	}
+	if !claimTerminalEvent(stream) {
+		return nil
+	}
 	service.setTurnPhase(stream, TurnPhaseCanceled)
 	return service.broker.Cancel(stream.RequestID, firstNonEmpty(strings.TrimSpace(message), "[canceled] User aborted request"))
 }

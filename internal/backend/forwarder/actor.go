@@ -1111,6 +1111,20 @@ func (service *Service) setTurnPhase(stream *ActiveStream, phase TurnPhase) {
 	stream.mu.Unlock()
 }
 
+func claimTerminalEvent(stream *ActiveStream) bool {
+	if stream == nil {
+		return false
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.TerminalActionClaimed || isTerminalStreamStatus(stream.Status) {
+		return false
+	}
+	stream.TerminalActionClaimed = true
+	stream.UpdatedAt = time.Now().UTC()
+	return true
+}
+
 func rememberPendingProviderCompletion(stream *ActiveStream, completion pendingTurnCompletion) {
 	if stream == nil {
 		return

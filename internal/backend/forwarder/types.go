@@ -135,6 +135,7 @@ type ActiveStream struct {
 	LatestUserText         string
 	ManualCompaction       manualCompactionDirective
 	Status                 StreamStatus
+	TerminalActionClaimed  bool
 	ThinkingEffort         string
 	SubagentModelOverrides map[string]runtimecore.SubagentModelOverrideSelection
 

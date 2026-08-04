@@ -385,6 +385,10 @@ func (broker *StreamBroker) Fail(requestID string, terminalCode string, terminal
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	stream.Status = StreamStatusFailed
 	subscriberCount := len(stream.Subscribers)
@@ -410,6 +414,10 @@ func (broker *StreamBroker) Cancel(requestID string, terminalMessage string) err
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	if stream.ProviderCancel != nil {
 		stream.ProviderCancel()
