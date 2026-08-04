@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -316,6 +317,44 @@ func hiddenEditCompletionCount(stream *ActiveStream, toolCallID string) int {
 		}
 	}
 	return count
+}
+
+func TestComputeEditDiffCountsNewFileLines(t *testing.T) {
+	lines := make([]string, 102)
+	for index := range lines {
+		lines[index] = fmt.Sprintf("line-%03d", index+1)
+	}
+	content := strings.Join(lines, "\n") + "\n"
+
+	diffString, linesAdded, linesRemoved := computeEditDiff("", content)
+	if linesAdded != 102 || linesRemoved != 0 {
+		t.Fatalf("new file diff lines = (+%d, -%d), want (+102, -0)", linesAdded, linesRemoved)
+	}
+	if diffString == "" {
+		t.Fatal("new file diff string is empty")
+	}
+
+	result := buildSuccessfulWriteResult(`C:\\workspace\\new.go`, "", content)
+	success := result.GetSuccess()
+	if success == nil {
+		t.Fatal("new file result is not an edit success")
+	}
+	if success.GetLinesAdded() != linesAdded || success.GetLinesRemoved() != linesRemoved || success.GetDiffString() != diffString {
+		t.Fatalf("new file result diff = (%q, +%d, -%d), want (%q, +%d, -%d)", success.GetDiffString(), success.GetLinesAdded(), success.GetLinesRemoved(), diffString, linesAdded, linesRemoved)
+	}
+}
+
+func TestHiddenEditCancelCompletesVisiblePostReadEdit(t *testing.T) {
+	for _, tool := range hiddenEditLifecycleTools() {
+		t.Run(tool.name, func(t *testing.T) {
+			service, stream, pending := testHiddenEditControlFixture(t, tool.execKinds[2], tool.marshalState)
+			if err := service.handleCancelIntent(InboundIntent{Kind: "cancel", RequestID: stream.RequestID}); err != nil {
+				t.Fatalf("handleCancelIntent() error = %v", err)
+			}
+			assertHiddenEditPending(t, stream, pending.ExecID, false)
+			assertHiddenEditSuccessDiff(t, stream, pending.ToolCallID, `C:\\workspace\\file.go`, "before", "after")
+		})
+	}
 }
 
 func TestHiddenEditCheckpointReplayDoesNotReopenEditingUI(t *testing.T) {
