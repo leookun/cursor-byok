@@ -40,6 +40,7 @@ type ConversationFile struct {
 	CurrentPlans                    map[string]*agentv1.PlanRegistryEntry `json:"current_plans,omitempty"`
 	CurrentTodos                    []*agentv1.TodoItem                   `json:"current_todos,omitempty"`
 	ImportedTurnIDs                 [][]byte                              `json:"imported_turn_ids,omitempty"`
+	ImportedBlobs                   importedBlobStore                     `json:"-"`
 	LatestRequestPrefix             *ConversationRequestPrefix            `json:"latest_request_prefix,omitempty"`
 	LastProviderCall                *ConversationProviderCall             `json:"last_provider_call,omitempty"`
 	CreatedAt                       time.Time                             `json:"created_at"`

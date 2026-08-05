@@ -57,8 +57,17 @@ func (service *Service) importConversationState(item *ConversationFile, state *a
 	if err != nil {
 		return nil, err
 	}
+	originalImportedIDs := cloneByteSlices(importedIDs)
+	importedIDs, importedBlobs, err := reachableImportedBlobs(importedIDs, blobs)
+	if err != nil {
+		return nil, err
+	}
+	if len(importedIDs) == 0 && len(originalImportedIDs) > 0 {
+		importedIDs = originalImportedIDs
+	}
 	item.TokenDetailsUsedTokens = state.GetTokenDetails().GetUsedTokens()
 	item.ImportedTurnIDs = importedIDs
+	item.ImportedBlobs = importedBlobs
 	if minimumNextTurnSeq := int64(len(item.ImportedTurnIDs)) + 1; item.NextTurnSeq < minimumNextTurnSeq {
 		item.NextTurnSeq = minimumNextTurnSeq
 	}

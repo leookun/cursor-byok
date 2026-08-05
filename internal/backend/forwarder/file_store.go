@@ -3,6 +3,8 @@ package forwarder
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,12 +18,15 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"cursor/gen/agentv1"
 )
 
 const (
 	conversationStateFileName          = "state.json"
 	conversationContextFileName        = "context.json"
+	conversationImportedBlobsDirName   = "imported-blobs"
 	conversationSchemaVersion          = 1
 	conversationLockStaleAfter         = 30 * time.Minute
 	legacyConversationLockStaleAfter   = 30 * time.Second
@@ -412,6 +417,18 @@ func (store *ConversationFileStore) readConversationLocked(conversationID string
 		return nil, err
 	}
 	conversation.Entries = context
+	originalImportedTurnIDs := cloneByteSlices(conversation.ImportedTurnIDs)
+	conversation.ImportedBlobs, err = store.readImportedBlobsLocked(conversationID, conversation.ImportedTurnIDs)
+	if err != nil {
+		return nil, err
+	}
+	conversation.ImportedTurnIDs, conversation.ImportedBlobs, err = reachableImportedBlobs(conversation.ImportedTurnIDs, conversation.ImportedBlobs)
+	if err != nil {
+		return nil, err
+	}
+	if len(conversation.ImportedTurnIDs) == 0 && len(originalImportedTurnIDs) > 0 {
+		conversation.ImportedTurnIDs = originalImportedTurnIDs
+	}
 	normalizeLoadedConversation(conversationID, &conversation)
 	return &conversation, nil
 }
@@ -431,11 +448,119 @@ func (store *ConversationFileStore) readContextLocked(conversationID string) ([]
 	return append([]HistoryEntry(nil), context.Items...), nil
 }
 
+func (store *ConversationFileStore) readImportedBlobsLocked(conversationID string, turnIDs [][]byte) (importedBlobStore, error) {
+	if len(turnIDs) == 0 {
+		return nil, nil
+	}
+	type queuedBlob struct {
+		id     []byte
+		isTurn bool
+	}
+	blobs := make(importedBlobStore)
+	queue := make([]queuedBlob, 0, len(turnIDs))
+	for _, turnID := range turnIDs {
+		queue = append(queue, queuedBlob{id: append([]byte(nil), turnID...), isTurn: true})
+	}
+	seen := make(map[string]struct{})
+	for len(queue) > 0 {
+		item := queue[0]
+		queue = queue[1:]
+		id := item.id
+		if len(id) != sha256.Size {
+			continue
+		}
+		key := string(id)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		data, err := os.ReadFile(store.importedBlobPath(conversationID, id))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("read imported blob %x: %w", id, err)
+		}
+		digest := sha256.Sum256(data)
+		if string(digest[:]) != key {
+			return nil, fmt.Errorf("imported blob %x failed SHA-256 validation", id)
+		}
+		blobs[key] = data
+		if !item.isTurn {
+			continue
+		}
+		turn := &agentv1.ConversationTurnStructure{}
+		if err := proto.Unmarshal(data, turn); err == nil && turn.GetAgentConversationTurn() != nil {
+			agentTurn := turn.GetAgentConversationTurn()
+			queue = append(queue, queuedBlob{id: append([]byte(nil), agentTurn.GetUserMessage()...)})
+			for _, stepID := range agentTurn.GetSteps() {
+				queue = append(queue, queuedBlob{id: append([]byte(nil), stepID...)})
+			}
+		}
+	}
+	return blobs, nil
+}
+
+func (store *ConversationFileStore) writeImportedBlobsLocked(conversationID string, conversation *ConversationFile) error {
+	if conversation == nil {
+		return nil
+	}
+	originalTurnIDs := cloneByteSlices(conversation.ImportedTurnIDs)
+	ids, blobs, err := reachableImportedBlobs(conversation.ImportedTurnIDs, conversation.ImportedBlobs)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 && len(originalTurnIDs) > 0 {
+		conversation.ImportedTurnIDs = originalTurnIDs
+		conversation.ImportedBlobs = nil
+		return nil
+	}
+	conversation.ImportedTurnIDs = ids
+	conversation.ImportedBlobs = blobs
+	blobsDir := store.importedBlobsDir(conversationID)
+	if len(blobs) == 0 {
+		if err := os.RemoveAll(blobsDir); err != nil {
+			return fmt.Errorf("remove imported blobs directory: %w", err)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(blobsDir, 0o755); err != nil {
+		return fmt.Errorf("create imported blobs directory: %w", err)
+	}
+	for key, data := range blobs {
+		if err := writeBytesFileAtomic(store.importedBlobPath(conversationID, []byte(key)), data); err != nil {
+			return fmt.Errorf("write imported blob %x: %w", []byte(key), err)
+		}
+	}
+	entries, err := os.ReadDir(blobsDir)
+	if err != nil {
+		return fmt.Errorf("scan imported blobs directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		id, err := hex.DecodeString(entry.Name())
+		if err == nil {
+			if _, reachable := blobs[string(id)]; reachable {
+				continue
+			}
+		}
+		if err := os.Remove(filepath.Join(blobsDir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove unreachable imported blob %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
 func (store *ConversationFileStore) writeConversationLocked(conversationID string, conversation *ConversationFile) error {
 	if conversation == nil {
 		return fmt.Errorf("conversation is nil")
 	}
 	normalizeLoadedConversation(conversationID, conversation)
+	if err := store.writeImportedBlobsLocked(conversationID, conversation); err != nil {
+		return err
+	}
 	if err := store.writeContextLocked(conversationID, conversation); err != nil {
 		return err
 	}
@@ -680,6 +805,14 @@ func (store *ConversationFileStore) contextPath(conversationID string) string {
 	return filepath.Join(store.conversationDir(conversationID), conversationContextFileName)
 }
 
+func (store *ConversationFileStore) importedBlobsDir(conversationID string) string {
+	return filepath.Join(store.conversationDir(conversationID), conversationImportedBlobsDirName)
+}
+
+func (store *ConversationFileStore) importedBlobPath(conversationID string, id []byte) string {
+	return filepath.Join(store.importedBlobsDir(conversationID), hex.EncodeToString(id))
+}
+
 func (store *ConversationFileStore) lockPath(conversationID string) string {
 	return filepath.Join(store.conversationDir(conversationID), "conversation.lock")
 }
@@ -751,6 +884,7 @@ func mergeConversationMetadata(target *ConversationFile, source *ConversationFil
 	target.CurrentPlans = clonePlanRegistryEntries(source.CurrentPlans)
 	target.CurrentTodos = cloneTodoItems(source.CurrentTodos)
 	target.ImportedTurnIDs = cloneByteSlices(source.ImportedTurnIDs)
+	target.ImportedBlobs = source.ImportedBlobs.clone()
 	target.LatestRequestPrefix = cloneConversationRequestPrefix(source.LatestRequestPrefix)
 	target.LastProviderCall = cloneConversationProviderCall(source.LastProviderCall)
 	if !source.CreatedAt.IsZero() && (target.CreatedAt.IsZero() || source.CreatedAt.Before(target.CreatedAt)) {
@@ -829,6 +963,34 @@ func validateConversationID(conversationID string) (string, error) {
 	return normalized, nil
 }
 
+func writeBytesFileAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create parent directory: %w", err)
+	}
+	file, tempPath, err := openUniqueArtifactTempFile(path)
+	if err != nil {
+		return fmt.Errorf("open temp file: %w", err)
+	}
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := renameArtifactTempFile(tempPath, path); err != nil {
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	renamed = true
+	return syncDirectory(filepath.Dir(path))
+}
+
 func writeJSONFileAtomic(path string, payload any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create parent directory: %w", err)
@@ -884,6 +1046,7 @@ func cloneConversationFile(conversation *ConversationFile) *ConversationFile {
 	cloned.CurrentPlans = clonePlanRegistryEntries(conversation.CurrentPlans)
 	cloned.CurrentTodos = cloneTodoItems(conversation.CurrentTodos)
 	cloned.ImportedTurnIDs = cloneByteSlices(conversation.ImportedTurnIDs)
+	cloned.ImportedBlobs = conversation.ImportedBlobs.clone()
 	cloned.LatestRequestPrefix = cloneConversationRequestPrefix(conversation.LatestRequestPrefix)
 	cloned.LastProviderCall = cloneConversationProviderCall(conversation.LastProviderCall)
 	cloned.Entries = append([]HistoryEntry(nil), conversation.Entries...)

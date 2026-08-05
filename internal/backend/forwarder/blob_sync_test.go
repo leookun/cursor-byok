@@ -501,7 +501,7 @@ func rejectCheckpointBlob(service *Service, stream *ActiveStream, requestID uint
 	})
 }
 
-func TestImportedTurnIDsRemainCheckpointPrefix(t *testing.T) {
+func TestDanglingImportedTurnIDIsNotPublished(t *testing.T) {
 	importedID := make([]byte, 32)
 	for index := range importedID {
 		importedID[index] = byte(index + 1)
@@ -514,12 +514,13 @@ func TestImportedTurnIDsRemainCheckpointPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
 	}
-	if len(projection.State.GetTurns()) != 2 {
-		t.Fatalf("turns = %d, want imported prefix plus projected turn", len(projection.State.GetTurns()))
+	if len(projection.State.GetTurns()) != 1 {
+		t.Fatalf("turns = %d, want only locally projected turn", len(projection.State.GetTurns()))
 	}
-	if string(projection.State.GetTurns()[0]) != string(importedID) {
-		t.Fatal("imported turn ID was not preserved as the checkpoint prefix")
+	if string(projection.State.GetTurns()[0]) == string(importedID) {
+		t.Fatal("checkpoint published unresolved imported turn ID")
 	}
+	assertCheckpointBlobGraph(t, projection)
 }
 
 func testCheckpointBlobService(t *testing.T) (*Service, *ActiveStream) {

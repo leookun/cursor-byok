@@ -225,6 +225,7 @@ func (service *Service) applyRunRewindToConversation(conversation *ConversationF
 	conversation.NextEntrySeq = 1
 	conversation.NextTurnSeq = 1
 	conversation.ImportedTurnIDs = rewindImportedTurnPrefix(conversation.ImportedTurnIDs, decision)
+	_, conversation.ImportedBlobs, _ = reachableImportedBlobs(conversation.ImportedTurnIDs, conversation.ImportedBlobs)
 	appendEntriesInPlace(conversation, appendReplacementRunEntries(decision.PrefixEntries, entries))
 	applyRunRewindConversationState(conversation, intent, turnSeq)
 	deriveConversationLoopState(conversation)
@@ -276,6 +277,7 @@ func applyRunRewindMetadata(conversation *ConversationFile, source *Conversation
 			decision.ClientTurnCount = len(intent.ConversationState.GetTurns())
 		}
 		conversation.ImportedTurnIDs = rewindImportedTurnPrefix(source.ImportedTurnIDs, decision)
+		_, conversation.ImportedBlobs, _ = reachableImportedBlobs(conversation.ImportedTurnIDs, source.ImportedBlobs)
 	}
 	applyRunRewindConversationState(conversation, intent, turnSeq)
 }

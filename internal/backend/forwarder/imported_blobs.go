@@ -34,6 +34,100 @@ func newImportedBlobStore(items []*agentv1.PreFetchedBlob) (importedBlobStore, e
 	return store, nil
 }
 
+func (store importedBlobStore) clone() importedBlobStore {
+	if len(store) == 0 {
+		return nil
+	}
+	cloned := make(importedBlobStore, len(store))
+	for key, value := range store {
+		cloned[key] = append([]byte(nil), value...)
+	}
+	return cloned
+}
+
+func reachableImportedBlobs(turnIDs [][]byte, source importedBlobStore) ([][]byte, importedBlobStore, error) {
+	if len(turnIDs) == 0 || len(source) == 0 {
+		return nil, nil, nil
+	}
+	ids := make([][]byte, 0, len(turnIDs))
+	reachable := make(importedBlobStore)
+	resolve := func(id []byte) ([]byte, error) {
+		data, ok := source.resolve(id)
+		if !ok {
+			return nil, fmt.Errorf("missing imported blob %x", id)
+		}
+		digest := sha256.Sum256(data)
+		if string(digest[:]) != string(id) {
+			return nil, fmt.Errorf("imported blob %x failed SHA-256 validation", id)
+		}
+		return data, nil
+	}
+	for _, turnID := range turnIDs {
+		if len(turnID) != sha256.Size {
+			continue
+		}
+		turnData, err := resolve(turnID)
+		if err != nil {
+			continue
+		}
+		turn := &agentv1.ConversationTurnStructure{}
+		if err := proto.Unmarshal(turnData, turn); err != nil || turn.GetTurn() == nil {
+			return nil, nil, fmt.Errorf("decode imported turn blob %x: %w", turnID, firstNonNilError(err, fmt.Errorf("turn payload is empty")))
+		}
+		turnBlobs := importedBlobStore{string(turnID): turnData}
+		complete := true
+		agentTurn := turn.GetAgentConversationTurn()
+		if agentTurn != nil {
+			if userID := agentTurn.GetUserMessage(); len(userID) == sha256.Size {
+				data, err := resolve(userID)
+				if err != nil {
+					complete = false
+				} else {
+					turnBlobs[string(userID)] = data
+				}
+			}
+			for _, stepID := range agentTurn.GetSteps() {
+				if !complete {
+					break
+				}
+				if len(stepID) != sha256.Size {
+					continue
+				}
+				data, err := resolve(stepID)
+				if err != nil {
+					complete = false
+					break
+				}
+				turnBlobs[string(stepID)] = data
+			}
+		}
+		if !complete {
+			continue
+		}
+		ids = append(ids, append([]byte(nil), turnID...))
+		for key, data := range turnBlobs {
+			reachable[key] = data
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil, nil
+	}
+	return ids, reachable, nil
+}
+
+func importedBlobStoreFromCheckpoint(blobs []CheckpointBlob) importedBlobStore {
+	if len(blobs) == 0 {
+		return nil
+	}
+	store := make(importedBlobStore, len(blobs))
+	for _, blob := range blobs {
+		if len(blob.ID) == sha256.Size && len(blob.Data) > 0 {
+			store[string(blob.ID)] = append([]byte(nil), blob.Data...)
+		}
+	}
+	return store
+}
+
 func (store importedBlobStore) resolve(id []byte) ([]byte, bool) {
 	if len(id) == 0 || len(store) == 0 {
 		return nil, false

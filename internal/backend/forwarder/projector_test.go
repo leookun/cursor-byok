@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -260,6 +262,56 @@ func TestImportedInlineTurnWithSHA256LengthIsNotMisclassified(t *testing.T) {
 	}
 }
 
+func TestCheckpointProjectionOmitsHistoricalThinkingAndUnfinishedTools(t *testing.T) {
+	toolCall := testEditToolCall(t, "file.txt")
+	conversation := testConversation([]HistoryEntry{
+		testUserMessageEntry(t, 1, "request-1", "edit the file"),
+		newAssistantTextEntry(1, "request-1", "", "historical thinking", ""),
+		newToolCallEntry(1, "request-1", "call-1", "Edit", "tool thinking", "", toolCall),
+	})
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(conversation)
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	for _, blob := range projection.Blobs {
+		step := &agentv1.ConversationStep{}
+		if err := proto.Unmarshal(blob.Data, step); err != nil || step.GetMessage() == nil {
+			continue
+		}
+		if step.GetThinkingMessage() != nil || step.GetToolCall() != nil {
+			t.Fatalf("stable checkpoint retained active-looking step: %#v", step.GetMessage())
+		}
+	}
+}
+
+func TestCheckpointProjectionUsesCompletedToolCallWithResult(t *testing.T) {
+	initial := testEditToolCall(t, "file.txt")
+	completed := testCompletedEditToolCall(t, "file.txt")
+	conversation := testConversation([]HistoryEntry{
+		testUserMessageEntry(t, 1, "request-1", "edit the file"),
+		newToolCallEntry(1, "request-1", "call-1", "Edit", "", "", initial),
+		newToolResultEntry(1, "request-1", "call-1", "Edit", `{"path":"file.txt"}`, "edited", "", completed),
+	})
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(conversation)
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	toolSteps := 0
+	for _, blob := range projection.Blobs {
+		step := &agentv1.ConversationStep{}
+		if err := proto.Unmarshal(blob.Data, step); err != nil || step.GetToolCall() == nil {
+			continue
+		}
+		toolSteps++
+		if !toolCallHasStructuredResult(step.GetToolCall()) {
+			t.Fatal("checkpoint tool step does not carry its completion result")
+		}
+	}
+	if toolSteps != 1 {
+		t.Fatalf("completed tool steps = %d, want 1", toolSteps)
+	}
+}
+
 func TestImportedTurnIDsPersistThroughConversationStore(t *testing.T) {
 	store := NewConversationFileStore(t.TempDir())
 	turnID := sha256.Sum256([]byte("parent turn"))
@@ -281,6 +333,124 @@ func TestImportedTurnIDsPersistThroughConversationStore(t *testing.T) {
 	if len(loaded.ImportedTurnIDs) != 1 || string(loaded.ImportedTurnIDs[0]) != string(turnID[:]) {
 		t.Fatalf("loaded ImportedTurnIDs = %x, want %x", loaded.ImportedTurnIDs, turnID)
 	}
+}
+
+func TestImportedBlobGraphPersistsOutsideStateJSONAndReloadsClosed(t *testing.T) {
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(testConversation([]HistoryEntry{
+		testUserMessageEntry(t, 1, "request-1", strings.Repeat("parent question ", 200)),
+		newAssistantTextEntry(1, "request-1", "parent answer", "", ""),
+	}))
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	conversation := testConversation(nil)
+	conversation.ImportedTurnIDs = cloneByteSlices(projection.State.GetTurns())
+	conversation.ImportedBlobs = importedBlobStoreFromCheckpoint(projection.Blobs)
+	store := NewConversationFileStore(t.TempDir())
+	if _, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, nil); err != nil {
+		t.Fatalf("SaveConversationWithEntries() error = %v", err)
+	}
+	stateBody, err := os.ReadFile(store.statePath(conversation.ConversationID))
+	if err != nil {
+		t.Fatalf("read state.json: %v", err)
+	}
+	if strings.Contains(string(stateBody), "parent question") {
+		t.Fatal("state.json embedded imported Blob payload")
+	}
+	blobFiles, err := os.ReadDir(filepath.Join(store.conversationDir(conversation.ConversationID), conversationImportedBlobsDirName))
+	if err != nil {
+		t.Fatalf("read imported-blobs directory: %v", err)
+	}
+	if len(blobFiles) != len(projection.Blobs) {
+		t.Fatalf("persisted imported blobs = %d, want %d", len(blobFiles), len(projection.Blobs))
+	}
+	loaded, err := store.LoadConversation(conversation.ConversationID)
+	if err != nil {
+		t.Fatalf("LoadConversation() error = %v", err)
+	}
+	republished, err := NewHistoryProjector().ProjectCheckpointProjection(loaded)
+	if err != nil {
+		t.Fatalf("reloaded ProjectCheckpointProjection() error = %v", err)
+	}
+	assertCheckpointBlobGraph(t, republished)
+}
+
+func TestLegacyDanglingImportedTurnsRebuildFromCanonicalReplay(t *testing.T) {
+	turnID := sha256.Sum256([]byte("missing legacy turn"))
+	conversation := testConversation([]HistoryEntry{
+		testModelMessageEntry(t, 0, "", modeladapter.Message{Role: "user", Content: "parent question"}),
+		testModelMessageEntry(t, 0, "", modeladapter.Message{Role: "assistant", Content: "parent answer"}),
+	})
+	conversation.ImportedTurnIDs = [][]byte{turnID[:]}
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(conversation)
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	if len(projection.State.GetTurns()) != 1 || string(projection.State.GetTurns()[0]) == string(turnID[:]) {
+		t.Fatalf("fallback turns = %x, want one rebuilt content-addressed turn", projection.State.GetTurns())
+	}
+	assertCheckpointBlobGraph(t, projection)
+}
+
+func TestRewindPrunesUnreachableImportedBlobs(t *testing.T) {
+	first := checkpointProjectionForText(t, "first")
+	second := checkpointProjectionForText(t, "second")
+	conversation := testConversation(nil)
+	conversation.ImportedTurnIDs = append(cloneByteSlices(first.State.GetTurns()), second.State.GetTurns()...)
+	conversation.ImportedBlobs = importedBlobStoreFromCheckpoint(append(first.Blobs, second.Blobs...))
+	service := &Service{}
+	service.applyRunRewindToConversation(conversation, runRewindDecision{
+		Apply:              true,
+		TargetTurnSeq:      2,
+		HasClientTurnCount: true,
+		ClientTurnCount:    1,
+	}, nil, InboundIntent{RequestID: "rewind"}, 2)
+	if len(conversation.ImportedTurnIDs) != 1 {
+		t.Fatalf("rewound imported turns = %d, want 1", len(conversation.ImportedTurnIDs))
+	}
+	_, reachable, err := reachableImportedBlobs(conversation.ImportedTurnIDs, conversation.ImportedBlobs)
+	if err != nil {
+		t.Fatalf("reachableImportedBlobs() error = %v", err)
+	}
+	if len(conversation.ImportedBlobs) != len(reachable) {
+		t.Fatalf("rewound imported blobs = %d, want reachable %d", len(conversation.ImportedBlobs), len(reachable))
+	}
+}
+
+func TestStorePrunesUnreachableImportedBlobFiles(t *testing.T) {
+	first := checkpointProjectionForText(t, "first")
+	second := checkpointProjectionForText(t, "second")
+	conversation := testConversation(nil)
+	conversation.ImportedTurnIDs = append(cloneByteSlices(first.State.GetTurns()), second.State.GetTurns()...)
+	conversation.ImportedBlobs = importedBlobStoreFromCheckpoint(append(first.Blobs, second.Blobs...))
+	store := NewConversationFileStore(t.TempDir())
+	if _, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, nil); err != nil {
+		t.Fatalf("initial SaveConversationWithEntries() error = %v", err)
+	}
+	conversation.ImportedTurnIDs = cloneByteSlices(first.State.GetTurns())
+	_, conversation.ImportedBlobs, _ = reachableImportedBlobs(conversation.ImportedTurnIDs, conversation.ImportedBlobs)
+	if _, err := store.SaveConversationWithEntries(conversation.ConversationID, conversation, nil); err != nil {
+		t.Fatalf("rewound SaveConversationWithEntries() error = %v", err)
+	}
+	files, err := os.ReadDir(store.importedBlobsDir(conversation.ConversationID))
+	if err != nil {
+		t.Fatalf("read pruned imported-blobs directory: %v", err)
+	}
+	if len(files) != len(conversation.ImportedBlobs) {
+		t.Fatalf("persisted imported blobs after rewind = %d, want %d", len(files), len(conversation.ImportedBlobs))
+	}
+}
+
+func checkpointProjectionForText(t *testing.T, text string) *CheckpointProjection {
+	t.Helper()
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(testConversation([]HistoryEntry{
+		testUserMessageEntry(t, 1, "request-1", text),
+		newAssistantTextEntry(1, "request-1", text+" answer", "", ""),
+	}))
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	return projection
 }
 
 func TestRewindImportedTurnPrefixUsesClientForkPoint(t *testing.T) {
@@ -415,6 +585,26 @@ func testModelMessageEntry(t *testing.T, turnSeq int64, requestID string, messag
 		t.Fatal("newModelMessageEntry() rejected test message")
 	}
 	return entry
+}
+
+func testCompletedEditToolCall(t *testing.T, path string) []byte {
+	t.Helper()
+	payload, err := protojson.Marshal(&agentv1.ToolCall{
+		Tool: &agentv1.ToolCall_EditToolCall{
+			EditToolCall: &agentv1.EditToolCall{
+				Args: &agentv1.EditArgs{Path: path},
+				Result: &agentv1.EditResult{
+					Result: &agentv1.EditResult_Success{
+						Success: &agentv1.EditSuccess{Path: path, AfterFullFileContent: "updated"},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal completed edit tool call: %v", err)
+	}
+	return payload
 }
 
 func testEditToolCall(t *testing.T, path string) []byte {

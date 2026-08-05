@@ -139,6 +139,7 @@ func (service *Service) syncConversationRecord(conversationID string, conversati
 		item.AutoCompactionTriggeredAt = conversation.AutoCompactionTriggeredAt
 		item.AutoCompactionSourceModelCallID = conversation.AutoCompactionSourceModelCallID
 		item.ImportedTurnIDs = cloneByteSlices(conversation.ImportedTurnIDs)
+		item.ImportedBlobs = conversation.ImportedBlobs.clone()
 		item.LatestRequestPrefix = cloneConversationRequestPrefix(conversation.LatestRequestPrefix)
 		item.LastProviderCall = cloneConversationProviderCall(conversation.LastProviderCall)
 		item.CreatedAt = conversation.CreatedAt
