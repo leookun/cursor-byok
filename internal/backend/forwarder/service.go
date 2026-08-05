@@ -9,7 +9,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -262,8 +261,6 @@ type Service struct {
 	execBridge         execbridge.ExecBridge
 	interactionBridge  interactionbridge.InteractionBridge
 	appendSeq          *appendSequenceTracker
-	checkpointBlobMu   sync.Mutex
-	checkpointBlobs    map[string]*checkpointBlobCacheEntry
 }
 
 type agentModelMemory interface {
@@ -303,7 +300,6 @@ func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Serv
 		execBridge:         execbridge.NewBridge(),
 		interactionBridge:  interactionbridge.NewBridge(),
 		appendSeq:          newAppendSequenceTracker(),
-		checkpointBlobs:    make(map[string]*checkpointBlobCacheEntry),
 	}
 	service.startHistoryMaintenance()
 	store.SyncAllCursorTranscriptsBestEffort()
@@ -332,7 +328,6 @@ func newServiceWithDependencies(store *ConversationFileStore, projector *History
 		execBridge:         execbridge.NewBridge(),
 		interactionBridge:  interactionbridge.NewBridge(),
 		appendSeq:          newAppendSequenceTracker(),
-		checkpointBlobs:    make(map[string]*checkpointBlobCacheEntry),
 	}
 }
 
@@ -562,7 +557,6 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		}
 		intent.ConversationID = conversationID
 		intent.ConversationState = runRequest.GetConversationState()
-		intent.PreFetchedBlobs = runRequest.GetPreFetchedBlobs()
 		intent.UserMessage = extractUserMessage(message)
 		intent.RequestContext = extractRequestContext(message)
 		if service.shouldIgnoreEmptyResumeRunRequest(requestID, runRequest, intent.UserMessage, intent.RequestContext) {
@@ -610,7 +604,6 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		intent.ConversationID = conversationID
 		intent.SubagentTypeName = strings.TrimSpace(prewarmRequest.GetSubagentTypeName())
 		intent.ConversationState = prewarmRequest.GetConversationState()
-		intent.PreFetchedBlobs = prewarmRequest.GetPreFetchedBlobs()
 		intent.Mode, intent.ModeSource, intent.HasExplicitMode, err = extractPrewarmMode(prewarmRequest)
 		if err != nil {
 			return InboundIntent{}, err
@@ -826,14 +819,11 @@ func (service *Service) snapshotVisibleTurns(conversation *ConversationFile) ([]
 	if service == nil || service.projector == nil || conversation == nil {
 		return nil, nil
 	}
-	projection, err := service.projector.ProjectCheckpointProjection(conversation)
+	state, err := service.projector.ProjectLegacyCheckpoint(conversation)
 	if err != nil {
 		return nil, err
 	}
-	if projection == nil || projection.State == nil {
-		return nil, fmt.Errorf("checkpoint projection is empty")
-	}
-	return cloneByteSlices(projection.State.GetTurns()), nil
+	return cloneByteSlices(state.GetTurns()), nil
 }
 
 // handleCancelIntent 处理取消请求，并向客户端发送执行桥 abort。
@@ -843,6 +833,19 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 		return fmt.Errorf("request is not active: %s", intent.RequestID)
 	}
 	hasCheckpoint := checkpointConversationInitialized(stream)
+	if hasCheckpoint {
+		cancelReason := firstNonEmpty(intent.CancelReason, "user aborted")
+		_, err := service.appendConversationEntries(stream, stream.ConversationID, []HistoryEntry{
+			newMetadataEntry(stream.TurnSeq, intent.RequestID, "control", map[string]any{
+				"status":        "canceled",
+				"reason":        cancelReason,
+				"replay_policy": cancelReplayPolicyForReason(cancelReason),
+			}),
+		})
+		if err != nil {
+			return err
+		}
+	}
 	stream.mu.Lock()
 	pendingExecs := make([]runtimecore.PendingExec, 0, len(stream.PendingExecs))
 	for _, pending := range stream.PendingExecs {
@@ -865,44 +868,23 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 			return err
 		}
 	}
-	if hasCheckpoint {
-		cancelReason := firstNonEmpty(intent.CancelReason, "user aborted")
-		cancelEntry := newMetadataEntry(stream.TurnSeq, intent.RequestID, "control", map[string]any{
-			"status":        "canceled",
-			"reason":        cancelReason,
-			"replay_policy": cancelReplayPolicyForReason(cancelReason),
-		})
-		if _, err := service.appendConversationEntries(stream, stream.ConversationID, []HistoryEntry{cancelEntry}); err != nil {
-			log.Printf("forwarder cancellation metadata persistence failed request_id=%s conversation_id=%s err=%v", stream.RequestID, stream.ConversationID, err)
-			if memoryErr := service.appendCheckpointEntries(stream, []HistoryEntry{cancelEntry}); memoryErr != nil {
-				return memoryErr
-			}
-		}
-	}
 	for _, pending := range pendingExecs {
 		_ = service.broker.Publish(intent.RequestID, StreamEvent{
 			Message: buildExecAbortMessage(pending),
 		})
 	}
+	if hasCheckpoint {
+		if err := service.publishCheckpoint(stream.RequestID, stream.ConversationID); err != nil {
+			return err
+		}
+	}
 	clearPendingProviderCompletion(stream)
-	terminalMessage := firstNonEmpty(intent.CancelReason, "[canceled] User aborted request")
 	stream.mu.Lock()
-	stream.PendingExecs = make(map[string]runtimecore.PendingExec)
-	stream.PendingInteractions = make(map[string]runtimecore.PendingInteraction)
+	stream.PendingProviderAction = providerActionNone
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
-	service.discardPendingCheckpoint(stream, fmt.Errorf("checkpoint superseded by cancellation"))
-	if hasCheckpoint {
-		if err := service.publishCheckpointWithTerminalAction(
-			stream.RequestID,
-			stream.ConversationID,
-			checkpointCancellationAction(terminalMessage),
-		); err != nil {
-			return service.failTerminalCheckpointSync(stream, err)
-		}
-		return nil
-	}
-	return service.finishCanceledTurnAfterCheckpoint(stream, terminalMessage)
+	service.setTurnPhase(stream, TurnPhaseCanceled)
+	return service.broker.Cancel(intent.RequestID, firstNonEmpty(intent.CancelReason, "[canceled] User aborted request"))
 }
 
 func (service *Service) completePendingEditAfterCancel(stream *ActiveStream, pending runtimecore.PendingExec) error {
@@ -915,7 +897,7 @@ func (service *Service) completePendingEditAfterCancel(stream *ActiveStream, pen
 			return err
 		}
 		markExecCompleted(stream, pending)
-		if strings.TrimSpace(pending.ExecKind) == patchEditPostReadExecKindName {
+		if pending.ExecKind == patchEditPostReadExecKindName {
 			return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildFinalEditSuccessResult(payload.ResolvedPath, payload.AfterContent, patchEditPayloadAsEditPayload(payload)))
 		}
 		return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildEditErrorResult(payload.ResolvedPath, "PatchEdit canceled before terminal result arrived"))
@@ -925,7 +907,7 @@ func (service *Service) completePendingEditAfterCancel(stream *ActiveStream, pen
 		return err
 	}
 	markExecCompleted(stream, pending)
-	if strings.TrimSpace(pending.ExecKind) == writePostReadExecKind {
+	if pending.ExecKind == writePostReadExecKind {
 		return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildSuccessfulWriteResult(payload.ResolvedPath, payload.BeforeContent, payload.AfterContent))
 	}
 	return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildEditErrorResult(payload.ResolvedPath, "Write canceled before terminal result arrived"))
@@ -1034,15 +1016,10 @@ func (service *Service) handleExecControl(intent InboundIntent) error {
 		return fmt.Errorf("pending exec not found for control message")
 	}
 	pending = service.applyExecControlProgress(stream, pending, intent.ExecClientControlMessage)
-	if isHiddenPatchEditExecKind(pending.ExecKind) || isHiddenWriteExecKind(pending.ExecKind) {
-		if shouldRecoverNonStreamingExecOnStreamClose(intent.ExecClientControlMessage, pending) {
-			markExecTransportClosed(stream, pending)
-			service.scheduleNonStreamingExecRecovery(intent.RequestID, pending)
-			return nil
-		}
-		if isHiddenPatchEditExecKind(pending.ExecKind) {
-			return service.handleHiddenPatchEditExecControl(stream, pending, intent.ExecClientControlMessage)
-		}
+	if isHiddenPatchEditExecKind(pending.ExecKind) {
+		return service.handleHiddenPatchEditExecControl(stream, pending, intent.ExecClientControlMessage)
+	}
+	if isHiddenWriteExecKind(pending.ExecKind) {
 		return service.handleHiddenWriteExecControl(stream, pending, intent.ExecClientControlMessage)
 	}
 	result, err := service.execBridge.ApplyExecClientControl(intent.ExecClientControlMessage, pending)
@@ -1171,22 +1148,6 @@ func (service *Service) scheduleNonStreamingExecRecovery(requestID string, pendi
 func (service *Service) recoverNonStreamingExecAfterStreamClose(stream *ActiveStream, pending runtimecore.PendingExec) error {
 	if stream == nil {
 		return nil
-	}
-	if isHiddenPatchEditExecKind(pending.ExecKind) {
-		payload, err := decodePendingPatchEditPayload(pending.ArgsJSON)
-		if err != nil {
-			return err
-		}
-		markExecCompleted(stream, pending)
-		return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildEditErrorResult(payload.ResolvedPath, "PatchEdit transport closed before terminal result arrived"))
-	}
-	if isHiddenWriteExecKind(pending.ExecKind) {
-		payload, err := decodePendingWritePayload(pending.ArgsJSON)
-		if err != nil {
-			return err
-		}
-		markExecCompleted(stream, pending)
-		return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildEditErrorResult(payload.ResolvedPath, "Write transport closed before terminal result arrived"))
 	}
 	markExecCompleted(stream, pending)
 	toolName := strings.TrimSpace(deriveToolNameFromPendingExec(pending))
@@ -1717,14 +1678,6 @@ func (service *Service) handleToolInvocation(stream *ActiveStream, invocation ru
 	invocation = service.rewriteDirectMCPToolInvocation(stream, invocation)
 	invocation = service.normalizeCallMCPToolInvocation(stream, invocation)
 	trimmedToolName := strings.TrimSpace(invocation.ToolName)
-	if completedToolCall(stream, invocation.CallID) {
-		service.debug.LogRuntime(context.Background(), stream.RequestID, stream.ConversationID, "tool_lifecycle_late_invocation_ignored", map[string]any{
-			"tool_call_id": strings.TrimSpace(invocation.CallID),
-			"tool_name":    trimmedToolName,
-			"model_call_id": strings.TrimSpace(invocation.ModelCallID),
-		})
-		return nil
-	}
 	stream.mu.Lock()
 	mode := stream.Mode
 	subagentTypeName := ""
@@ -2001,22 +1954,14 @@ func toolResultReasoningFallback(stream *ActiveStream, toolCallID string, reason
 	if stream.CheckpointConversation == nil {
 		return reasoningContent
 	}
-	var latestToolCallPayload json.RawMessage
 	for _, entry := range stream.CheckpointConversation.Entries {
 		if strings.TrimSpace(entry.Kind) != "tool_call" || strings.TrimSpace(entry.ToolCallID) != trimmedToolCallID {
 			continue
 		}
-		latestToolCallPayload = entry.Payload
-	}
-	if len(latestToolCallPayload) == 0 {
-		return reasoningContent
-	}
-	var payload toolCallEntryPayload
-	if json.Unmarshal(latestToolCallPayload, &payload) != nil {
-		return reasoningContent
-	}
-	if strings.TrimSpace(payload.ReasoningContent) != "" || strings.TrimSpace(payload.ReasoningSignature) != "" || strings.TrimSpace(payload.ReasoningSignatureSource) != "" {
-		return ""
+		var payload toolCallEntryPayload
+		if err := json.Unmarshal(entry.Payload, &payload); err == nil && (strings.TrimSpace(payload.ReasoningContent) != "" || strings.TrimSpace(payload.ReasoningSignature) != "" || strings.TrimSpace(payload.ReasoningSignatureSource) != "") {
+			return ""
+		}
 	}
 	return reasoningContent
 }
@@ -2027,21 +1972,14 @@ func (service *Service) publishToolCallCompleted(requestID string, toolCallID st
 	if trimmedRequestID == "" || trimmedToolCallID == "" {
 		return nil
 	}
-	stream, found := service.broker.Get(trimmedRequestID)
-	if found && stream != nil {
+	if stream, found := service.broker.Get(trimmedRequestID); found && stream != nil {
 		stream.mu.Lock()
 		if stream.CompletedToolCallIDs == nil {
 			stream.CompletedToolCallIDs = make(map[string]time.Time)
 		}
 		stream.CompletedToolCallIDs[trimmedToolCallID] = time.Now().UTC()
 		stream.UpdatedAt = time.Now().UTC()
-		conversationID := stream.ConversationID
 		stream.mu.Unlock()
-		service.debug.LogRuntime(context.Background(), trimmedRequestID, conversationID, "tool_lifecycle_completed", map[string]any{
-			"tool_call_id": trimmedToolCallID,
-			"model_call_id": strings.TrimSpace(modelCallID),
-			"tool_name":    inferToolName(toolCall),
-		})
 	}
 	return service.broker.Publish(trimmedRequestID, StreamEvent{
 		Message: buildToolCallCompletedMessage(trimmedToolCallID, modelCallID, toolCall),
@@ -2274,17 +2212,23 @@ func (service *Service) completeSuccessfulTurn(stream *ActiveStream, completion 
 			err,
 		)
 	}
-	if err := service.publishCheckpointWithCompletion(requestID, conversationID, &completion); err != nil {
+	if err := service.publishCheckpoint(requestID, conversationID); err != nil {
 		return err
 	}
+	if err := service.broker.Publish(requestID, StreamEvent{
+		Message: buildTurnEndedMessage(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens),
+	}); err != nil {
+		return err
+	}
+	if err := service.broker.Complete(requestID, "", ""); err != nil {
+		return err
+	}
+	service.setTurnPhase(stream, TurnPhaseCompleted)
 	return nil
 }
 
 func (service *Service) finishSuccessfulTurnAfterCheckpoint(stream *ActiveStream, completion pendingTurnCompletion) error {
-	if stream == nil {
-		return nil
-	}
-	if !claimTerminalEvent(stream) {
+	if stream == nil || !claimTerminalEvent(stream) {
 		return nil
 	}
 	requestID := firstNonEmpty(strings.TrimSpace(completion.RequestID), strings.TrimSpace(stream.RequestID))
@@ -2301,6 +2245,14 @@ func (service *Service) finishSuccessfulTurnAfterCheckpoint(stream *ActiveStream
 	return nil
 }
 
+func (service *Service) finishCanceledTurnAfterCheckpoint(stream *ActiveStream, terminalMessage string) error {
+	if stream == nil || !claimTerminalEvent(stream) {
+		return nil
+	}
+	service.setTurnPhase(stream, TurnPhaseCanceled)
+	return service.broker.Cancel(stream.RequestID, firstNonEmpty(strings.TrimSpace(terminalMessage), "[canceled] User aborted request"))
+}
+
 func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCode string, cause error) error {
 	if stream == nil || cause == nil {
 		return nil
@@ -2315,15 +2267,7 @@ func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCo
 }
 
 // publishCheckpoint 按当前内存会话镜像投影出 checkpoint，并广播给所有 RunSSE 订阅者。
-func (service *Service) publishCheckpoint(requestID string, conversationID string) error {
-	return service.publishCheckpointWithCompletion(requestID, conversationID, nil)
-}
-
-func (service *Service) publishCheckpointWithCompletion(requestID string, conversationID string, completion *pendingTurnCompletion) error {
-	return service.publishCheckpointWithTerminalAction(requestID, conversationID, checkpointCompletionAction(completion))
-}
-
-func (service *Service) publishCheckpointWithTerminalAction(requestID string, conversationID string, terminalAction checkpointTerminalAction) error {
+func (service *Service) publishCheckpoint(requestID string, _ string) error {
 	stream, ok := service.broker.Get(requestID)
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", requestID)
@@ -2332,16 +2276,15 @@ func (service *Service) publishCheckpointWithTerminalAction(requestID string, co
 	if err != nil {
 		return err
 	}
-	projection, err := service.projector.ProjectCheckpointProjection(conversation)
+	state, err := service.projector.ProjectLegacyCheckpoint(conversation)
 	if err != nil {
 		return err
 	}
-	if projection == nil || projection.State == nil {
-		return fmt.Errorf("checkpoint projection is empty")
-	}
-	projection.State.PendingToolCalls = buildPendingToolCalls(pendingExecs, pendingInteractions)
-	service.rewriteCheckpointTokenDetailsForClient(stream, conversation, projection.State)
-	return service.queueCheckpointProjection(stream, projection, terminalAction)
+	state.PendingToolCalls = buildPendingToolCalls(pendingExecs, pendingInteractions)
+	service.rewriteCheckpointTokenDetailsForClient(stream, conversation, state)
+	return service.broker.Publish(requestID, StreamEvent{
+		Message: buildCheckpointMessage(state),
+	})
 }
 
 func (service *Service) rewriteCheckpointTokenDetailsForClient(stream *ActiveStream, conversation *ConversationFile, state *agentv1.ConversationStateStructure) {
@@ -2429,9 +2372,6 @@ func (service *Service) failStream(stream *ActiveStream, terminalCode string, ca
 	if stream == nil {
 		return nil
 	}
-	if !claimTerminalEvent(stream) {
-		return nil
-	}
 	errorText := "unknown error"
 	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
 		errorText = strings.TrimSpace(cause.Error())
@@ -2447,7 +2387,7 @@ func (service *Service) failStream(stream *ActiveStream, terminalCode string, ca
 			"error": errorText,
 		}),
 	})
-	return service.failActiveStreamClaimed(
+	return service.failActiveStream(
 		stream,
 		stream.ConversationID,
 		stream.RequestID,
@@ -2470,16 +2410,6 @@ func resolveTerminalCode(fallback string, cause error) string {
 }
 
 func (service *Service) failActiveStream(stream *ActiveStream, conversationID string, requestID string, modelCallID string, terminalCode string, terminalMessage string) error {
-	if stream == nil {
-		return nil
-	}
-	if !claimTerminalEvent(stream) {
-		return nil
-	}
-	return service.failActiveStreamClaimed(stream, conversationID, requestID, modelCallID, terminalCode, terminalMessage)
-}
-
-func (service *Service) failActiveStreamClaimed(stream *ActiveStream, conversationID string, requestID string, modelCallID string, terminalCode string, terminalMessage string) error {
 	if stream == nil {
 		return nil
 	}

@@ -8,7 +8,9 @@ import (
 	"encoding/pem"
 	"io/fs"
 	"net"
+	"os"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +39,8 @@ const (
 	appName = "Cursor助手"
 	// adRefreshInterval 表示后台广告拉取间隔。
 	adRefreshInterval = 3 * time.Minute
+	// disableWebViewSandboxEnv allows affected VDI users to opt out of the WebView2 sandbox.
+	disableWebViewSandboxEnv = "CURSOR_BYOK_DISABLE_WEBVIEW_SANDBOX"
 )
 
 // EmbeddedResources 定义了当前模块中的 EmbeddedResources 类型。
@@ -133,6 +137,9 @@ func Run(resources EmbeddedResources) error {
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(resources.Assets),
+		},
+		Windows: application.WindowsOptions{
+			AdditionalBrowserArgs: windowsAdditionalBrowserArgs(),
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyAccessory,
@@ -413,6 +420,14 @@ func Run(resources EmbeddedResources) error {
 	refreshTray()
 
 	return app.Run()
+}
+
+func windowsAdditionalBrowserArgs() []string {
+	disableSandbox, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(disableWebViewSandboxEnv)))
+	if err != nil || !disableSandbox {
+		return nil
+	}
+	return []string{"--no-sandbox"}
 }
 
 func browserReachableLoopbackBaseURL(listenAddr string) string {

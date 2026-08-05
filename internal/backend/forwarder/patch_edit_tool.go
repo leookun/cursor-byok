@@ -370,6 +370,8 @@ func (service *Service) handleHiddenPatchEditExecControl(stream *ActiveStream, p
 		return nil
 	}
 	if _, ok := message.GetMessage().(*agentv1.ExecClientControlMessage_StreamClose); ok {
+		markExecTransportClosed(stream, pending)
+		service.scheduleNonStreamingExecRecovery(stream.RequestID, pending)
 		return nil
 	}
 	payload, err := decodePendingPatchEditPayload(pending.ArgsJSON)

@@ -45,25 +45,13 @@ func (snapshot turnUsageSnapshot) requestTokensTotal() int64 {
 	return snapshot.promptTokensTotal() + nonNegativeInt64(snapshot.OutputTokens)
 }
 
-func (service *Service) importConversationState(item *ConversationFile, state *agentv1.ConversationStateStructure, prefetchedBlobs []*agentv1.PreFetchedBlob) ([]HistoryEntry, error) {
+func (service *Service) importConversationState(item *ConversationFile, state *agentv1.ConversationStateStructure) ([]HistoryEntry, error) {
 	if item == nil || state == nil {
 		return nil, nil
 	}
-	blobs, err := newImportedBlobStore(prefetchedBlobs)
-	if err != nil {
-		return nil, err
-	}
-	importedIDs, err := importedTurnIDs(state.GetTurns(), blobs)
-	if err != nil {
-		return nil, err
-	}
 	item.TokenDetailsUsedTokens = state.GetTokenDetails().GetUsedTokens()
-	item.ImportedTurnIDs = importedIDs
-	if minimumNextTurnSeq := int64(len(item.ImportedTurnIDs)) + 1; item.NextTurnSeq < minimumNextTurnSeq {
-		item.NextTurnSeq = minimumNextTurnSeq
-	}
 	entries := make([]HistoryEntry, 0, 2)
-	if messages, err := importedConversationStateModelMessages(state, blobs); err != nil {
+	if messages, err := importedConversationStateModelMessages(state); err != nil {
 		return nil, err
 	} else {
 		for _, message := range messages {
@@ -116,7 +104,7 @@ func (service *Service) importConversationState(item *ConversationFile, state *a
 	return entries, nil
 }
 
-func importedConversationStateModelMessages(state *agentv1.ConversationStateStructure, blobs importedBlobStore) ([]modeladapter.Message, error) {
+func importedConversationStateModelMessages(state *agentv1.ConversationStateStructure) ([]modeladapter.Message, error) {
 	if state == nil {
 		return nil, nil
 	}
@@ -125,7 +113,7 @@ func importedConversationStateModelMessages(state *agentv1.ConversationStateStru
 		if err != nil {
 			return nil, fmt.Errorf("decode imported replay messages: %w", err)
 		}
-		decoded = restoreImportedReplayUserMessages(decoded, state.GetTurns(), blobs)
+		decoded = restoreImportedReplayUserMessages(decoded, state.GetTurns())
 		decoded = filterLegacyPlainWriteReplay(decoded)
 		decoded = filterInternalPromptContextReplay(decoded)
 		messages := make([]modeladapter.Message, 0, len(decoded))
@@ -145,18 +133,35 @@ func importedConversationStateModelMessages(state *agentv1.ConversationStateStru
 		if len(rawTurn) == 0 {
 			continue
 		}
-		turn, turnID, err := decodeImportedTurn(rawTurn, blobs)
-		if err != nil {
-			return nil, err
+		turn := &agentv1.ConversationTurnStructure{}
+		if err := proto.Unmarshal(rawTurn, turn); err != nil {
+			return nil, fmt.Errorf("decode imported turn: %w", err)
 		}
-		if turn == nil && len(turnID) > 0 {
-			return nil, fmt.Errorf("missing prefetched turn blob %x", turnID)
+		agentTurn := turn.GetAgentConversationTurn()
+		if agentTurn == nil {
+			continue
 		}
-		turnMessages, err := importedBlobTurnMessages(turn, blobs)
-		if err != nil {
-			return nil, err
+		if rawUser := agentTurn.GetUserMessage(); len(rawUser) > 0 {
+			userMessage := &agentv1.UserMessage{}
+			if err := proto.Unmarshal(rawUser, userMessage); err != nil {
+				return nil, fmt.Errorf("decode imported turn user_message: %w", err)
+			}
+			if replay, ok := promptengine.BuildUserMessageReplayMessage(userMessage); ok {
+				messages = append(messages, toModelMessage(replay))
+			}
 		}
-		messages = append(messages, turnMessages...)
+		for _, rawStep := range agentTurn.GetSteps() {
+			if len(rawStep) == 0 {
+				continue
+			}
+			step := &agentv1.ConversationStep{}
+			if err := proto.Unmarshal(rawStep, step); err != nil {
+				return nil, fmt.Errorf("decode imported turn step: %w", err)
+			}
+			for _, replay := range promptengine.BuildLegacyMessagesFromConversationStep(step) {
+				messages = append(messages, toModelMessage(replay))
+			}
+		}
 	}
 	return normalizeReplayMessageSequence(messages), nil
 }

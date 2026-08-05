@@ -61,9 +61,6 @@ func (broker *StreamBroker) OpenStream(requestID string, conversationID string, 
 		if existing.PartialToolCallIDs == nil {
 			existing.PartialToolCallIDs = make(map[string]struct{})
 		}
-		if existing.CompletedToolCallIDs == nil {
-			existing.CompletedToolCallIDs = make(map[string]time.Time)
-		}
 		if existing.PatchEditQueues == nil {
 			existing.PatchEditQueues = make(map[string][]queuedPatchEditOperation)
 		}
@@ -85,31 +82,28 @@ func (broker *StreamBroker) OpenStream(requestID string, conversationID string, 
 	}
 	now := time.Now().UTC()
 	stream := &ActiveStream{
-		RequestID:                     normalizedRequestID,
-		ConversationID:                strings.TrimSpace(conversationID),
-		TurnSeq:                       turnSeq,
-		ModelID:                       strings.TrimSpace(modelID),
-		ModelName:                     strings.TrimSpace(modelName),
-		Mode:                          normalizedMode,
-		LatestUserText:                strings.TrimSpace(latestUserText),
-		Status:                        StreamStatusCreated,
-		Backlog:                       make([]StreamEvent, 0, 64),
-		Subscribers:                   make(map[string]*StreamSubscriber),
-		PendingExecs:                  make(map[string]runtimecore.PendingExec),
-		PendingInteractions:           make(map[string]runtimecore.PendingInteraction),
-		PartialToolCallIDs:            make(map[string]struct{}),
-		CompletedToolCallIDs:          make(map[string]time.Time),
-		PatchEditQueues:               make(map[string][]queuedPatchEditOperation),
-		MCPToolServers:                make(map[string]string),
-		RecentCompletedExecs:          make(map[uint32]time.Time),
-		BackgroundShells:              make(map[string]*BackgroundShellState),
-		BackgroundShellsByMessageID:   make(map[uint32]string),
-		BackgroundShellsByExecID:      make(map[string]string),
-		BackgroundShellActions:        make(map[string]time.Time),
-		PendingCheckpointBlobWrites:   make(map[uint32]pendingCheckpointBlobWrite),
-		PendingCheckpointBlobRequests: make(map[string]uint32),
-		CreatedAt:                     now,
-		UpdatedAt:                     now,
+		RequestID:                   normalizedRequestID,
+		ConversationID:              strings.TrimSpace(conversationID),
+		TurnSeq:                     turnSeq,
+		ModelID:                     strings.TrimSpace(modelID),
+		ModelName:                   strings.TrimSpace(modelName),
+		Mode:                        normalizedMode,
+		LatestUserText:              strings.TrimSpace(latestUserText),
+		Status:                      StreamStatusCreated,
+		Backlog:                     make([]StreamEvent, 0, 64),
+		Subscribers:                 make(map[string]*StreamSubscriber),
+		PendingExecs:                make(map[string]runtimecore.PendingExec),
+		PendingInteractions:         make(map[string]runtimecore.PendingInteraction),
+		PartialToolCallIDs:          make(map[string]struct{}),
+		PatchEditQueues:             make(map[string][]queuedPatchEditOperation),
+		MCPToolServers:              make(map[string]string),
+		RecentCompletedExecs:        make(map[uint32]time.Time),
+		BackgroundShells:            make(map[string]*BackgroundShellState),
+		BackgroundShellsByMessageID: make(map[uint32]string),
+		BackgroundShellsByExecID:    make(map[string]string),
+		BackgroundShellActions:      make(map[string]time.Time),
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
 	}
 	broker.streams[normalizedRequestID] = stream
 	return stream, nil
@@ -146,6 +140,10 @@ func (broker *StreamBroker) Subscribe(requestID string) (string, <-chan struct{}
 	subscriber := &StreamSubscriber{Signal: make(chan struct{}, subscriberSignalBufferSize)}
 
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return "", nil, nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	stream.Subscribers[subscriberID] = subscriber
 	stream.UpdatedAt = time.Now().UTC()
@@ -173,9 +171,7 @@ func (broker *StreamBroker) Unsubscribe(requestID string, subscriberID string) i
 	}
 	remaining := 0
 	stream.mu.Lock()
-	if _, ok := stream.Subscribers[strings.TrimSpace(subscriberID)]; ok {
-		delete(stream.Subscribers, strings.TrimSpace(subscriberID))
-	}
+	delete(stream.Subscribers, strings.TrimSpace(subscriberID))
 	remaining = len(stream.Subscribers)
 	stream.mu.Unlock()
 	return remaining

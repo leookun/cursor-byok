@@ -277,6 +277,8 @@ func (service *Service) handleHiddenWriteExecControl(stream *ActiveStream, pendi
 		return nil
 	}
 	if _, ok := message.GetMessage().(*agentv1.ExecClientControlMessage_StreamClose); ok {
+		markExecTransportClosed(stream, pending)
+		service.scheduleNonStreamingExecRecovery(stream.RequestID, pending)
 		return nil
 	}
 	payload, err := decodePendingWritePayload(pending.ArgsJSON)

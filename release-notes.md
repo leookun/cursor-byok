@@ -9,4 +9,5 @@ Tg群组:
 https://t.me/cursor_byok
 
 - 支持cursor-cli
+- 修复对话中错误可能导致的消失问题
 
