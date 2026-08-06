@@ -49,51 +49,57 @@ func (catalog *DefaultToolCatalog) Load(mode agentv1.AgentMode, subagentTypeName
 }
 
 var agentModeToolNames = map[string]struct{}{
-	"AskQuestion":          {},
-	"CallMcpTool":          {},
-	"Delete":               {},
-	"FetchMcpResource":     {},
-	"GenerateImage":        {},
-	"Glob":                 {},
-	"Grep":                 {},
-	"Ls":                   {},
-	"PatchEdit":            {},
-	"Read":                 {},
-	"ReadLints":            {},
-	"Shell":                {},
-	"AwaitShell":           {},
-	"WriteShellStdin":      {},
-	"ForceBackgroundShell": {},
-	"SwitchMode":           {},
-	"Task":                 {},
-	"TodoWrite":            {},
-	"WebFetch":             {},
-	"WebSearch":            {},
-	"Write":                {},
+	"AskQuestion":           {},
+	"AWAIT":                 {},
+	"CallMcpTool":           {},
+	"Delete":                {},
+	"FetchMcpResource":      {},
+	"GenerateImage":         {},
+	"Glob":                  {},
+	"Grep":                  {},
+	"Ls":                    {},
+	"PatchEdit":             {},
+	"Read":                  {},
+	"ReadLints":             {},
+	"Shell":                 {},
+	"AwaitShell":            {},
+	"WriteShellStdin":       {},
+	"ForceBackgroundShell":  {},
+	"SwitchMode":            {},
+	"Task":                  {},
+	"TodoWrite":             {},
+	"WebFetch":              {},
+	"WebSearch":             {},
+	"Write":                 {},
+	"create-agent":          {},
+	"send-message-to-agent": {},
 }
 
 var multitaskModeToolNames = map[string]struct{}{
-	"AskQuestion":          {},
-	"CallMcpTool":          {},
-	"Delete":               {},
-	"FetchMcpResource":     {},
-	"GenerateImage":        {},
-	"Glob":                 {},
-	"Grep":                 {},
-	"Ls":                   {},
-	"PatchEdit":            {},
-	"Read":                 {},
-	"ReadLints":            {},
-	"Shell":                {},
-	"AwaitShell":           {},
-	"WriteShellStdin":      {},
-	"ForceBackgroundShell": {},
-	"SwitchMode":           {},
-	"Task":                 {},
-	"TodoWrite":            {},
-	"WebFetch":             {},
-	"WebSearch":            {},
-	"Write":                {},
+	"AskQuestion":           {},
+	"AWAIT":                 {},
+	"CallMcpTool":           {},
+	"Delete":                {},
+	"FetchMcpResource":      {},
+	"GenerateImage":         {},
+	"Glob":                  {},
+	"Grep":                  {},
+	"Ls":                    {},
+	"PatchEdit":             {},
+	"Read":                  {},
+	"ReadLints":             {},
+	"Shell":                 {},
+	"AwaitShell":            {},
+	"WriteShellStdin":       {},
+	"ForceBackgroundShell":  {},
+	"SwitchMode":            {},
+	"Task":                  {},
+	"TodoWrite":             {},
+	"WebFetch":              {},
+	"WebSearch":             {},
+	"Write":                 {},
+	"create-agent":          {},
+	"send-message-to-agent": {},
 }
 
 var debugModeToolNames = map[string]struct{}{
@@ -166,7 +172,7 @@ var childConversationDisallowedAgentToolNames = map[string]struct{}{
 
 func supportedToolNamesForMode(mode agentv1.AgentMode) map[string]struct{} {
 	switch normalizeMode(mode) {
-	case agentv1.AgentMode_AGENT_MODE_AGENT:
+	case agentv1.AgentMode_AGENT_MODE_AGENT, agentv1.AgentMode_AGENT_MODE_PROJECT:
 		return agentModeToolNames
 	case agentv1.AgentMode_AGENT_MODE_ASK:
 		return askModeToolNames
@@ -256,6 +262,8 @@ func mapPromptMode(mode agentv1.AgentMode) (promptassets.Mode, error) {
 		return promptassets.ModeDebug, nil
 	case agentv1.AgentMode_AGENT_MODE_MULTITASK:
 		return promptassets.ModeMultitask, nil
+	case agentv1.AgentMode_AGENT_MODE_PROJECT:
+		return promptassets.ModeProjects, nil
 	default:
 		return "", fmt.Errorf("unsupported prompt asset mode: %s", mode.String())
 	}

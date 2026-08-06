@@ -3482,6 +3482,10 @@ func deriveToolNameFromPendingExec(pending runtimecore.PendingExec) string {
 		return "ForceBackgroundShell"
 	case "subagent":
 		return "Task"
+	case "subagent_await":
+		return "AWAIT"
+	case "force_background_subagent":
+		return "create-agent"
 	default:
 		return ""
 	}
@@ -3526,7 +3530,7 @@ func execKindFromToolName(name string) (string, bool) {
 
 func isExecTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "Read", "Write", "PatchEdit", "Delete", "Shell", "WriteShellStdin", "ForceBackgroundShell", "Grep", "Glob", "Ls", "ReadLints", "CallMcpTool", "FetchMcpResource", "Task":
+	case "Read", "Write", "PatchEdit", "Delete", "Shell", "WriteShellStdin", "ForceBackgroundShell", "Grep", "Glob", "Ls", "ReadLints", "CallMcpTool", "FetchMcpResource", "Task", "create-agent", "send-message-to-agent", "AWAIT":
 		return true
 	default:
 		return false

@@ -96,6 +96,12 @@ func (bridge *Bridge) OpenExec(openContext OpenExecContext, toolCall runtimecore
 		return bridge.openListMcpResources(toolCall)
 	case "FetchMcpResource":
 		return bridge.openReadMcpResource(toolCall)
+	case "create-agent":
+		return bridge.openCreateAgent(toolCall)
+	case "send-message-to-agent":
+		return bridge.openSendMessageToAgent(openContext, toolCall)
+	case "AWAIT":
+		return bridge.openSubagentAwait(toolCall)
 	default:
 		return nil, runtimecore.PendingExec{}, fmt.Errorf("unsupported exec tool: %s", toolCall.ToolName)
 	}
@@ -217,6 +223,22 @@ func (bridge *Bridge) ApplyExecClientMessage(msg *agentv1.ExecClientMessage, pen
 			return ExecApplyResult{}, fmt.Errorf("force background shell result is required")
 		}
 		result.ToolResultPayload = summarizeForceBackgroundShellResult(forceResult)
+		result.IsTerminal = true
+		return result, nil
+	case "force_background_subagent":
+		subagentResult := msg.GetForceBackgroundSubagentResult()
+		if subagentResult == nil {
+			return ExecApplyResult{}, fmt.Errorf("force background subagent result is required")
+		}
+		result.ToolResultPayload = summarizeForceBackgroundSubagentResult(subagentResult)
+		result.IsTerminal = true
+		return result, nil
+	case "subagent_await":
+		awaitResult := msg.GetSubagentAwaitResult()
+		if awaitResult == nil {
+			return ExecApplyResult{}, fmt.Errorf("subagent await result is required")
+		}
+		result.ToolResultPayload = summarizeSubagentAwaitResult(awaitResult)
 		result.IsTerminal = true
 		return result, nil
 	case "execute_hook_pre_compact":
@@ -816,6 +838,142 @@ func (bridge *Bridge) openTask(openContext OpenExecContext, toolCall runtimecore
 		ArgsJSON:    append([]byte(nil), toolCall.ArgsJSON...),
 		ToolCallID:  toolCall.CallID,
 		ExecKind:    "subagent",
+		StreamState: "opened",
+		OpenedAt:    now,
+	}, nil
+}
+
+// openCreateAgent 构造 create-agent 对应的执行桥请求。
+func (bridge *Bridge) openCreateAgent(toolCall runtimecore.ToolInvocation) (*agentv1.AgentServerMessage, runtimecore.PendingExec, error) {
+	if _, err := decodeArgsMap(toolCall.ArgsJSON); err != nil {
+		return nil, runtimecore.PendingExec{}, fmt.Errorf("decode create-agent args failed: %w", err)
+	}
+	messageID := bridge.nextID()
+	execID := fmt.Sprintf("exec-force-background-subagent-%d", time.Now().UnixNano())
+	serverMessage := &agentv1.AgentServerMessage{
+		Message: &agentv1.AgentServerMessage_ExecServerMessage{
+			ExecServerMessage: &agentv1.ExecServerMessage{
+				Id:     messageID,
+				ExecId: execID,
+				Message: &agentv1.ExecServerMessage_ForceBackgroundSubagentArgs{
+					ForceBackgroundSubagentArgs: &agentv1.ForceBackgroundSubagentArgs{
+						ToolCallId: toolCall.CallID,
+					},
+				},
+			},
+		},
+	}
+	return serverMessage, runtimecore.PendingExec{
+		MessageID:   messageID,
+		ExecID:      execID,
+		ArgsJSON:    append([]byte(nil), toolCall.ArgsJSON...),
+		ToolCallID:  toolCall.CallID,
+		ExecKind:    "force_background_subagent",
+		StreamState: "opened",
+		OpenedAt:    time.Now().UTC(),
+	}, nil
+}
+
+// openSendMessageToAgent 构造 send-message-to-agent 对应的执行桥请求。
+func (bridge *Bridge) openSendMessageToAgent(openContext OpenExecContext, toolCall runtimecore.ToolInvocation) (*agentv1.AgentServerMessage, runtimecore.PendingExec, error) {
+	args, err := decodeArgsMap(toolCall.ArgsJSON)
+	if err != nil {
+		return nil, runtimecore.PendingExec{}, fmt.Errorf("decode send-message-to-agent args failed: %w", err)
+	}
+	agentID := strings.TrimSpace(readStringArg(args, "agent_id", "agentId"))
+	prompt := strings.TrimSpace(readStringArg(args, "prompt"))
+	subagentType := strings.TrimSpace(readStringArg(args, "subagent_type", "subagentType"))
+	readonly := readBoolArg(args, "readonly", "readOnly")
+	parentConversationID := strings.TrimSpace(openContext.ConversationID)
+	requestedModelID := strings.TrimSpace(readStringArg(args, "model", "model_id", "modelId"))
+	modelID := requestedModelID
+	if subagentType != "" {
+		if override, _, ok := runtimecore.LookupSubagentModelOverride(openContext.SubagentModelOverrides, subagentType); ok {
+			switch strings.TrimSpace(override.Selection) {
+			case "disabled":
+				return nil, runtimecore.PendingExec{}, fmt.Errorf("subagent type %q is disabled by model override", subagentType)
+			case "model":
+				modelID = strings.TrimSpace(override.ModelID)
+			case "inherit":
+				modelID = strings.TrimSpace(openContext.ModelID)
+			}
+		}
+	}
+	if modelID == "" {
+		modelID = strings.TrimSpace(openContext.ModelID)
+	}
+
+	messageID := bridge.nextID()
+	now := time.Now().UTC()
+	execID := fmt.Sprintf("exec-subagent-%d", now.UnixNano())
+	serverMessage := &agentv1.AgentServerMessage{
+		Message: &agentv1.AgentServerMessage_ExecServerMessage{
+			ExecServerMessage: &agentv1.ExecServerMessage{
+				Id:     messageID,
+				ExecId: execID,
+				Message: &agentv1.ExecServerMessage_SubagentArgs{
+					SubagentArgs: &agentv1.SubagentArgs{
+						ToolCallId:           toolCall.CallID,
+						SubagentType:         subagentType,
+						ModelId:              modelID,
+						Prompt:               prompt,
+						Readonly:             readonly,
+						ResumeAgentId:        stringPtrIfNonEmpty(agentID),
+						ParentConversationId: stringPtrIfNonEmpty(parentConversationID),
+						Mode:                 taskModeFromReadonly(readonly),
+					},
+				},
+			},
+		},
+	}
+	return serverMessage, runtimecore.PendingExec{
+		MessageID:   messageID,
+		ExecID:      execID,
+		ArgsJSON:    append([]byte(nil), toolCall.ArgsJSON...),
+		ToolCallID:  toolCall.CallID,
+		ExecKind:    "subagent",
+		StreamState: "opened",
+		OpenedAt:    now,
+	}, nil
+}
+
+// openSubagentAwait 构造 AWAIT 对应的执行桥请求。
+func (bridge *Bridge) openSubagentAwait(toolCall runtimecore.ToolInvocation) (*agentv1.AgentServerMessage, runtimecore.PendingExec, error) {
+	args, err := decodeArgsMap(toolCall.ArgsJSON)
+	if err != nil {
+		return nil, runtimecore.PendingExec{}, fmt.Errorf("decode AWAIT args failed: %w", err)
+	}
+	agentID := strings.TrimSpace(readStringArg(args, "task_id", "taskId", "agent_id", "agentId"))
+	var timeoutMs uint32
+	if val, found, err := runtimecore.ReadUint32Arg(args, "block_until_ms", "blockUntilMs", "timeout_ms", "timeoutMs"); err == nil && found {
+		timeoutMs = val
+	} else if fval, ffound, err := runtimecore.ReadFloat64Arg(args, "block_until_ms", "blockUntilMs", "timeout_ms", "timeoutMs"); err == nil && ffound && fval > 0 {
+		timeoutMs = uint32(fval)
+	}
+
+	messageID := bridge.nextID()
+	now := time.Now().UTC()
+	execID := fmt.Sprintf("exec-subagent-await-%d", now.UnixNano())
+	serverMessage := &agentv1.AgentServerMessage{
+		Message: &agentv1.AgentServerMessage_ExecServerMessage{
+			ExecServerMessage: &agentv1.ExecServerMessage{
+				Id:     messageID,
+				ExecId: execID,
+				Message: &agentv1.ExecServerMessage_SubagentAwaitArgs{
+					SubagentAwaitArgs: &agentv1.SubagentAwaitArgs{
+						AgentId:   agentID,
+						TimeoutMs: timeoutMs,
+					},
+				},
+			},
+		},
+	}
+	return serverMessage, runtimecore.PendingExec{
+		MessageID:   messageID,
+		ExecID:      execID,
+		ArgsJSON:    append([]byte(nil), toolCall.ArgsJSON...),
+		ToolCallID:  toolCall.CallID,
+		ExecKind:    "subagent_await",
 		StreamState: "opened",
 		OpenedAt:    now,
 	}, nil
@@ -2163,6 +2321,56 @@ func summarizeForceBackgroundShellResult(result *agentv1.ForceBackgroundShellRes
 		return "force background shell target not found"
 	default:
 		return "force background shell completed"
+	}
+}
+
+func summarizeForceBackgroundSubagentResult(result *agentv1.ForceBackgroundSubagentResult) string {
+	if result == nil {
+		return ""
+	}
+	switch result.GetStatus() {
+	case agentv1.ForceBackgroundSubagentStatus_FORCE_BACKGROUND_SUBAGENT_STATUS_ACCEPTED:
+		return "force background subagent accepted"
+	case agentv1.ForceBackgroundSubagentStatus_FORCE_BACKGROUND_SUBAGENT_STATUS_NOT_FOUND:
+		return "force background subagent not found"
+	default:
+		return "force background subagent completed"
+	}
+}
+
+func summarizeSubagentAwaitResult(result *agentv1.SubagentAwaitResult) string {
+	if result == nil {
+		return "subagent await result missing"
+	}
+	switch item := result.GetResult().(type) {
+	case *agentv1.SubagentAwaitResult_Complete:
+		if item.Complete == nil {
+			return "subagent await complete missing"
+		}
+		finalMessage := strings.TrimSpace(item.Complete.GetFinalMessage())
+		transcriptPath := strings.TrimSpace(item.Complete.GetTranscriptPath())
+		if finalMessage != "" && transcriptPath != "" {
+			return fmt.Sprintf("%s (transcript: %s)", finalMessage, transcriptPath)
+		} else if finalMessage != "" {
+			return finalMessage
+		} else if transcriptPath != "" {
+			return fmt.Sprintf("transcript: %s", transcriptPath)
+		}
+		return "subagent await completed"
+	case *agentv1.SubagentAwaitResult_StillRunning:
+		return "subagent still running"
+	case *agentv1.SubagentAwaitResult_NotFound:
+		if item.NotFound != nil && strings.TrimSpace(item.NotFound.GetAgentId()) != "" {
+			return fmt.Sprintf("subagent not found: %s", strings.TrimSpace(item.NotFound.GetAgentId()))
+		}
+		return "subagent not found"
+	case *agentv1.SubagentAwaitResult_Error:
+		if item.Error != nil && strings.TrimSpace(item.Error.GetError()) != "" {
+			return fmt.Sprintf("subagent error: %s", strings.TrimSpace(item.Error.GetError()))
+		}
+		return "subagent error"
+	default:
+		return "unknown subagent await result"
 	}
 }
 

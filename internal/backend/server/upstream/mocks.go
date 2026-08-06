@@ -53,6 +53,12 @@ const (
 	bootstrapStatsigDisableTerminalOutputUIStreaming = "disable_terminal_output_ui_streaming"
 	bootstrapStatsigBrowserCanvas                    = "browser_canvas"
 	bootstrapStatsigEnableMultitaskMode              = "enable_multitask_mode"
+	bootstrapStatsigLongRunningJobs                  = "long_running_jobs"
+	bootstrapStatsigProjectFollowupsUseSteering      = "project_followups_use_steering"
+	bootstrapStatsigGlassProjectsEnabled             = "glass_projects_enabled"
+	bootstrapStatsigAgentStoreSyncClient             = "agent_store_sync_client"
+	bootstrapStatsigAgentStoreConflictNotices        = "agent_store_conflict_notices"
+	bootstrapStatsigAgentStorePrincipalLocalMounts   = "agent_store_principal_local_mounts"
 	bootstrapStatsigDecomposeAlwaysLocalExtHostGate  = "decompose_always_local_ext_host"
 	bootstrapStatsigCursorExtensionsIsolationV2Gate  = "cursor_extensions_isolation_v2"
 	bootstrapStatsigCursorAgentWorkerExtension       = "enable_cursor_agent_worker_extension"
@@ -148,6 +154,12 @@ var bootstrapStatsigTemplate = statsigBootstrapTemplate{
 		bootstrapStatsigDisableTerminalOutputUIStreaming: buildEnabledStatsigGate(bootstrapStatsigDisableTerminalOutputUIStreaming),
 		bootstrapStatsigBrowserCanvas:                    buildEnabledStatsigGate(bootstrapStatsigBrowserCanvas),
 		bootstrapStatsigEnableMultitaskMode:              buildEnabledStatsigGate(bootstrapStatsigEnableMultitaskMode),
+		bootstrapStatsigLongRunningJobs:                  buildEnabledStatsigGate(bootstrapStatsigLongRunningJobs),
+		bootstrapStatsigProjectFollowupsUseSteering:      buildEnabledStatsigGate(bootstrapStatsigProjectFollowupsUseSteering),
+		bootstrapStatsigGlassProjectsEnabled:             buildEnabledStatsigGate(bootstrapStatsigGlassProjectsEnabled),
+		bootstrapStatsigAgentStoreSyncClient:             buildEnabledStatsigGate(bootstrapStatsigAgentStoreSyncClient),
+		bootstrapStatsigAgentStoreConflictNotices:        buildEnabledStatsigGate(bootstrapStatsigAgentStoreConflictNotices),
+		bootstrapStatsigAgentStorePrincipalLocalMounts:   buildEnabledStatsigGate(bootstrapStatsigAgentStorePrincipalLocalMounts),
 		bootstrapStatsigDecomposeAlwaysLocalExtHostGate:  buildDisabledStatsigGate(bootstrapStatsigDecomposeAlwaysLocalExtHostGate),
 		bootstrapStatsigCursorExtensionsIsolationV2Gate:  buildDisabledStatsigGate(bootstrapStatsigCursorExtensionsIsolationV2Gate),
 		bootstrapStatsigCursorAgentWorkerExtension:       buildDisabledStatsigGate(bootstrapStatsigCursorAgentWorkerExtension),
