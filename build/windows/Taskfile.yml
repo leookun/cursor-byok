@@ -82,12 +82,16 @@ tasks:
           SCAN:
             ref: .SCAN
     cmds:
-      - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
+      - wails3 generate webview2bootstrapper -dir "."
+      - cmd: powershell Copy-Item "..\..\..\bin\Cursor*.exe" "..\..\..\bin\cursor-byok.exe"
+        platforms: [windows]
+      - cmd: cp "../../../bin/Cursor"*.exe "../../../bin/cursor-byok.exe"
+        platforms: [darwin, linux]
       - |
         {{if eq OS "windows"}}
-        makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+        makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="..\..\..\bin\cursor-byok.exe" project.nsi
         {{else}}
-        makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
+        makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="../../../bin/cursor-byok.exe" project.nsi
         {{end}}
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
@@ -144,9 +148,42 @@ tasks:
       - rm -rf "{{.STAGING_DIR}}"
       - mkdir -p "{{.STAGING_DIR}}"
       - cp "{{.OUTPUT}}" "{{.STAGING_DIR}}/"
-      - (cd "{{.STAGING_DIR}}" && zip -qry "../{{.ZIP_NAME}}" .)
+      - cmd: powershell Compress-Archive -Path "{{.STAGING_DIR}}\*" -DestinationPath "{{.BIN_DIR}}\{{.ZIP_NAME}}" -Force
+        platforms: [windows]
+      - cmd: cd "{{.STAGING_DIR}}" && zip -qry "../{{.ZIP_NAME}}" .
+        platforms: [darwin, linux]
       - rm -rf "{{.STAGING_DIR}}"
       - rm -f "{{.OUTPUT}}"
+
+  package:portable:
+    summary: 打包 Windows 便携版（.zip）
+    cmds:
+      - task: create:zip
+        vars:
+          ARCH:
+            ref: .ARCH
+          OUTPUT:
+            ref: .OUTPUT
+          ZIP_NAME:
+            ref: .ZIP_NAME
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          EXTRA_TAGS:
+            ref: .EXTRA_TAGS
+          DEV:
+            ref: .DEV
+          SCAN:
+            ref: .SCAN
+
+  package:installer:
+    summary: 打包 Windows 安装程序（NSIS .exe）
+    cmds:
+      - task: create:nsis:installer
+        vars:
+          ARCH:
+            ref: .ARCH
+          SCAN:
+            ref: .SCAN
 
   run:
     summary: 运行 Windows 可执行文件（仅在 Windows 可用）

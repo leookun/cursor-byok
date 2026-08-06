@@ -1,0 +1,352 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # Linux (amd64: portable .tar.gz)
+  # ============================================================
+  build-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          echo "=== apt-get update (attempt 1) ==="
+          sudo apt-get update -y 2>&1 | tee /tmp/apt-update-1.log || (echo "=== apt-get update failed, retrying ===" && sleep 5 && sudo apt-get update -y 2>&1 | tee /tmp/apt-update-2.log)
+          echo "=== Installing base packages ==="
+          sudo apt-get install -y --no-install-recommends software-properties-common 2>&1 | tee /tmp/apt-install-base.log
+          echo "=== Adding universe repo ==="
+          sudo add-apt-repository -y universe 2>&1 | tee /tmp/apt-repo.log
+          echo "=== apt-get update (after repo add) ==="
+          sudo apt-get update -y 2>&1 | tee /tmp/apt-update-3.log || (echo "=== retrying apt-get update ===" && sleep 10 && sudo apt-get update -y 2>&1 | tee /tmp/apt-update-4.log)
+          echo "=== Installing build dependencies ==="
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler \
+            libprotobuf-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libgtk-4-dev libwebkitgtk-6.0-dev \
+            libglib2.0-dev pkg-config gcc \
+            libfuse2 \
+            fakeroot 2>&1 | tee /tmp/apt-install-build.log
+          echo "=== Dependencies installed successfully ==="
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install Go tools
+        run: |
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: Generate proto Go code
+        run: |
+          protoc -I /usr/include -I proto --go_out=. --go_opt=module=cursor \
+            --connect-go_out=. --connect-go_opt=module=cursor \
+            proto/agent_v1.proto proto/aiserver_v1.proto
+
+      - name: Read version
+        id: version
+        run: echo "app_version=$(go run ./scripts/release version -config ./build/config.yml)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          task build:linux:amd64 APP_VERSION=${{ steps.version.outputs.app_version }}
+
+      - name: Package portable tar.gz
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          mv bin/linux-amd64.tar.gz bin/cursor-byok-${{ steps.version.outputs.app_version }}-linux-amd64.tar.gz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            bin/cursor-byok-*-linux-amd64.tar.gz
+
+  # ============================================================
+  # macOS (x86_64 + arm64 on macos-15: portable .tar.gz)
+  # ============================================================
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - target: amd64
+            runs-on: macos-15
+          - target: arm64
+            runs-on: macos-15
+    runs-on: ${{ matrix.runs-on }}
+    env:
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install protoc and Go tools
+        run: |
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          brew install protobuf
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: Read version
+        id: version
+        run: echo "app_version=$(go run ./scripts/release version -config ./build/config.yml)" >> "$GITHUB_OUTPUT"
+
+      - name: Package portable tar.gz
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          VERSION="${{ steps.version.outputs.app_version }}"
+          if [ "${{ matrix.target }}" = "arm64" ]; then
+            task darwin:package:archive \
+              ARCH=arm64 \
+              BINARY_NAME=cursor-byok-macos-arm64 \
+              OUTPUT=bin/cursor-byok-macos-arm64 \
+              APP_BUNDLE=cursor-byok-macos-arm64.app \
+              ARCHIVE_PATH=bin/cursor-byok-${VERSION}-macos-arm64.tar.gz \
+              SCAN=skip
+          else
+            task darwin:package:archive \
+              ARCH=amd64 \
+              BINARY_NAME=cursor-byok-macos-amd64 \
+              OUTPUT=bin/cursor-byok-macos-amd64 \
+              APP_BUNDLE=cursor-byok-macos-amd64.app \
+              ARCHIVE_PATH=bin/cursor-byok-${VERSION}-macos-amd64.tar.gz \
+              SCAN=skip
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.target }}
+          path: |
+            bin/cursor-byok-*-macos-*.tar.gz
+
+  # ============================================================
+  # Windows (amd64: portable .zip)
+  # ============================================================
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install protoc (GitHub release)
+        run: |
+          # Download protoc from GitHub (avoids Chocolatey 503 errors)
+          $PROTOC_VERSION = "29.3"
+          $url = "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-win64.zip"
+          $zipPath = "$env:TEMP\protoc.zip"
+          $extractPath = "$env:ProgramFiles\protoc"
+          Write-Host "Downloading protoc from $url"
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          Remove-Item $zipPath
+          # Add to GITHUB_PATH
+          echo "$extractPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Go tools
+        shell: bash
+        run: |
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "app_version=$(go run ./scripts/release version -config ./build/config.yml)" >> "$GITHUB_OUTPUT"
+
+      - name: Build + Package .zip
+        run: |
+          $env:Path = "$env:USERPROFILE\go\bin;$env:Path"
+          go version
+          task --version
+          task build:windows:amd64 SCAN=skip 2>&1 | Tee-Object -FilePath "$env:TEMP\build-windows.log"
+          # Rename zip for consistent naming (use Resolve-Path to avoid PowerShell path parsing issues)
+          $VERSION = "${{ steps.version.outputs.app_version }}"
+          $zipPath = Resolve-Path "bin/windows-64.zip" -ErrorAction SilentlyContinue
+          if ($zipPath) {
+            Rename-Item -Path $zipPath.Path -NewName "cursor-byok-${VERSION}-windows-amd64.zip"
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: |
+            bin/cursor-byok-*.zip
+
+  # ============================================================
+  # GitHub Release (with update.json manifest)
+  # ============================================================
+  release:
+    needs: [build-linux, build-macos, build-windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+
+      - name: Read version
+        id: version
+        run: |
+          APP_VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('build/config.yml'))['info']['version'])" 2>/dev/null || \
+            grep -A5 '^info:' build/config.yml | grep 'version:' | awk '{print $2}' | tr -d '"')
+          echo "tag=v${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Organize release assets
+        run: |
+          mkdir -p release-assets
+          # Copy all artifacts to a single flat directory
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) \
+            ! -path "./release-assets/*" \
+            -exec cp {} release-assets/ \;
+          echo "=== Release assets ==="
+          ls -la release-assets/
+
+      - name: Generate update.json manifest
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, hashlib, pathlib, time
+
+          assets_dir = "release-assets"
+          version = "${{ steps.version.outputs.version }}"
+          repo = "${{ github.repository }}"
+          tag = "v" + version
+          base_url = f"https://github.com/{repo}/releases/download/{tag}"
+
+          # Platform mapping: filename pattern -> platform key (aligned with official update.json:
+          # auto-update tracks only portable archives, matching official releases
+          platform_patterns = [
+              ("linux-amd64.tar.gz", "linux-amd64"),
+              ("macos-arm64.tar.gz", "macos-arm64"),
+              ("macos-amd64.tar.gz", "macos-amd64"),
+              ("windows-amd64.zip", "windows-amd64"),
+          ]
+
+          manifest = {
+              "version": version,
+              "release_date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "release_notes": "",
+              "platforms": {},
+              "mandatory": False,
+          }
+
+          # Read release notes if available
+          notes_path = pathlib.Path("release-notes.md")
+          if notes_path.exists():
+              manifest["release_notes"] = notes_path.read_text(encoding="utf-8").strip()
+
+          for filename in sorted(os.listdir(assets_dir)):
+              filepath = os.path.join(assets_dir, filename)
+              if not os.path.isfile(filepath):
+                  continue
+              if filename == "update.json":
+                  continue
+
+              # Find matching platform
+              for pattern, platform in platform_patterns:
+                  if pattern in filename:
+                      sha = hashlib.sha256()
+                      with open(filepath, "rb") as f:
+                          for chunk in iter(lambda: f.read(8192), b""):
+                              sha.update(chunk)
+                      size = os.path.getsize(filepath)
+                      manifest["platforms"][platform] = {
+                          "url": f"{base_url}/{filename}",
+                          "size": size,
+                          "checksum": f"sha256:{sha.hexdigest()}",
+                      }
+                      break
+
+          out_path = os.path.join(assets_dir, "update.json")
+          with open(out_path, "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+
+          print(f"Generated update.json with {len(manifest['platforms'])} platforms:")
+          for p in manifest["platforms"]:
+              print(f"  - {p}: {manifest['platforms'][p]['url']}")
+          PYEOF
+
+      - name: Check if release exists
+        id: check
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --repo ${{ github.repository }} &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create Release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Cursor BYOK ${{ steps.version.outputs.tag }}
+          draft: false
+          files: |
+            release-assets/*
+          generate_release_notes: true

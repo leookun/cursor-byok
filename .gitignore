@@ -4,6 +4,8 @@ dist
 bin
 logs/
 gen/
+.idea/
+dev.sh
 logs.zip
 frontend/bindings
 dist

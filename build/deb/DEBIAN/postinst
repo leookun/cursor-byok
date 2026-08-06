@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+case "$1" in
+    configure)
+        CA_SRC="/usr/share/cursor-byok/certs/ca.crt"
+        CA_DST="/usr/local/share/ca-certificates/cursor-byok-ca.crt"
+        if [ -f "$CA_SRC" ]; then
+            cp "$CA_SRC" "$CA_DST"
+            update-ca-certificates 2>/dev/null || true
+        fi
+        ;;
+esac

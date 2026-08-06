@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Cursor助手
+Name[en]=Cursor BYOK
+Comment=在 Cursor IDE 中自由切换模型 API
+Comment[en]=Bring Your Own Key to Cursor IDE
+Exec=/usr/bin/cursor-byok
+Icon=cursor-byok
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+StartupNotify=true

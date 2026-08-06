@@ -81,7 +81,7 @@ tasks:
           SCAN: '{{.SCAN}}'
 
   build:darwin:amd64:
-    internal: true
+    internal: false
     cmds:
       - task: darwin:package:dmg
         vars:
@@ -144,26 +144,6 @@ tasks:
           ARCHIVE_PATH: '{{.BIN_DIR}}/linux-amd64.tar.gz'
           SCAN: '{{.SCAN}}'
 
-  cursor-tab-server:docker:amd64:
-    summary: 构建 cursor-tab-server 的 linux/amd64 Docker 镜像并保存到 cursor-tab-server 目录
-    vars:
-      IMAGE_NAME: '{{.IMAGE_NAME | default "cursor-tab-server:linux-amd64"}}'
-      IMAGE_TAR: '{{.IMAGE_TAR | default "cursor-tab-server/cursor-tab-server-linux-amd64.tar"}}'
-      CONTEXT_DIR: cursor-tab-server
-      DOCKERFILE: cursor-tab-server/Dockerfile
-    preconditions:
-      - sh: docker info >/dev/null 2>&1
-        msg: "未检测到可用的 Docker daemon，请先启动 Docker。"
-      - sh: test -f "{{.DOCKERFILE}}"
-        msg: "未找到 cursor-tab-server/Dockerfile。"
-      - sh: test -f "{{.CONTEXT_DIR}}/go.mod"
-        msg: "未找到 cursor-tab-server/go.mod。"
-    cmds:
-      - mkdir -p "{{.CONTEXT_DIR}}"
-      - docker build --platform linux/amd64 -t "{{.IMAGE_NAME}}" -f "{{.DOCKERFILE}}" "{{.CONTEXT_DIR}}"
-      - docker save "{{.IMAGE_NAME}}" -o "{{.IMAGE_TAR}}"
-      - ls -lh "{{.IMAGE_TAR}}"
-
   clean:dist:
     internal: true
     cmds:
@@ -173,47 +153,38 @@ tasks:
       - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
       - rm -rf "{{.BIN_DIR}}/macos-arm64.app" "{{.BIN_DIR}}/macos-intel.app" "{{.BIN_DIR}}/{{.APP_NAME}}.app" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
 
+  version:
+    summary: 修改版本号（单一来源：build/config.yml），自动更新所有平台构建资产
+    requires:
+      vars: [VERSION]
+    preconditions:
+      - sh: wails3 version >/dev/null 2>&1
+        msg: "未检测到 wails3，请先安装 Wails v3 CLI：go install github.com/wailsapp/wails/v3/cmd/wails3@latest"
+    cmds:
+      - |
+        python3 -c "
+        import yaml, sys
+        path = 'build/config.yml'
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        cfg['info']['version'] = '{{.VERSION}}'
+        with open(path, 'w') as f:
+            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        print(f'version updated to {{.VERSION}} in build/config.yml')
+        "
+      - task: common:update:build-assets
+      - |
+        echo ""
+        echo "Done! Version {{.VERSION}} set in build/config.yml"
+        echo "All Wails platform assets regenerated (plist, icons, manifests, etc.)"
+        echo ""
+        echo "Next: git add -A . && git commit -m 'chore: bump version to {{.VERSION}}' && git tag v{{.VERSION}}"
+        echo "      git push && git push --tags"
+
   dev:
     summary: 启动开发模式（前台，终端会保持占用）
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
-
-  proxy-debugger:
-    summary: 启动独立 Cursor 协议调试代理
-    cmds:
-      - go run ./cmd/cursor-proxy-debugger
-
-  proxy-debugger:build:
-    summary: 构建独立 Cursor 协议调试代理
-    cmds:
-      - go build -o ./bin/cursor-proxy-debugger ./cmd/cursor-proxy-debugger
-
-  ads:install:
-    summary: 安装广告页依赖
-    dir: '{{.TASKFILE_DIR}}/ads-page'
-    sources:
-      - package.json
-      - yarn.lock
-    generates:
-      - node_modules
-    cmds:
-      - yarn install --frozen-lockfile
-
-  ads:dev:
-    summary: 启动广告页开发服务（http://127.0.0.1:5174/ad/）
-    dir: '{{.TASKFILE_DIR}}/ads-page'
-    deps:
-      - task: ads:install
-    cmds:
-      - yarn dev
-
-  ads:build:
-    summary: 构建广告 ZIP 产物
-    dir: '{{.TASKFILE_DIR}}/ads-page'
-    deps:
-      - task: ads:install
-    cmds:
-      - yarn build
 
   setup:docker:
     summary: 构建 Linux 交叉编译 Docker 镜像

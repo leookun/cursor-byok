@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+case "$1" in
+    remove|purge)
+        CA_DST="/usr/local/share/ca-certificates/cursor-byok-ca.crt"
+        if [ -f "$CA_DST" ]; then
+            rm -f "$CA_DST"
+            update-ca-certificates 2>/dev/null || true
+        fi
+        ;;
+esac

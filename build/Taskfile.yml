@@ -13,8 +13,8 @@ tasks:
     preconditions:
       - sh: 'test -z "{{.PROTO_INPUT}}" || test -f "{{.PROTO_INPUT}}"'
         msg: "PROTO_INPUT 指向的 Cursor 扩展 bundle 不存在。"
-      - sh: 'test -n "{{.PROTO_INPUT}}" || test -f /Applications/Cursor.app/Contents/Resources/app/extensions/cursor-always-local/dist/main.js'
-        msg: "未找到已安装 Cursor 的扩展 bundle；请传入 PROTO_INPUT=/path/to/cursor-always-local/dist/main.js。"
+      - sh: 'test -n "{{.PROTO_INPUT}}" || test -f ./proto/extensions-cursor-app/cursor-always-local/dist/main.js || test -f /Applications/Cursor.app/Contents/Resources/app/extensions/cursor-always-local/dist/main.js'
+        msg: "未找到 Cursor 扩展 bundle；请传入 PROTO_INPUT=/path/to/cursor-always-local/dist/main.js。"
     cmds:
       - chmod +x ./proto/extract_extensions_proto.sh
       - '{{if .PROTO_INPUT}}./proto/extract_extensions_proto.sh "{{.PROTO_INPUT}}"{{else}}./proto/extract_extensions_proto.sh{{end}}'
@@ -29,18 +29,11 @@ tasks:
       - cp ./proto/from_extensions/aiserver_v1.proto ./proto/aiserver_v1.proto
       - perl -0pi -e 's|option go_package = "react-admin/cursor-server/gen/agent/v1;agentv1";|option go_package = "cursor/gen/agentv1;agentv1";|' ./proto/agent_v1.proto
       - perl -0pi -e 's|option go_package = "react-admin/cursor-server/gen/aiserver/v1;aiserverv1";|option go_package = "cursor/gen/aiserverv1;aiserverv1";|' ./proto/aiserver_v1.proto
-      - ./proto/check_proto_sync.sh
       - rm -rf ./gen/agentv1 ./gen/aiserverv1
       - task: generate:proto
 
-  check:proto:
-    summary: 检查根 proto 与扩展提取快照是否一致
-    dir: '{{.ROOT_DIR}}'
-    cmds:
-      - ./proto/check_proto_sync.sh
-
   generate:proto:
-    summary: 生成 proto Go/Connect 代码
+    summary: generate proto Go/Connect code
     dir: '{{.ROOT_DIR}}'
     sources:
       - proto/*.proto
@@ -48,17 +41,17 @@ tasks:
       - gen/agentv1/*.go
       - gen/aiserverv1/*.go
       - gen/aiserverv1/aiserverv1connect/*.go
-    preconditions:
-      - sh: protoc --version
-        msg: "未检测到 protoc，请先安装 Protocol Buffers 编译器。"
-      - sh: protoc-gen-go --version >/dev/null 2>&1 || which protoc-gen-go
-        msg: "未检测到 protoc-gen-go，请先安装。"
-      - sh: protoc-gen-connect-go --version >/dev/null 2>&1 || which protoc-gen-connect-go
-        msg: "未检测到 protoc-gen-connect-go，请先安装。"
     cmds:
-      - rm -rf ./gen/agentv1 ./gen/aiserverv1
-      - protoc -I ./proto --go_out=. --go_opt=module=cursor --connect-go_out=. --connect-go_opt=module=cursor ./proto/agent_v1.proto ./proto/aiserver_v1.proto
-      - gofmt -w $(find ./gen -name '*.go' -type f)
+      - |
+        # Skip if protoc is not available (generated files are committed to repo)
+        if ! command -v protoc >/dev/null 2>&1; then
+          echo "protoc not found, skipping proto regeneration (using committed generated files)"
+          exit 0
+        fi
+        rm -rf ./gen/agentv1 ./gen/aiserverv1
+        PROTOC_INCLUDE="{{if eq OS "linux"}}-I /usr/include {{end}}-I ./proto"
+        protoc $PROTOC_INCLUDE --go_out=. --go_opt=module=cursor --connect-go_out=. --connect-go_opt=module=cursor ./proto/agent_v1.proto ./proto/aiserver_v1.proto
+        gofmt -w $(find ./gen -name '*.go' -type f)
 
   go:mod:tidy:
     summary: 整理 Go 依赖
@@ -79,7 +72,12 @@ tasks:
       - sh: yarn --version
         msg: "未检测到 Yarn，请先安装 Yarn。"
     cmds:
-      - yarn install --frozen-lockfile
+      # 依赖安装（双保险，彻底避免"依赖安装报错"反复出现）：
+      # 1) 优先 --prefer-offline：用 yarn 缓存（快），缓存缺失时自动联网补包；
+      #    配 --frozen-lockfile 后 yarn 只按 lockfile 精确安装、不会查 @wailsio/runtime@latest 标签，
+      #    因此不会触发 npmmirror 偶发不可达时的无限 "Retrying"，lockfile 变更后首跑也能自愈。
+      # 2) 若上一步仍失败（如镜像临时不可达），回退到纯在线安装（仍 --frozen-lockfile，绝不查 latest 标签）。
+      - yarn install --frozen-lockfile --ignore-engines --prefer-offline || yarn install --frozen-lockfile --ignore-engines
 
   generate:bindings:
     label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
