@@ -10,6 +10,127 @@ import (
 	runtimecore "cursor/internal/backend/agent/core"
 )
 
+func TestInitializePendingShellWaitsForApprovalBeforeStartingDeadline(t *testing.T) {
+	openedAt := time.Now().UTC().Add(-time.Minute)
+	pending := initializePendingExecForTracking(runtimecore.PendingExec{
+		ExecID:      "exec-shell-approval",
+		ExecKind:    "shell",
+		OpenedAt:    openedAt,
+		ArgsJSON:    []byte(`{"block_until_ms":30000}`),
+		StreamState: "opened",
+	})
+	if pending.ShellApprovalState != runtimecore.ShellApprovalStateAwaiting {
+		t.Fatalf("shell approval state = %q, want %q", pending.ShellApprovalState, runtimecore.ShellApprovalStateAwaiting)
+	}
+	if !pending.ShellForegroundDeadline.IsZero() {
+		t.Fatalf("foreground deadline = %s, want zero while awaiting approval", pending.ShellForegroundDeadline)
+	}
+}
+
+func TestInitializeRunningShellStartsForegroundDeadline(t *testing.T) {
+	openedAt := time.Now().UTC().Add(-time.Second)
+	pending := initializePendingExecForTracking(runtimecore.PendingExec{
+		ExecID:             "exec-shell-running",
+		ExecKind:           "shell",
+		OpenedAt:           openedAt,
+		ArgsJSON:           []byte(`{"block_until_ms":30000}`),
+		StreamState:        "started",
+		ShellApprovalState: runtimecore.ShellApprovalStateRunning,
+	})
+	wantDeadline := openedAt.Add(30*time.Second + shellTerminalRecoveryGrace)
+	if pending.ShellApprovalState != runtimecore.ShellApprovalStateRunning {
+		t.Fatalf("shell approval state = %q, want %q", pending.ShellApprovalState, runtimecore.ShellApprovalStateRunning)
+	}
+	if !pending.ShellForegroundDeadline.Equal(wantDeadline) {
+		t.Fatalf("foreground deadline = %s, want %s", pending.ShellForegroundDeadline, wantDeadline)
+	}
+}
+
+func TestShellForegroundRecoveryDoesNotCloseWhileAwaitingApproval(t *testing.T) {
+	service, stream, pending := testShellRecoveryFixture(t, "opened")
+	pending.ShellApprovalState = runtimecore.ShellApprovalStateAwaiting
+	pending.ShellForegroundDeadline = time.Now().UTC().Add(-time.Minute)
+	stream.mu.Lock()
+	stream.PendingExecs[pending.ExecID] = pending
+	stream.mu.Unlock()
+
+	if err := service.recoverShellWithoutTerminalIfNeeded(stream, pending.ExecID, pending.MessageID, shellRecoveryReasonForegroundDeadline); err != nil {
+		t.Fatalf("approval recovery error = %v", err)
+	}
+	if _, found := snapshotPendingExec(stream, pending.ExecID); !found {
+		t.Fatal("approval timeout completed shell without Run or Skip")
+	}
+	if completions := shellCompletionCount(stream, pending.ToolCallID); completions != 0 {
+		t.Fatalf("approval timeout emitted %d completions, want 0", completions)
+	}
+}
+
+func TestShellStartTransitionsApprovalToRunning(t *testing.T) {
+	service, stream, pending := testShellRecoveryFixture(t, "opened")
+	start := &agentv1.ExecClientMessage{
+		Id:     pending.MessageID,
+		ExecId: pending.ExecID,
+		Message: &agentv1.ExecClientMessage_ShellStream{
+			ShellStream: &agentv1.ShellStream{
+				Event: &agentv1.ShellStream_Start{Start: &agentv1.ShellStreamStart{}},
+			},
+		},
+	}
+
+	if err := service.handleExecResult(InboundIntent{RequestID: stream.RequestID, ExecClientMessage: start}); err != nil {
+		t.Fatalf("shell start error = %v", err)
+	}
+	current, found := snapshotPendingExec(stream, pending.ExecID)
+	if !found {
+		t.Fatal("shell start removed pending exec")
+	}
+	if current.ShellApprovalState != runtimecore.ShellApprovalStateRunning {
+		t.Fatalf("shell approval state = %q, want %q", current.ShellApprovalState, runtimecore.ShellApprovalStateRunning)
+	}
+	if current.ShellForegroundDeadline.IsZero() {
+		t.Fatal("shell start did not establish foreground deadline")
+	}
+}
+
+func TestShellRejectedResultDoesNotBecomeSyntheticRecovery(t *testing.T) {
+	service, stream, pending := testShellRecoveryFixture(t, "opened")
+	rejected := &agentv1.ExecClientMessage{
+		Id:     pending.MessageID,
+		ExecId: pending.ExecID,
+		Message: &agentv1.ExecClientMessage_ShellStream{
+			ShellStream: &agentv1.ShellStream{
+				Event: &agentv1.ShellStream_Rejected{Rejected: &agentv1.ShellRejected{Reason: "user skipped"}},
+			},
+		},
+	}
+
+	if err := service.handleExecResult(InboundIntent{RequestID: stream.RequestID, ExecClientMessage: rejected}); err != nil {
+		t.Fatalf("shell rejected error = %v", err)
+	}
+	if _, found := snapshotPendingExec(stream, pending.ExecID); found {
+		t.Fatal("rejected shell remained pending")
+	}
+	if completions := shellCompletionCount(stream, pending.ToolCallID); completions != 1 {
+		t.Fatalf("rejected completion count = %d, want 1", completions)
+	}
+	if shellHistoryContains(stream, "<shell-incomplete>") {
+		t.Fatal("rejected shell emitted synthetic recovery")
+	}
+}
+
+func TestShellTransportRecoveryDoesNotCloseWhileAwaitingApproval(t *testing.T) {
+	service, stream, pending := testShellRecoveryFixture(t, "opened")
+	if err := service.recoverShellWithoutTerminalIfNeeded(stream, pending.ExecID, pending.MessageID, shellRecoveryReasonTransportClosed); err != nil {
+		t.Fatalf("approval transport recovery error = %v", err)
+	}
+	if _, found := snapshotPendingExec(stream, pending.ExecID); !found {
+		t.Fatal("transport close completed shell without approval")
+	}
+	if completions := shellCompletionCount(stream, pending.ToolCallID); completions != 0 {
+		t.Fatalf("approval transport completion count = %d, want 0", completions)
+	}
+}
+
 func TestShellForegroundTimeoutDuration(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -33,11 +154,12 @@ func TestShellForegroundTimeoutDuration(t *testing.T) {
 func TestInitializePendingShellSetsDeadlineAfterForegroundTimeoutAndGrace(t *testing.T) {
 	openedAt := time.Now().UTC().Add(-time.Second)
 	pending := initializePendingExecForTracking(runtimecore.PendingExec{
-		ExecID:      "exec-shell-1",
-		ExecKind:    "shell",
-		OpenedAt:    openedAt,
-		ArgsJSON:    []byte(`{"block_until_ms":30000}`),
-		StreamState: "opened",
+		ExecID:             "exec-shell-1",
+		ExecKind:           "shell",
+		OpenedAt:           openedAt,
+		ArgsJSON:           []byte(`{"block_until_ms":30000}`),
+		StreamState:        "started",
+		ShellApprovalState: runtimecore.ShellApprovalStateRunning,
 	})
 	wantDeadline := openedAt.Add(30*time.Second + shellTerminalRecoveryGrace)
 	if !pending.ShellForegroundDeadline.Equal(wantDeadline) {
@@ -249,6 +371,9 @@ func testShellRecoveryFixture(t *testing.T, state string) (*Service, *ActiveStre
 		OpenedAt:    time.Now().UTC().Add(-time.Second),
 		StreamState: state,
 	})
+	if state == "transport_closed" {
+		pending.ShellApprovalState = runtimecore.ShellApprovalStateRunning
+	}
 	stream.mu.Lock()
 	stream.PendingExecs[pending.ExecID] = pending
 	stream.mu.Unlock()

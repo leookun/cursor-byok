@@ -1027,6 +1027,9 @@ func (service *Service) handleExecResult(intent InboundIntent) error {
 	service.observeBackgroundShellExecClientMessage(stream, pending, intent.ExecClientMessage)
 	service.observeShellExecClientMessage(stream, pending, intent.ExecClientMessage)
 	pending = service.applyExecProgress(stream, pending, intent.ExecClientMessage)
+	if strings.TrimSpace(pending.ExecKind) == "shell" {
+		service.scheduleShellForegroundRecovery(intent.RequestID, pending)
+	}
 	if isHiddenPatchEditExecKind(pending.ExecKind) {
 		return service.handleHiddenPatchEditExecResult(stream, pending, intent.ExecClientMessage)
 	}
@@ -2109,6 +2112,10 @@ func (service *Service) applyExecProgress(stream *ActiveStream, pending runtimec
 		return pending
 	}
 	now := time.Now().UTC()
+	switch shellStream.GetEvent().(type) {
+	case *agentv1.ShellStream_Stdout, *agentv1.ShellStream_Stderr, *agentv1.ShellStream_Start:
+		current = markShellRunning(current)
+	}
 	switch event := shellStream.GetEvent().(type) {
 	case *agentv1.ShellStream_Stdout:
 		if current.FirstChunkAt.IsZero() {
