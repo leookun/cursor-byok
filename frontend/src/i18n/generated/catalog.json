@@ -12,18 +12,6 @@
         }
       ]
     },
-    "02bc2e95bf49e587": {
-      "source": "当前还没有配置任何",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/views/ModelConfig.vue",
-          "line": 255,
-          "column": 165
-        }
-      ]
-    },
     "03b11112dc970014": {
       "source": "接口地址",
       "kind": "text",
@@ -137,7 +125,7 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 53,
+          "line": 50,
           "column": 48
         }
       ]
@@ -390,7 +378,7 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 67,
+          "line": 64,
           "column": 48
         }
       ]
@@ -519,7 +507,7 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 150,
+          "line": 145,
           "column": 7
         }
       ]
@@ -567,7 +555,7 @@
       "refs": [
         {
           "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 129,
+          "line": 124,
           "column": 60
         }
       ]
@@ -896,18 +884,6 @@
         {
           "file": "src/layouts/MainLayout.vue",
           "line": 60,
-          "column": 9
-        }
-      ]
-    },
-    "51194c3ad014fb29": {
-      "source": "需重测",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/components/ModelAdapterTestCard.vue",
-          "line": 124,
           "column": 9
         }
       ]
@@ -1940,18 +1916,6 @@
         }
       ]
     },
-    "9dc0825fba5422e4": {
-      "source": "加载中...",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/views/ModelEditor.vue",
-          "line": 296,
-          "column": 97
-        }
-      ]
-    },
     "9e02529bcaef36c6": {
       "source": "模型渠道重复，请检查 url、modelID、apiKey、displayName、endpoint 组合",
       "kind": "text",
@@ -2861,7 +2825,7 @@
       "refs": [
         {
           "file": "src/views/Config.vue",
-          "line": 79,
+          "line": 76,
           "column": 48
         }
       ]
