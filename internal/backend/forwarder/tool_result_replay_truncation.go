@@ -16,7 +16,7 @@ const (
 	projectedShellInterleavedLimit = 32 * projectedReplayKiB
 	projectedGrepReplayLimit       = 32 * projectedReplayKiB
 	projectedEditReplayLimit       = 32 * projectedReplayKiB
-	projectedPatchEditReplayLimit  = 4 * projectedReplayKiB
+	projectedPatchEditReplayLimit  = 32 * projectedReplayKiB
 	projectedWebFetchReplayLimit   = 32 * projectedReplayKiB
 	projectedWebSearchReplayLimit  = 16 * projectedReplayKiB
 	projectedMcpReplayLimit        = 32 * projectedReplayKiB

@@ -92,6 +92,15 @@ tasks:
           DMG_NAME: macos-intel.dmg
           SCAN: '{{.SCAN}}'
 
+  build:windows:binary:
+    summary: Build a Windows executable without creating a ZIP archive
+    cmds:
+      - task: windows:build
+        vars:
+          ARCH: '{{.ARCH | default .CURRENT_WINDOWS_ARCH}}'
+          OUTPUT: '{{.OUTPUT}}'
+          SCAN: '{{.SCAN}}'
+
   build:windows:current:
     internal: true
     cmds:

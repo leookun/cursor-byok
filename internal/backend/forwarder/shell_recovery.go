@@ -27,6 +27,28 @@ func initializePendingExecForTracking(pending runtimecore.PendingExec) runtimeco
 	if pending.LastShellActivityAt.IsZero() {
 		pending.LastShellActivityAt = pending.OpenedAt
 	}
+	if pending.ShellApprovalState == "" {
+		switch strings.TrimSpace(pending.StreamState) {
+		case "started", "streaming":
+			pending.ShellApprovalState = runtimecore.ShellApprovalStateRunning
+		default:
+			pending.ShellApprovalState = runtimecore.ShellApprovalStateAwaiting
+		}
+	}
+	if pending.ShellApprovalState == runtimecore.ShellApprovalStateRunning && pending.ShellForegroundDeadline.IsZero() {
+		pending.ShellForegroundDeadline = pending.OpenedAt.Add(shellForegroundTimeoutDuration(pending.ArgsJSON) + shellTerminalRecoveryGrace)
+	}
+	return pending
+}
+
+func markShellRunning(pending runtimecore.PendingExec) runtimecore.PendingExec {
+	if strings.TrimSpace(pending.ExecKind) != "shell" {
+		return pending
+	}
+	pending.ShellApprovalState = runtimecore.ShellApprovalStateRunning
+	if pending.OpenedAt.IsZero() {
+		pending.OpenedAt = time.Now().UTC()
+	}
 	if pending.ShellForegroundDeadline.IsZero() {
 		pending.ShellForegroundDeadline = pending.OpenedAt.Add(shellForegroundTimeoutDuration(pending.ArgsJSON) + shellTerminalRecoveryGrace)
 	}
@@ -52,7 +74,7 @@ func shellForegroundTimeoutMS(argsJSON []byte) int64 {
 }
 
 func (service *Service) scheduleShellForegroundRecovery(requestID string, pending runtimecore.PendingExec) {
-	if service == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(pending.ExecKind) != "shell" || strings.TrimSpace(pending.ExecID) == "" {
+	if service == nil || strings.TrimSpace(requestID) == "" || strings.TrimSpace(pending.ExecKind) != "shell" || strings.TrimSpace(pending.ExecID) == "" || pending.ShellApprovalState != runtimecore.ShellApprovalStateRunning {
 		return
 	}
 	stream, ok := service.broker.Get(requestID)
@@ -133,6 +155,9 @@ func (service *Service) recoverShellWithoutTerminalIfNeeded(stream *ActiveStream
 	if !found || current.MessageID != messageID || strings.TrimSpace(current.ExecKind) != "shell" || isTerminalStreamStatus(status) {
 		return nil
 	}
+	if current.ShellApprovalState != runtimecore.ShellApprovalStateRunning {
+		return nil
+	}
 	switch strings.TrimSpace(current.StreamState) {
 	case "exited", "backgrounded", "rejected", "permission_denied":
 		return nil
@@ -168,6 +193,7 @@ func (service *Service) recoverShellWithoutTerminal(stream *ActiveStream, pendin
 			"message_id":               pending.MessageID,
 			"exec_id":                  pending.ExecID,
 			"exec_kind":                pending.ExecKind,
+			"approval_state":           pending.ShellApprovalState,
 			"reason":                   strings.TrimSpace(reason),
 			"recent_stream_state":      pending.StreamState,
 			"chunk_count":              pending.ChunkCount,

@@ -148,6 +148,10 @@ func (broker *StreamBroker) Subscribe(requestID string) (string, <-chan struct{}
 	subscriber := &StreamSubscriber{Signal: make(chan struct{}, subscriberSignalBufferSize)}
 
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return "", nil, nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	stream.Subscribers[subscriberID] = subscriber
 	stream.UpdatedAt = time.Now().UTC()
@@ -175,9 +179,7 @@ func (broker *StreamBroker) Unsubscribe(requestID string, subscriberID string) i
 	}
 	remaining := 0
 	stream.mu.Lock()
-	if _, ok := stream.Subscribers[strings.TrimSpace(subscriberID)]; ok {
-		delete(stream.Subscribers, strings.TrimSpace(subscriberID))
-	}
+	delete(stream.Subscribers, strings.TrimSpace(subscriberID))
 	remaining = len(stream.Subscribers)
 	stream.mu.Unlock()
 	return remaining
@@ -391,6 +393,10 @@ func (broker *StreamBroker) Fail(requestID string, terminalCode string, terminal
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	stream.Status = StreamStatusFailed
 	subscriberCount := len(stream.Subscribers)
@@ -416,6 +422,10 @@ func (broker *StreamBroker) Cancel(requestID string, terminalMessage string) err
 		return fmt.Errorf("request is not active: %s", strings.TrimSpace(requestID))
 	}
 	stream.mu.Lock()
+	if isTerminalStreamStatus(stream.Status) {
+		stream.mu.Unlock()
+		return nil
+	}
 	broker.stopTerminalCleanupTimerLocked(stream)
 	if stream.ProviderCancel != nil {
 		stream.ProviderCancel()

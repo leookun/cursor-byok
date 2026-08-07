@@ -861,7 +861,23 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 	for _, pending := range stream.PendingExecs {
 		pendingExecs = append(pendingExecs, pending)
 	}
+	if stream.ProviderCancel != nil {
+		stream.ProviderCancel()
+		stream.ProviderCancel = nil
+	}
+	stream.ProviderActive = false
+	stream.CurrentProviderToken++
+	stream.CurrentCompactionToken++
+	stream.PendingProviderAction = providerActionNone
+	stream.PendingCompaction = nil
+	stream.PatchEditQueues = make(map[string][]queuedPatchEditOperation)
+	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
+	for _, pending := range pendingExecs {
+		if err := service.completePendingEditAfterCancel(stream, pending); err != nil {
+			return err
+		}
+	}
 	for _, pending := range pendingExecs {
 		_ = service.broker.Publish(intent.RequestID, StreamEvent{
 			Message: buildExecAbortMessage(pending),
@@ -877,6 +893,32 @@ func (service *Service) handleCancelIntent(intent InboundIntent) error {
 	stream.mu.Unlock()
 	service.setTurnPhase(stream, TurnPhaseCanceled)
 	return service.broker.Cancel(intent.RequestID, firstNonEmpty(intent.CancelReason, "[canceled] User aborted request"))
+}
+
+func (service *Service) completePendingEditAfterCancel(stream *ActiveStream, pending runtimecore.PendingExec) error {
+	if stream == nil || (!isHiddenWriteExecKind(pending.ExecKind) && !isHiddenPatchEditExecKind(pending.ExecKind)) {
+		return nil
+	}
+	if isHiddenPatchEditExecKind(pending.ExecKind) {
+		payload, err := decodePendingPatchEditPayload(pending.ArgsJSON)
+		if err != nil {
+			return err
+		}
+		markExecCompleted(stream, pending)
+		if pending.ExecKind == patchEditPostReadExecKindName {
+			return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildFinalEditSuccessResult(payload.ResolvedPath, payload.AfterContent, patchEditPayloadAsEditPayload(payload)))
+		}
+		return service.finishPatchEditOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload, buildEditErrorResult(payload.ResolvedPath, "PatchEdit canceled before terminal result arrived"))
+	}
+	payload, err := decodePendingWritePayload(pending.ArgsJSON)
+	if err != nil {
+		return err
+	}
+	markExecCompleted(stream, pending)
+	if pending.ExecKind == writePostReadExecKind {
+		return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildSuccessfulWriteResult(payload.ResolvedPath, payload.BeforeContent, payload.AfterContent))
+	}
+	return service.finishWriteOperation(stream, pending.ToolCallID, pending.ModelCallID, pending.ProviderPass, pending.ReasoningContent, payload.VisibleArgs, buildEditErrorResult(payload.ResolvedPath, "Write canceled before terminal result arrived"))
 }
 
 func checkpointTurnHasReplayActivity(stream *ActiveStream) bool {
@@ -987,6 +1029,9 @@ func (service *Service) handleExecResult(intent InboundIntent) error {
 	service.observeBackgroundShellExecClientMessage(stream, pending, intent.ExecClientMessage)
 	service.observeShellExecClientMessage(stream, pending, intent.ExecClientMessage)
 	pending = service.applyExecProgress(stream, pending, intent.ExecClientMessage)
+	if strings.TrimSpace(pending.ExecKind) == "shell" {
+		service.scheduleShellForegroundRecovery(intent.RequestID, pending)
+	}
 	if isHiddenPatchEditExecKind(pending.ExecKind) {
 		return service.handleHiddenPatchEditExecResult(stream, pending, intent.ExecClientMessage)
 	}
@@ -1990,19 +2035,67 @@ func (service *Service) appendToolResult(stream *ActiveStream, toolCallID string
 		}
 		payload = encoded
 	}
+	reasoningContent = toolResultReasoningFallback(stream, toolCallID, reasoningContent)
 	_, err := service.appendConversationEntries(stream, stream.ConversationID, []HistoryEntry{
 		newToolResultEntry(stream.TurnSeq, stream.RequestID, toolCallID, toolName, string(argsJSON), resultText, reasoningContent, payload),
 	})
 	return err
 }
 
+func toolResultReasoningFallback(stream *ActiveStream, toolCallID string, reasoningContent string) string {
+	if strings.TrimSpace(reasoningContent) == "" || stream == nil {
+		return reasoningContent
+	}
+	trimmedToolCallID := strings.TrimSpace(toolCallID)
+	if trimmedToolCallID == "" {
+		return reasoningContent
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.CheckpointConversation == nil {
+		return reasoningContent
+	}
+	for _, entry := range stream.CheckpointConversation.Entries {
+		if strings.TrimSpace(entry.Kind) != "tool_call" || strings.TrimSpace(entry.ToolCallID) != trimmedToolCallID {
+			continue
+		}
+		var payload toolCallEntryPayload
+		if err := json.Unmarshal(entry.Payload, &payload); err == nil && (strings.TrimSpace(payload.ReasoningContent) != "" || strings.TrimSpace(payload.ReasoningSignature) != "" || strings.TrimSpace(payload.ReasoningSignatureSource) != "") {
+			return ""
+		}
+	}
+	return reasoningContent
+}
+
 func (service *Service) publishToolCallCompleted(requestID string, toolCallID string, modelCallID string, toolCall *agentv1.ToolCall) error {
-	if strings.TrimSpace(requestID) == "" || strings.TrimSpace(toolCallID) == "" {
+	trimmedRequestID := strings.TrimSpace(requestID)
+	trimmedToolCallID := strings.TrimSpace(toolCallID)
+	if trimmedRequestID == "" || trimmedToolCallID == "" {
 		return nil
 	}
-	return service.broker.Publish(requestID, StreamEvent{
-		Message: buildToolCallCompletedMessage(toolCallID, modelCallID, toolCall),
+	if stream, found := service.broker.Get(trimmedRequestID); found && stream != nil {
+		stream.mu.Lock()
+		if stream.CompletedToolCallIDs == nil {
+			stream.CompletedToolCallIDs = make(map[string]time.Time)
+		}
+		stream.CompletedToolCallIDs[trimmedToolCallID] = time.Now().UTC()
+		stream.UpdatedAt = time.Now().UTC()
+		stream.mu.Unlock()
+	}
+	return service.broker.Publish(trimmedRequestID, StreamEvent{
+		Message: buildToolCallCompletedMessage(trimmedToolCallID, modelCallID, toolCall),
 	})
+}
+
+func completedToolCall(stream *ActiveStream, toolCallID string) bool {
+	trimmedToolCallID := strings.TrimSpace(toolCallID)
+	if stream == nil || trimmedToolCallID == "" {
+		return false
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	_, completed := stream.CompletedToolCallIDs[trimmedToolCallID]
+	return completed
 }
 
 func (service *Service) applyExecProgress(stream *ActiveStream, pending runtimecore.PendingExec, message *agentv1.ExecClientMessage) runtimecore.PendingExec {
@@ -2021,6 +2114,10 @@ func (service *Service) applyExecProgress(stream *ActiveStream, pending runtimec
 		return pending
 	}
 	now := time.Now().UTC()
+	switch shellStream.GetEvent().(type) {
+	case *agentv1.ShellStream_Stdout, *agentv1.ShellStream_Stderr, *agentv1.ShellStream_Start:
+		current = markShellRunning(current)
+	}
 	switch event := shellStream.GetEvent().(type) {
 	case *agentv1.ShellStream_Stdout:
 		if current.FirstChunkAt.IsZero() {
@@ -2224,7 +2321,7 @@ func (service *Service) completeSuccessfulTurn(stream *ActiveStream, completion 
 }
 
 func (service *Service) finishSuccessfulTurnAfterCheckpoint(stream *ActiveStream, completion pendingTurnCompletion) error {
-	if stream == nil {
+	if stream == nil || !claimTerminalEvent(stream) {
 		return nil
 	}
 	requestID := firstNonEmpty(strings.TrimSpace(completion.RequestID), strings.TrimSpace(stream.RequestID))
@@ -2239,6 +2336,14 @@ func (service *Service) finishSuccessfulTurnAfterCheckpoint(stream *ActiveStream
 	}
 	service.setTurnPhase(stream, TurnPhaseCompleted)
 	return nil
+}
+
+func (service *Service) finishCanceledTurnAfterCheckpoint(stream *ActiveStream, terminalMessage string) error {
+	if stream == nil || !claimTerminalEvent(stream) {
+		return nil
+	}
+	service.setTurnPhase(stream, TurnPhaseCanceled)
+	return service.broker.Cancel(stream.RequestID, firstNonEmpty(strings.TrimSpace(terminalMessage), "[canceled] User aborted request"))
 }
 
 func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCode string, cause error) error {
@@ -3181,6 +3286,9 @@ func buildPendingToolCalls(pendingExecs []runtimecore.PendingExec, pendingIntera
 
 	items := make([]pendingToolCallReplay, 0, len(pendingExecs)+len(pendingInteractions))
 	for _, pending := range pendingExecs {
+		if isHiddenWriteExecKind(pending.ExecKind) || isHiddenPatchEditExecKind(pending.ExecKind) {
+			continue
+		}
 		raw, ok := encodePendingExecAsAssistantOutput(pending)
 		if !ok {
 			continue

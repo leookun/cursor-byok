@@ -1,6 +1,7 @@
 package forwarder
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -464,6 +465,44 @@ func providerTokenMatches(stream *ActiveStream, token uint64) bool {
 	return stream.CurrentProviderToken == token
 }
 
+type providerReasoningPayload struct {
+	Content         string
+	Signature       string
+	SignatureSource string
+	ItemID          string
+	Status          string
+	Summary         json.RawMessage
+}
+
+// takeProviderOutputForTool transfers a provider pass's pending text and reasoning
+// to exactly one history entry. A provider may emit several tool invocations in one
+// pass, but its reasoning is a shared prefix rather than per-tool content.
+func takeProviderOutputForTool(stream *ActiveStream) (string, providerReasoningPayload) {
+	if stream == nil {
+		return "", providerReasoningPayload{}
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	output := providerReasoningPayload{
+		Content:         stream.ProviderAccumulatedReasoning,
+		Signature:       stream.ProviderAccumulatedReasoningSignature,
+		SignatureSource: stream.ProviderAccumulatedReasoningSignatureSource,
+		ItemID:          stream.ProviderAccumulatedReasoningItemID,
+		Status:          stream.ProviderAccumulatedReasoningStatus,
+		Summary:         append(json.RawMessage(nil), stream.ProviderAccumulatedReasoningSummary...),
+	}
+	text := stream.ProviderAccumulatedText
+	stream.ProviderAccumulatedText = ""
+	stream.ProviderAccumulatedReasoning = ""
+	stream.ProviderAccumulatedReasoningSignature = ""
+	stream.ProviderAccumulatedReasoningSignatureSource = ""
+	stream.ProviderAccumulatedReasoningItemID = ""
+	stream.ProviderAccumulatedReasoningStatus = ""
+	stream.ProviderAccumulatedReasoningSummary = nil
+	stream.UpdatedAt = time.Now().UTC()
+	return text, output
+}
+
 func (service *Service) applyProviderModelEvent(stream *ActiveStream, event modeladapter.ModelEvent) error {
 	if stream == nil {
 		return nil
@@ -473,13 +512,6 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 	conversationID := stream.ConversationID
 	turnSeq := stream.TurnSeq
 	modelCallID := stream.CurrentModelCallID
-	accumulatedText := stream.ProviderAccumulatedText
-	accumulatedReasoning := stream.ProviderAccumulatedReasoning
-	accumulatedReasoningSignature := stream.ProviderAccumulatedReasoningSignature
-	accumulatedReasoningSignatureSource := stream.ProviderAccumulatedReasoningSignatureSource
-	accumulatedReasoningItemID := stream.ProviderAccumulatedReasoningItemID
-	accumulatedReasoningStatus := stream.ProviderAccumulatedReasoningStatus
-	accumulatedReasoningSummary := append([]byte(nil), stream.ProviderAccumulatedReasoningSummary...)
 	stream.mu.Unlock()
 
 	switch event.Kind {
@@ -542,6 +574,10 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 		if toolCallID == "" || event.ToolCall == nil {
 			return nil
 		}
+		if completedToolCall(stream, toolCallID) {
+			service.logLateToolLifecycleEvent(stream, "partial", toolCallID, modelCallID, inferToolName(event.ToolCall))
+			return nil
+		}
 		displayToolCall := service.rewriteTaskToolCallModelForDisplay(stream, event.ToolCall)
 		stream.mu.Lock()
 		if stream.PartialToolCallIDs == nil {
@@ -550,6 +586,7 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 		stream.PartialToolCallIDs[toolCallID] = struct{}{}
 		stream.UpdatedAt = time.Now().UTC()
 		stream.mu.Unlock()
+		service.logToolLifecycleEvent(stream, "partial_forwarded", toolCallID, modelCallID, inferToolName(displayToolCall))
 		if inferToolName(displayToolCall) == "GenerateImage" {
 			return service.broker.Publish(requestID, StreamEvent{
 				Message: buildToolCallStartedMessage(toolCallID, modelCallID, displayToolCall),
@@ -559,39 +596,37 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 			Message: buildPartialToolCallMessage(toolCallID, modelCallID, displayToolCall, event.ArgsTextDelta),
 		})
 	case modeladapter.ModelEventKindToolCallDelta:
-		if strings.TrimSpace(event.ToolCallID) == "" || event.ToolCallDelta == nil {
+		toolCallID := strings.TrimSpace(event.ToolCallID)
+		if toolCallID == "" || event.ToolCallDelta == nil {
 			return nil
 		}
+		if completedToolCall(stream, toolCallID) {
+			service.logLateToolLifecycleEvent(stream, "delta", toolCallID, modelCallID, "")
+			return nil
+		}
+		service.logToolLifecycleEvent(stream, "delta_forwarded", toolCallID, modelCallID, "")
 		return service.broker.Publish(requestID, StreamEvent{
-			Message: buildToolCallDeltaMessage(event.ToolCallID, modelCallID, event.ToolCallDelta),
+			Message: buildToolCallDeltaMessage(toolCallID, modelCallID, event.ToolCallDelta),
 		})
 	case modeladapter.ModelEventKindToolLikeCompleted:
-		reasoningForTool := accumulatedReasoning
-		reasoningSignatureForTool := accumulatedReasoningSignature
-		reasoningSignatureSourceForTool := accumulatedReasoningSignatureSource
-		reasoningItemIDForTool := accumulatedReasoningItemID
-		reasoningStatusForTool := accumulatedReasoningStatus
-		reasoningSummaryForTool := append([]byte(nil), accumulatedReasoningSummary...)
-		if strings.TrimSpace(accumulatedText) != "" {
-			if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, false); err != nil {
+		textForTool, reasoningForTool := takeProviderOutputForTool(stream)
+		if strings.TrimSpace(textForTool) != "" {
+			if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, textForTool, reasoningForTool.Content, reasoningForTool.Signature, reasoningForTool.SignatureSource, reasoningForTool.ItemID, reasoningForTool.Status, reasoningForTool.Summary, false); err != nil {
 				return err
 			}
+			reasoningForTool = providerReasoningPayload{}
 		}
 		if event.ToolInvocation == nil {
 			return fmt.Errorf("tool invocation is required")
 		}
 		invocation := *event.ToolInvocation
-		invocation.ReasoningContent = reasoningForTool
-		invocation.ReasoningSignature = reasoningSignatureForTool
-		invocation.ReasoningSignatureSource = reasoningSignatureSourceForTool
-		invocation.ReasoningProviderItemID = reasoningItemIDForTool
-		invocation.ReasoningProviderStatus = reasoningStatusForTool
-		invocation.ReasoningProviderSummary = reasoningSummaryForTool
+		invocation.ReasoningContent = reasoningForTool.Content
+		invocation.ReasoningSignature = reasoningForTool.Signature
+		invocation.ReasoningSignatureSource = reasoningForTool.SignatureSource
+		invocation.ReasoningProviderItemID = reasoningForTool.ItemID
+		invocation.ReasoningProviderStatus = reasoningForTool.Status
+		invocation.ReasoningProviderSummary = reasoningForTool.Summary
 		invocation.ModelCallID = modelCallID
-		stream.mu.Lock()
-		stream.ProviderAccumulatedText = ""
-		stream.UpdatedAt = time.Now().UTC()
-		stream.mu.Unlock()
 		return service.handleToolInvocation(stream, invocation)
 	case modeladapter.ModelEventKindTurnFinished:
 		stream.mu.Lock()
@@ -618,6 +653,29 @@ func (service *Service) applyProviderModelEvent(stream *ActiveStream, event mode
 	default:
 		return nil
 	}
+}
+
+func (service *Service) logToolLifecycleEvent(stream *ActiveStream, eventName string, toolCallID string, modelCallID string, toolName string) {
+	if service == nil || stream == nil {
+		return
+	}
+	service.debug.LogRuntime(context.Background(), stream.RequestID, stream.ConversationID, "tool_lifecycle_"+strings.TrimSpace(eventName), map[string]any{
+		"tool_call_id":  strings.TrimSpace(toolCallID),
+		"model_call_id": strings.TrimSpace(modelCallID),
+		"tool_name":     strings.TrimSpace(toolName),
+	})
+}
+
+func (service *Service) logLateToolLifecycleEvent(stream *ActiveStream, eventType string, toolCallID string, modelCallID string, toolName string) {
+	if service == nil || stream == nil {
+		return
+	}
+	service.debug.LogRuntime(context.Background(), stream.RequestID, stream.ConversationID, "tool_lifecycle_late_event_ignored", map[string]any{
+		"event_type":    strings.TrimSpace(eventType),
+		"tool_call_id":  strings.TrimSpace(toolCallID),
+		"model_call_id": strings.TrimSpace(modelCallID),
+		"tool_name":     strings.TrimSpace(toolName),
+	})
 }
 
 func (service *Service) rewriteTaskToolCallModelForDisplay(stream *ActiveStream, toolCall *agentv1.ToolCall) *agentv1.ToolCall {
@@ -1086,6 +1144,20 @@ func (service *Service) setTurnPhase(stream *ActiveStream, phase TurnPhase) {
 	stream.Phase = phase
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
+}
+
+func claimTerminalEvent(stream *ActiveStream) bool {
+	if stream == nil {
+		return false
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.TerminalActionClaimed || isTerminalStreamStatus(stream.Status) {
+		return false
+	}
+	stream.TerminalActionClaimed = true
+	stream.UpdatedAt = time.Now().UTC()
+	return true
 }
 
 func rememberPendingProviderCompletion(stream *ActiveStream, completion pendingTurnCompletion) {

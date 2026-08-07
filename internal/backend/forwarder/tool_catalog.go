@@ -51,6 +51,7 @@ func (catalog *DefaultToolCatalog) Load(mode agentv1.AgentMode, subagentTypeName
 var agentModeToolNames = map[string]struct{}{
 	"AskQuestion":          {},
 	"CallMcpTool":          {},
+	"CreatePlan":           {},
 	"Delete":               {},
 	"FetchMcpResource":     {},
 	"GenerateImage":        {},
@@ -144,10 +145,12 @@ var planModeToolNames = map[string]struct{}{
 	"AskQuestion":          {},
 	"CallMcpTool":          {},
 	"CreatePlan":           {},
+	"Delete":               {},
 	"FetchMcpResource":     {},
 	"Glob":                 {},
 	"Grep":                 {},
 	"Ls":                   {},
+	"PatchEdit":            {},
 	"Read":                 {},
 	"ReadLints":            {},
 	"Shell":                {},
@@ -158,6 +161,7 @@ var planModeToolNames = map[string]struct{}{
 	"TodoWrite":            {},
 	"WebFetch":             {},
 	"WebSearch":            {},
+	"Write":                {},
 }
 
 var childConversationDisallowedAgentToolNames = map[string]struct{}{

@@ -36,8 +36,8 @@ overrides:
     depends:
       - gtk3
       - webkit2gtk4.1
-  
-  # Arch Linux packages (WebKit 4.1)  
+
+  # Arch Linux packages (WebKit 4.1)
   archlinux:
     depends:
       - gtk3

@@ -277,6 +277,8 @@ func (service *Service) handleHiddenWriteExecControl(stream *ActiveStream, pendi
 		return nil
 	}
 	if _, ok := message.GetMessage().(*agentv1.ExecClientControlMessage_StreamClose); ok {
+		markExecTransportClosed(stream, pending)
+		service.scheduleNonStreamingExecRecovery(stream.RequestID, pending)
 		return nil
 	}
 	payload, err := decodePendingWritePayload(pending.ArgsJSON)
@@ -412,20 +414,7 @@ func summarizeWriteHistoryResult(path string, result *agentv1.EditResult) string
 }
 
 func compactWriteHistoryEditResult(path string, result *agentv1.EditResult) *agentv1.EditResult {
-	if result == nil {
-		return buildEditErrorResult("", "write result missing")
-	}
-	success := result.GetSuccess()
-	if success == nil {
-		return editResultWithoutPath(result)
-	}
-	return &agentv1.EditResult{
-		Result: &agentv1.EditResult_Success{
-			Success: &agentv1.EditSuccess{
-				Path: firstNonEmpty(success.GetPath(), path),
-			},
-		},
-	}
+	return compactEditHistoryResult(path, result, projectedEditReplayLimit)
 }
 
 func boundedWriteDiffString(diffString string) string {

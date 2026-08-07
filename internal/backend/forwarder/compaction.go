@@ -39,7 +39,6 @@ const (
 	compactionRequestSourcePromptAsset = "prompt_asset"
 	compactionRequestSourceCurrentTurn = "current_turn_compaction"
 	compactionOverflowTerminalCode     = "context_overflow_after_compaction"
-	compactionSummaryUserMessage       = "现在上下文已满，触发了压缩对话。请把我们到目前为止的对话历史整理成一个 Markdown 表格返回给我。你的回复会直接作为后续对话的压缩内容，请只保留继续协作必需的事实、约束、决定、文件路径、命令、报错、结果和待办。不要调用工具，不要输出表格外说明。"
 )
 
 type compactionPlan struct {
@@ -447,16 +446,10 @@ func (service *Service) handleCompactionEvent(stream *ActiveStream, payload *str
 		if err := service.completeManualCompactionTurn(stream); err != nil {
 			return service.failStream(stream, "unknown", err)
 		}
-		if err := service.broker.Publish(stream.RequestID, StreamEvent{
-			Message: buildTurnEndedMessage(0, 0, 0, 0),
-		}); err != nil {
-			return service.failStream(stream, "unknown", err)
-		}
-		if err := service.broker.Complete(stream.RequestID, "", ""); err != nil {
-			return service.failStream(stream, "unknown", err)
-		}
-		service.setTurnPhase(stream, TurnPhaseCompleted)
-		return nil
+		return service.finishSuccessfulTurnAfterCheckpoint(stream, pendingTurnCompletion{
+			RequestID: stream.RequestID,
+			Usage:     turnUsageSnapshot{},
+		})
 	}
 	return service.requestProviderAction(stream, providerActionResume)
 }
@@ -500,12 +493,10 @@ func (service *Service) finishManualCompactionNoop(stream *ActiveStream) error {
 	if err := service.completeManualCompactionTurn(stream); err != nil {
 		return err
 	}
-	if err := service.broker.Publish(stream.RequestID, StreamEvent{
-		Message: buildTurnEndedMessage(0, 0, 0, 0),
-	}); err != nil {
-		return err
-	}
-	return service.broker.Complete(stream.RequestID, "", "")
+	return service.finishSuccessfulTurnAfterCheckpoint(stream, pendingTurnCompletion{
+		RequestID: stream.RequestID,
+		Usage:     turnUsageSnapshot{},
+	})
 }
 
 func (service *Service) completeManualCompactionTurn(stream *ActiveStream) error {
@@ -1605,6 +1596,9 @@ func (service *Service) buildCompactionSummaryMessages(plan *PendingCompaction) 
 	systemText = strings.TrimSpace(systemText)
 	if systemText == "" {
 		return nil, fmt.Errorf("compaction prompt asset is empty")
+	}
+	if policy := service.resolveLanguagePolicy(plan.CurrentUserText); policy.Language != "" {
+		systemText = strings.TrimSpace(systemText + "\n\nProduce the summary in " + languageDisplayName(policy.Language) + ".")
 	}
 	sections := make([]string, 0, len(plan.CompactedTurns)+4)
 	if strings.TrimSpace(plan.ExistingSummary) != "" {

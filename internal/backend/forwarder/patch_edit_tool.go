@@ -370,6 +370,8 @@ func (service *Service) handleHiddenPatchEditExecControl(stream *ActiveStream, p
 		return nil
 	}
 	if _, ok := message.GetMessage().(*agentv1.ExecClientControlMessage_StreamClose); ok {
+		markExecTransportClosed(stream, pending)
+		service.scheduleNonStreamingExecRecovery(stream.RequestID, pending)
 		return nil
 	}
 	payload, err := decodePendingPatchEditPayload(pending.ArgsJSON)
@@ -656,17 +658,7 @@ func summarizePatchEditResult(path string, result *agentv1.EditResult) string {
 }
 
 func compactPatchEditHistoryEditResult(path string, result *agentv1.EditResult) *agentv1.EditResult {
-	success := result.GetSuccess()
-	if success == nil {
-		return editResultWithoutPath(result)
-	}
-	return &agentv1.EditResult{
-		Result: &agentv1.EditResult_Success{
-			Success: &agentv1.EditSuccess{
-				Path: firstNonEmpty(success.GetPath(), path),
-			},
-		},
-	}
+	return compactEditHistoryResult(path, result, projectedPatchEditReplayLimit)
 }
 
 func boundedPatchEditDiffString(diffString string) string {

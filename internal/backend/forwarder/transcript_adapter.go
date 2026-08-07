@@ -76,37 +76,33 @@ func projectCursorTranscriptJSONLWithLatestStatus(conversation *ConversationFile
 		return nil, nil
 	}
 	lines := make([]cursorTranscriptLine, 0, len(conversation.Entries))
-	maxTurnSeq := int64(0)
-	for _, entry := range conversation.Entries {
-		if entry.TurnSeq > maxTurnSeq {
-			maxTurnSeq = entry.TurnSeq
-		}
-	}
-	currentTurnSeq := int64(0)
 	pendingTurnStatus := cursorTranscriptLine{}
+	hasProjectedUserTurn := false
 	flushTurnStatus := func() {
-		if currentTurnSeq > 0 && (includeLatestStatus || currentTurnSeq < maxTurnSeq) && pendingTurnStatus.Type != "" {
+		if hasProjectedUserTurn && pendingTurnStatus.Type != "" {
 			lines = append(lines, pendingTurnStatus)
 		}
 		pendingTurnStatus = cursorTranscriptLine{}
 	}
 	for _, entry := range conversation.Entries {
-		if entry.TurnSeq > 0 && entry.TurnSeq != currentTurnSeq {
-			flushTurnStatus()
-			currentTurnSeq = entry.TurnSeq
-		}
 		projected, ok, err := projectCursorTranscriptEntry(entry)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
+			if strings.TrimSpace(entry.Kind) == "user_message" {
+				flushTurnStatus()
+				hasProjectedUserTurn = true
+			}
 			lines = append(lines, projected)
 		}
 		if status, ok := cursorTranscriptTurnStatus(entry); ok {
 			pendingTurnStatus = status
 		}
 	}
-	flushTurnStatus()
+	if includeLatestStatus {
+		flushTurnStatus()
+	}
 
 	if len(lines) == 0 {
 		return nil, nil
@@ -369,55 +365,6 @@ func cursorTranscriptPath(transcriptsFolder string, conversationID string) (stri
 		return "", err
 	}
 	return filepath.Join(folder, id, id+".jsonl"), nil
-}
-
-func preserveCursorAppendedTurnEnded(path string, projected []byte) []byte {
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		return projected
-	}
-	lastLine := lastNonEmptyJSONLLine(existing)
-	if len(lastLine) == 0 {
-		return projected
-	}
-	var terminal cursorTranscriptLine
-	if json.Unmarshal(lastLine, &terminal) != nil || terminal.Type != "turn_ended" {
-		return projected
-	}
-	if countTranscriptTurnEnded(existing) <= countTranscriptTurnEnded(projected) {
-		return projected
-	}
-	result := append([]byte(nil), projected...)
-	if len(result) > 0 && result[len(result)-1] != '\n' {
-		result = append(result, '\n')
-	}
-	result = append(result, lastLine...)
-	return append(result, '\n')
-}
-
-func lastNonEmptyJSONLLine(data []byte) []byte {
-	lines := bytes.Split(data, []byte{'\n'})
-	for index := len(lines) - 1; index >= 0; index-- {
-		if line := bytes.TrimSpace(lines[index]); len(line) > 0 {
-			return append([]byte(nil), line...)
-		}
-	}
-	return nil
-}
-
-func countTranscriptTurnEnded(data []byte) int {
-	count := 0
-	for _, line := range bytes.Split(data, []byte{'\n'}) {
-		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) == 0 {
-			continue
-		}
-		var item cursorTranscriptLine
-		if json.Unmarshal(trimmed, &item) == nil && item.Type == "turn_ended" {
-			count++
-		}
-	}
-	return count
 }
 
 func writeCursorTranscriptAtomic(path string, data []byte) error {

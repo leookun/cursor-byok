@@ -202,10 +202,10 @@ func buildSuccessfulEditResult(path string, beforeContent string, afterContent s
 		AfterFullFileContent: afterContent,
 	}
 	if beforeContent != "" {
-		success.BeforeFullFileContent = stringPtr(beforeContent)
+		success.BeforeFullFileContent = literalStringPtr(beforeContent)
 	}
 	if diffString != "" {
-		success.DiffString = stringPtr(diffString)
+		success.DiffString = literalStringPtr(diffString)
 	}
 	if linesAdded != 0 {
 		success.LinesAdded = int32Ptr(linesAdded)
@@ -386,6 +386,46 @@ func summarizeEditResultWithoutPath(result *agentv1.EditResult) string {
 		return item.Error.GetError()
 	default:
 		return "unknown edit result"
+	}
+}
+
+func compactEditHistoryResult(path string, result *agentv1.EditResult, contentLimit int) *agentv1.EditResult {
+	if result == nil {
+		return buildEditErrorResult("", "edit result missing")
+	}
+	success := result.GetSuccess()
+	if success == nil {
+		return editResultWithoutPath(result)
+	}
+	if contentLimit < 1 {
+		contentLimit = projectedEditReplayLimit
+	}
+	beforeContent := truncateProjectedReplayText("Edit", success.GetBeforeFullFileContent(), contentLimit)
+	afterContent := truncateProjectedReplayText("Edit", success.GetAfterFullFileContent(), contentLimit)
+	diffString := truncateProjectedReplayText("Edit", success.GetDiffString(), contentLimit)
+	if diffString == "" && (beforeContent != "" || afterContent != "") {
+		diffString, _, _ = computeEditDiff(beforeContent, afterContent)
+		diffString = truncateProjectedReplayText("Edit", diffString, contentLimit)
+	}
+	compacted := &agentv1.EditSuccess{
+		Path:                 firstNonEmpty(success.GetPath(), path),
+		AfterFullFileContent: afterContent,
+		Message:              success.Message,
+	}
+	if beforeContent != "" {
+		compacted.BeforeFullFileContent = literalStringPtr(beforeContent)
+	}
+	if diffString != "" {
+		compacted.DiffString = literalStringPtr(diffString)
+	}
+	if success.LinesAdded != nil {
+		compacted.LinesAdded = int32Ptr(success.GetLinesAdded())
+	}
+	if success.LinesRemoved != nil {
+		compacted.LinesRemoved = int32Ptr(success.GetLinesRemoved())
+	}
+	return &agentv1.EditResult{
+		Result: &agentv1.EditResult_Success{Success: compacted},
 	}
 }
 
