@@ -1736,6 +1736,13 @@ func (service *Service) handleToolInvocation(stream *ActiveStream, invocation ru
 	stream.ToolInvocationCount++
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
+	if !isKnownToolName(trimmedToolName) {
+		displayToolName := trimmedToolName
+		if displayToolName == "" {
+			displayToolName = "<empty>"
+		}
+		return service.completePreDispatchToolError(stream, invocation, nil, false, false, fmt.Errorf("Model hallucination: attempted to invoke a nonexistent tool: %s", displayToolName))
+	}
 	if !isToolAllowedInMode(mode, subagentTypeName, trimmedToolName) {
 		return service.completePreDispatchToolError(stream, invocation, nil, false, false, fmt.Errorf("tool invocation is not enabled in mode %s: %s", mode.String(), invocation.ToolName))
 	}

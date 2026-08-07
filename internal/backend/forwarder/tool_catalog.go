@@ -181,6 +181,25 @@ func supportedToolNamesForMode(mode agentv1.AgentMode) map[string]struct{} {
 	}
 }
 
+func isKnownToolName(toolName string) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" {
+		return false
+	}
+	for _, supported := range []map[string]struct{}{
+		agentModeToolNames,
+		askModeToolNames,
+		planModeToolNames,
+		debugModeToolNames,
+		multitaskModeToolNames,
+	} {
+		if _, ok := supported[trimmedToolName]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func isToolAllowedInMode(mode agentv1.AgentMode, subagentTypeName string, toolName string) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" {

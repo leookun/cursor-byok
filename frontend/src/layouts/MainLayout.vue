@@ -89,7 +89,7 @@ async function handleCheckForUpdates() {
   if (updateViewState.footerBusy || updateViewState.footerDownloading) {
     return;
   }
-  const loadingMessageID = message.loading("检查更新中...");
+  const loadingMessageID = message("检查更新中...", { duration: 0 });
   try {
     await checkForAppUpdates();
   } finally {
@@ -107,13 +107,9 @@ async function loadFooterAuthorInfo() {
   }
 }
 
-async function showActionError(title, error) {
-  await showModal({
-    title,
-    content: String(error || "操作失败").trim() || "操作失败",
-    confirmText: "确定",
-    showCancel: false,
-  });
+function showActionError(title, error) {
+  const detail = String(error || "操作失败").trim() || "操作失败";
+  message(`${title}：${detail}`);
 }
 
 async function handleOpenAuthorHome() {
@@ -133,7 +129,7 @@ async function handleOpenAuthorHome() {
   try {
     await openFooterAuthorHome();
   } catch (error) {
-    await showActionError("打开主页失败", error);
+    showActionError("打开主页失败", error);
   }
 }
 
@@ -141,7 +137,7 @@ async function handleOpenUsageDocs() {
   try {
     await Browser.OpenURL(usageDocsURL);
   } catch (error) {
-    await showActionError("打开使用教程失败", error);
+    showActionError("打开使用教程失败", error);
   }
 }
 
@@ -175,7 +171,7 @@ onUnmounted(() => {
       :class="{ '!justify-center': !isWindows }"
     >
       <div class="center-row gap-2" style="font-family: var(--font-num);">
-        <img v-if="showIcon" :src="Logo" class="w-[18px] h-[18px]" />
+        <!-- <img v-if="showIcon" :src="Logo" class="w-[18px] h-[18px]" /> -->
         <div>{{ title }}</div>
       </div>
       <div
@@ -203,7 +199,7 @@ onUnmounted(() => {
 
     <footer
       v-if="showFooter"
-      class="flex !pr-1 h-[30px] shrink-0 items-center gap-[8px] border-t border-[#242424] px-[14px] text-[12px] text-[#8f8f8f]"
+      class="flex !pr-1 h-[30px] shrink-0 items-center gap-[8px]  px-[14px] text-[12px] text-[#8f8f8f]"
     >
       <div
         v-if="proxyBadgeText"

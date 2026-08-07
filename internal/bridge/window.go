@@ -15,19 +15,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// modelEditorContext 保存当前模型编辑器窗口的初始化上下文。
-type modelEditorContext struct {
-	Index       int    `json:"index"`
-	AdapterJSON string `json:"adapterJSON"`
-}
-
 // WindowService 定义了当前模块中的 WindowService 类型。
 type WindowService struct {
 	app               *application.App
 	updater           *updater.Manager
 	modelConfigWindow *application.WebviewWindow
-	modelEditorWindow *application.WebviewWindow
-	editorCtx         *modelEditorContext
 	mu                sync.RWMutex
 }
 
@@ -102,8 +94,8 @@ func (s *WindowService) OpenModelConfigWindow() {
 		Title:               "模型配置",
 		Width:               980,
 		Height:              700,
-		MinWidth:            820,
-		MinHeight:           560,
+		MinWidth:            980,
+		MinHeight:           700,
 		DisableResize:       false,
 		Frameless:           goruntime.GOOS == "windows",
 		URL:                 "/#/model-config",
@@ -142,97 +134,6 @@ func (s *WindowService) OpenModelConfigWindow() {
 	})
 
 	s.modelConfigWindow = win
-}
-
-// OpenModelEditorWindow 打开模型编辑器独立窗口。
-// index < 0 表示新增，>= 0 表示编辑对应索引的适配器。
-// adapterJSON 为编辑器初始数据的 JSON 字符串。
-func (s *WindowService) OpenModelEditorWindow(index int, adapterJSON string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.app == nil {
-		return
-	}
-
-	s.editorCtx = &modelEditorContext{
-		Index:       index,
-		AdapterJSON: adapterJSON,
-	}
-
-	if s.modelEditorWindow != nil {
-		s.modelEditorWindow.Show()
-		s.modelEditorWindow.Focus()
-		return
-	}
-
-	title := "新增模型配置"
-	if index >= 0 {
-		title = "编辑模型配置"
-	}
-
-	win := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:               title,
-		Width:               840,
-		Height:              680,
-		MinWidth:            740,
-		MinHeight:           600,
-		DisableResize:       false,
-		Frameless:           goruntime.GOOS == "windows",
-		URL:                 fmt.Sprintf("/#/model-editor?index=%d", index),
-		Hidden:              false,
-		HideOnEscape:        false,
-		MinimiseButtonState: application.ButtonEnabled,
-		MaximiseButtonState: application.ButtonEnabled,
-		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    application.RGBA{Red: 25, Green: 25, Blue: 25, Alpha: 255},
-		Mac: application.MacWindow{
-			Backdrop:      application.MacBackdropLiquidGlass,
-			DisableShadow: false,
-			TitleBar: application.MacTitleBar{
-				AppearsTransparent:   true,
-				Hide:                 false,
-				HideTitle:            true,
-				FullSizeContent:      true,
-				UseToolbar:           false,
-				HideToolbarSeparator: true,
-			},
-			WebviewPreferences: application.MacWebviewPreferences{
-				FullscreenEnabled:                   u.False,
-				TextInteractionEnabled:              u.True,
-				AllowsBackForwardNavigationGestures: u.False,
-			},
-		},
-		Windows: application.WindowsWindow{
-			HiddenOnTaskbar: false,
-		},
-	})
-
-	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.modelEditorWindow = nil
-		s.editorCtx = nil
-	})
-
-	s.modelEditorWindow = win
-}
-
-// GetModelEditorContext 返回当前编辑器窗口的初始化上下文。
-func (s *WindowService) GetModelEditorContext() map[string]any {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.editorCtx == nil {
-		return map[string]any{
-			"index":       -1,
-			"adapterJSON": "{}",
-		}
-	}
-	return map[string]any{
-		"index":       s.editorCtx.Index,
-		"adapterJSON": s.editorCtx.AdapterJSON,
-	}
 }
 
 // OpenHistoryWindow 用于处理与 OpenHistoryWindow 相关的逻辑。

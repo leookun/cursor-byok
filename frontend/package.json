@@ -17,6 +17,7 @@
     "copy-text-to-clipboard": "^3.2.2",
     "dayjs": "^1.11.20",
     "resize-observer-polyfill": "^1.5.1",
+    "sortablejs": "^1.15.7",
     "vue": "^3.5.22",
     "vue-chartjs": "^5.3.3",
     "vue-router": "^4.6.3"

@@ -39,11 +39,10 @@ function onMaskClick() {
         <Transition name="modal-content">
           <div
             v-show="visible"
-            class="relative z-10 w-full max-w-[360px] overflow-hidden rounded-[8px] p-px shadow-[0_25px_50px_-12px_rgba(0,0,0,0.6)]"
-            style="background: linear-gradient(to bottom, #656565 0%, #3A3A3A 10px, #3A3A3A 100%);"
+            class="relative z-10 w-full max-w-[360px] overflow-hidden rounded-[8px] p-px shadow-[0_25px_50px_-12px_rgba(0,0,0,0.6)] border border-[#3A3A3A] bg-[#292929]"
             @click.stop
           >
-            <div class="rounded-[7px] bg-[#292929] p-5">
+            <div class="rounded-[7px]  p-5">
               <h3 class="mb-3 text-base font-medium text-white">
                 {{ title }}
               </h3>

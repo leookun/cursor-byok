@@ -13,8 +13,15 @@ body,
   width: 100vw;
   overflow: hidden;
   background: #191919;
-  font-family: "PingFang-Medium", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color: #F7F7F7;
+  font-family:
+    "PingFang-Medium",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: #f7f7f7;
   font-size: 13px;
 }
 
@@ -28,10 +35,41 @@ body,
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 100, 100, 0.8) transparent;
 }
-:root{
+:root {
   color-scheme: dark;
+  --x-maskImage: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    black 18px,
+    black calc(100% - 0px),
+    rgba(0, 0, 0, 0) 100%
+  );
+  --x-WebkitMaskImage: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    black 18px,
+    black calc(100% - 0px),
+    rgba(0, 0, 0, 0) 100%
+  );
 }
-
+.scroll-shadow {
+  -webkit-mask-image: var(--x-maskImage);
+  mask-image: var(--x-maskImage);
+}
+.scroll-shadow-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black 0,
+    black calc(100% - 16px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    black 0,
+    black calc(100% - 16px),
+    transparent 100%
+  );
+}
 /* WebKit/Blink (Chrome, Safari, Edge, Opera) */
 ::-webkit-scrollbar {
   width: 6px;

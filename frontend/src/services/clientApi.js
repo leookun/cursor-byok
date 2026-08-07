@@ -18,12 +18,10 @@ import {
   GetAppVersion,
   GetFooterAuthorInfo,
   InstallReadyUpdate,
-  GetModelEditorContext,
   OpenConfigWindow,
   OpenFooterAuthorHome,
   OpenHistoryWindow,
   OpenModelConfigWindow,
-  OpenModelEditorWindow,
 } from "@bindings/cursor/internal/bridge/windowservice.js";
 import { Call } from "@wailsio/runtime";
 
@@ -131,16 +129,6 @@ export function openFooterAuthorHome() {
 
 export function openModelConfig() {
   return withApiLogging("OpenModelConfigWindow", undefined, () => OpenModelConfigWindow());
-}
-
-export function openModelEditor(index, adapterJSON) {
-  return withApiLogging("OpenModelEditorWindow", { index, adapterJSON }, () =>
-    OpenModelEditorWindow(index, adapterJSON),
-  );
-}
-
-export function getModelEditorContext() {
-  return withApiLogging("GetModelEditorContext", undefined, () => GetModelEditorContext());
 }
 
 export function testModelAdapter(adapter) {

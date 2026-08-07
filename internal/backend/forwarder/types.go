@@ -228,6 +228,7 @@ type pendingCheckpointPublish struct {
 	State      *agentv1.ConversationStateStructure
 	Required   map[string]struct{}
 	Completion *pendingTurnCompletion
+	Published  bool
 }
 
 type PendingCompaction struct {

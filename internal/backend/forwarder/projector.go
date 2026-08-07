@@ -621,10 +621,22 @@ func projectCheckpointTurnBlobs(conversation *ConversationFile, blobs *checkpoin
 		}
 		grouped[entry.TurnSeq] = append(grouped[entry.TurnSeq], entry)
 	}
-
-	turnIDs := make([][]byte, 0, len(order))
+	logicalTurns := make([][]HistoryEntry, 0, len(order))
 	for _, turnSeq := range order {
 		entries := grouped[turnSeq]
+		if checkpointTurnHasUserMessage(entries) {
+			logicalTurns = append(logicalTurns, append([]HistoryEntry(nil), entries...))
+			continue
+		}
+		if len(logicalTurns) == 0 {
+			continue
+		}
+		last := len(logicalTurns) - 1
+		logicalTurns[last] = append(logicalTurns[last], entries...)
+	}
+
+	turnIDs := make([][]byte, 0, len(logicalTurns))
+	for _, entries := range logicalTurns {
 		completedToolCalls, err := collectCheckpointCompletedToolCalls(entries)
 		if err != nil {
 			return nil, err
@@ -734,7 +746,7 @@ func projectCheckpointTurnBlobs(conversation *ConversationFile, blobs *checkpoin
 				})
 			}
 		}
-		if len(userMessageID) == 0 && len(steps) == 0 {
+		if len(userMessageID) == 0 {
 			continue
 		}
 		stepIDs := make([][]byte, 0, len(steps))
@@ -763,6 +775,15 @@ func projectCheckpointTurnBlobs(conversation *ConversationFile, blobs *checkpoin
 		turnIDs = append(turnIDs, blobs.add(turnPayload))
 	}
 	return turnIDs, nil
+}
+
+func checkpointTurnHasUserMessage(entries []HistoryEntry) bool {
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.Kind) == "user_message" {
+			return true
+		}
+	}
+	return false
 }
 
 func collectCheckpointCompletedToolCalls(entries []HistoryEntry) (map[string]json.RawMessage, error) {

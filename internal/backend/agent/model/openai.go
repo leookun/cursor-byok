@@ -839,7 +839,7 @@ func (adapter *OpenAIAdapter) streamChatCompletions(ctx context.Context, req Str
 			}
 		}
 
-		if choice.FinishReason != nil {
+		if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
 			if err := flushTaggedContentTail(); err != nil {
 				return fail(err)
 			}

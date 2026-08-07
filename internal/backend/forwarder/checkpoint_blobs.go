@@ -94,6 +94,13 @@ func (service *Service) queueCheckpointProjection(stream *ActiveStream, projecti
 	if service.checkpointProjectionReady(stream) {
 		return service.publishReadyCheckpoint(stream)
 	}
+	// Keep the latest live UI state ahead of an immediate client abort. Blob writes are
+	// ordered before this snapshot; acknowledgements still gate terminal completion.
+	if completion == nil {
+		if err := service.publishPendingCheckpoint(stream); err != nil {
+			return service.finishAfterCheckpointSyncFailure(stream, fmt.Errorf("publish pending checkpoint: %w", err))
+		}
+	}
 	service.scheduleStreamTimer(
 		stream,
 		providerTimerKey(streamTimerCheckpointBlobs, ""),
@@ -103,6 +110,31 @@ func (service *Service) queueCheckpointProjection(stream *ActiveStream, projecti
 		0,
 		"checkpoint blob write timeout",
 	)
+	return nil
+}
+
+func (service *Service) publishPendingCheckpoint(stream *ActiveStream) error {
+	if service == nil || stream == nil {
+		return nil
+	}
+	stream.mu.Lock()
+	pending := stream.PendingCheckpoint
+	if pending == nil || pending.Published {
+		stream.mu.Unlock()
+		return nil
+	}
+	pending.Published = true
+	state := pending.State
+	stream.UpdatedAt = time.Now().UTC()
+	stream.mu.Unlock()
+	if err := service.broker.Publish(stream.RequestID, StreamEvent{Message: buildCheckpointMessage(state)}); err != nil {
+		stream.mu.Lock()
+		if stream.PendingCheckpoint == pending {
+			pending.Published = false
+		}
+		stream.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
@@ -176,15 +208,18 @@ func (service *Service) publishReadyCheckpoint(stream *ActiveStream) error {
 	stream.PendingCheckpoint = nil
 	state := pending.State
 	completion := clonePendingTurnCompletion(pending.Completion)
+	published := pending.Published
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
 	clearStreamTimer(stream, providerTimerKey(streamTimerCheckpointBlobs, ""))
-	if err := service.broker.Publish(stream.RequestID, StreamEvent{Message: buildCheckpointMessage(state)}); err != nil {
-		if completion != nil {
-			log.Printf("forwarder checkpoint publish skipped before successful terminal request_id=%s err=%v", stream.RequestID, err)
-			return service.finishSuccessfulTurnAfterCheckpoint(stream, *completion)
+	if !published {
+		if err := service.broker.Publish(stream.RequestID, StreamEvent{Message: buildCheckpointMessage(state)}); err != nil {
+			if completion != nil {
+				log.Printf("forwarder checkpoint publish skipped before successful terminal request_id=%s err=%v", stream.RequestID, err)
+				return service.finishSuccessfulTurnAfterCheckpoint(stream, *completion)
+			}
+			return err
 		}
-		return err
 	}
 	if completion != nil {
 		return service.finishSuccessfulTurnAfterCheckpoint(stream, *completion)

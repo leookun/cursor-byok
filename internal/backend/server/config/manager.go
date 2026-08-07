@@ -147,6 +147,7 @@ func (manager *Manager) LegacyRuntimeSnapshot(_ context.Context) (legacyruntime.
 	for _, item := range cfg.ModelAdapters {
 		adapters = append(adapters, legacyruntime.ModelAdapterConfig{
 			ID:                       item.ID,
+			Sort:                     item.Sort,
 			DisplayName:              item.DisplayName,
 			Type:                     item.Type,
 			BaseURL:                  item.BaseURL,

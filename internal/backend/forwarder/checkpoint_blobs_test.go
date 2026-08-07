@@ -8,26 +8,34 @@ import (
 	"cursor/gen/agentv1"
 )
 
-func TestCheckpointBlobSyncPublishesCheckpointAfterAcknowledgements(t *testing.T) {
+func TestCheckpointBlobSyncPublishesNonTerminalCheckpointBeforeAcknowledgements(t *testing.T) {
 	service, stream, projection := testCheckpointBlobProjection(t)
 	if err := service.queueCheckpointProjection(stream, projection, nil); err != nil {
 		t.Fatalf("queueCheckpointProjection() error = %v", err)
 	}
 	events := readCheckpointTestEvents(t, service, stream)
-	if len(events) != len(projection.Blobs) {
-		t.Fatalf("events before ACK = %d, want %d Blob writes", len(events), len(projection.Blobs))
+	if len(events) != len(projection.Blobs)+1 {
+		t.Fatalf("events before ACK = %d, want %d Blob writes and one checkpoint", len(events), len(projection.Blobs))
 	}
-	for _, event := range events {
+	for _, event := range events[:len(projection.Blobs)] {
 		if event.Message.GetKvServerMessage().GetSetBlobArgs() == nil {
 			t.Fatalf("event before ACK = %#v, want set_blob_args", event.Message)
 		}
 	}
+	if checkpoint := events[len(events)-1].Message.GetConversationCheckpointUpdate(); checkpoint == nil || len(checkpoint.GetTurns()) != 1 {
+		t.Fatalf("last event before ACK = %#v, want one Blob-backed turn", events[len(events)-1].Message)
+	}
 
 	acknowledgeCheckpointBlobs(t, service, stream)
 	events = readCheckpointTestEvents(t, service, stream)
-	checkpoint := events[len(events)-1].Message.GetConversationCheckpointUpdate()
-	if checkpoint == nil || len(checkpoint.GetTurns()) != 1 {
-		t.Fatalf("last event checkpoint = %#v, want one Blob-backed turn", checkpoint)
+	checkpointCount := 0
+	for _, event := range events {
+		if event.Message.GetConversationCheckpointUpdate() != nil {
+			checkpointCount++
+		}
+	}
+	if checkpointCount != 1 {
+		t.Fatalf("checkpoints after ACK = %d, want 1", checkpointCount)
 	}
 }
 
@@ -39,6 +47,12 @@ func TestCheckpointBlobSyncPublishesCheckpointBeforeSuccessfulTerminal(t *testin
 	}
 	if err := service.queueCheckpointProjection(stream, projection, completion); err != nil {
 		t.Fatalf("queueCheckpointProjection() error = %v", err)
+	}
+	eventsBeforeACK := readCheckpointTestEvents(t, service, stream)
+	for _, event := range eventsBeforeACK {
+		if event.Message.GetConversationCheckpointUpdate() != nil || event.Message.GetInteractionUpdate().GetTurnEnded() != nil || event.End {
+			t.Fatalf("event before ACK = %#v, want only Blob writes", event)
+		}
 	}
 	acknowledgeCheckpointBlobs(t, service, stream)
 
@@ -84,10 +98,20 @@ func TestCheckpointBlobTimeoutDoesNotFailSuccessfulTurn(t *testing.T) {
 	}
 }
 
-func TestCancellationDiscardsPendingCheckpointAndIgnoresLateAcknowledgements(t *testing.T) {
+func TestCancellationKeepsPublishedCheckpointAndIgnoresLateAcknowledgements(t *testing.T) {
 	service, stream, projection := testCheckpointBlobProjection(t)
 	if err := service.queueCheckpointProjection(stream, projection, nil); err != nil {
 		t.Fatalf("queueCheckpointProjection() error = %v", err)
+	}
+	eventsBeforeCancel := readCheckpointTestEvents(t, service, stream)
+	checkpointBeforeCancel := 0
+	for _, event := range eventsBeforeCancel {
+		if event.Message.GetConversationCheckpointUpdate() != nil {
+			checkpointBeforeCancel++
+		}
+	}
+	if checkpointBeforeCancel != 1 {
+		t.Fatalf("checkpoints before cancel = %d, want 1", checkpointBeforeCancel)
 	}
 	stream.mu.Lock()
 	requestIDs := make([]uint32, 0, len(stream.PendingCheckpointBlobWrites))
@@ -114,16 +138,19 @@ func TestCancellationDiscardsPendingCheckpointAndIgnoresLateAcknowledgements(t *
 	}
 
 	events := readCheckpointTestEvents(t, service, stream)
-	var checkpoint, canceledEnd bool
+	checkpointCount := 0
+	var canceledEnd bool
 	for _, event := range events {
-		checkpoint = checkpoint || event.Message.GetConversationCheckpointUpdate() != nil
+		if event.Message.GetConversationCheckpointUpdate() != nil {
+			checkpointCount++
+		}
 		canceledEnd = canceledEnd || event.End && event.TerminalErrorCode == "canceled"
 	}
 	stream.mu.Lock()
 	pending := stream.PendingCheckpoint
 	stream.mu.Unlock()
-	if checkpoint || !canceledEnd || pending != nil {
-		t.Fatalf("cancel events checkpoint=%v canceled_end=%v pending=%v", checkpoint, canceledEnd, pending != nil)
+	if checkpointCount != 1 || !canceledEnd || pending != nil {
+		t.Fatalf("cancel events checkpoints=%d canceled_end=%v pending=%v", checkpointCount, canceledEnd, pending != nil)
 	}
 }
 

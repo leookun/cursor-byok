@@ -117,7 +117,7 @@ onBeforeUnmount(() => {
     <button
       ref="triggerRef"
       type="button"
-      class="center-row h-[16px] w-[16px] cursor-help rounded-full text-[#727272] transition-colors duration-150 hover:text-[#cfcfcf]"
+      class="center-row h-[16px] w-[16px] cursor-help rounded-full text-white/60 transition-colors duration-150 hover:text-white/80"
       @mouseenter="showTooltip"
       @mouseleave="scheduleHideTooltip"
       @focus="showTooltip"

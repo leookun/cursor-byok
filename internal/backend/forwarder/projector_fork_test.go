@@ -87,6 +87,94 @@ func TestProjectCheckpointProjectionBuildsResolvableForkState(t *testing.T) {
 	}
 }
 
+func TestProjectCheckpointProjectionMergesResumeActivityIntoPreviousUserTurn(t *testing.T) {
+	userPayload, err := protojson.Marshal(&agentv1.UserMessage{
+		Text:      "original question",
+		MessageId: "message-1",
+	})
+	if err != nil {
+		t.Fatalf("marshal user message: %v", err)
+	}
+	firstAnswer := newAssistantTextEntry(1, "request-1", "before resume", "", "")
+	firstAnswer.Seq = 2
+	resumedAnswer := newAssistantTextEntry(2, "request-resume", "after resume", "", "")
+	resumedAnswer.Seq = 3
+	conversation := &ConversationFile{
+		ConversationID:     "conversation-1",
+		RootConversationID: "conversation-1",
+		Mode:               "agent",
+		NextTurnSeq:        3,
+		NextEntrySeq:       4,
+		Entries: []HistoryEntry{
+			{Seq: 1, TurnSeq: 1, RequestID: "request-1", Role: "user", Kind: "user_message", Payload: userPayload},
+			firstAnswer,
+			resumedAnswer,
+		},
+	}
+
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(conversation)
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	if len(projection.State.GetTurns()) != 1 {
+		t.Fatalf("checkpoint turns = %d, want one logical user turn", len(projection.State.GetTurns()))
+	}
+
+	blobs := make(map[string][]byte, len(projection.Blobs))
+	for _, blob := range projection.Blobs {
+		blobs[string(blob.ID)] = blob.Data
+	}
+	turn := &agentv1.ConversationTurnStructure{}
+	if err := proto.Unmarshal(blobs[string(projection.State.GetTurns()[0])], turn); err != nil {
+		t.Fatalf("decode checkpoint turn: %v", err)
+	}
+	agentTurn := turn.GetAgentConversationTurn()
+	if agentTurn == nil {
+		t.Fatal("checkpoint turn does not contain an agent turn")
+	}
+	if len(agentTurn.GetUserMessage()) == 0 {
+		t.Fatal("checkpoint turn lost the original user message Blob id")
+	}
+	if _, ok := blobs[string(agentTurn.GetUserMessage())]; !ok {
+		t.Fatal("checkpoint turn references a missing user message Blob")
+	}
+	if agentTurn.GetRequestId() != "request-1" {
+		t.Fatalf("checkpoint request id = %q, want original request", agentTurn.GetRequestId())
+	}
+
+	steps := checkpointProjectionSteps(t, projection)
+	if len(steps) != 2 || steps[0].GetAssistantMessage().GetText() != "before resume" || steps[1].GetAssistantMessage().GetText() != "after resume" {
+		t.Fatalf("checkpoint steps did not preserve resumed activity: %#v", steps)
+	}
+
+	replay, err := promptengine.DecodeReplayMessages(projection.State.GetRootPromptMessagesJson())
+	if err != nil {
+		t.Fatalf("decode root prompt replay: %v", err)
+	}
+	if len(replay) != 3 || replay[0].Role != "user" || replay[1].Content != "before resume" || replay[2].Content != "after resume" {
+		t.Fatalf("checkpoint turn merge changed model replay: %#v", replay)
+	}
+}
+
+func TestProjectCheckpointProjectionOmitsActivityWithoutAnyUserMessage(t *testing.T) {
+	conversation := &ConversationFile{
+		ConversationID: "conversation-1",
+		Mode:           "agent",
+		NextTurnSeq:    2,
+		Entries: []HistoryEntry{
+			newAssistantTextEntry(1, "request-resume", "orphaned resume output", "", ""),
+		},
+	}
+
+	projection, err := NewHistoryProjector().ProjectCheckpointProjection(conversation)
+	if err != nil {
+		t.Fatalf("ProjectCheckpointProjection() error = %v", err)
+	}
+	if len(projection.State.GetTurns()) != 0 || len(projection.Blobs) != 0 {
+		t.Fatalf("checkpoint emitted a turn without a user message: %#v", projection)
+	}
+}
+
 func TestProjectCheckpointProjectionKeepsForkPointIsolatedFromLaterHistory(t *testing.T) {
 	firstUser, err := protojson.Marshal(&agentv1.UserMessage{Text: "first question", MessageId: "message-1"})
 	if err != nil {
@@ -288,6 +376,7 @@ func TestProjectCheckpointProjectionKeepsStartedToolCallWhenResultPayloadIsMissi
 		Mode:           "agent",
 		NextTurnSeq:    2,
 		Entries: []HistoryEntry{
+			testCheckpointUserEntry(t),
 			newToolCallEntry(1, "request-1", "call-1", "Read", "", "", startedToolCall),
 			newToolResultEntry(1, "request-1", "call-1", "Read", `{"path":"/tmp/example.txt"}`, "read failed", "", nil),
 		},
@@ -316,6 +405,7 @@ func TestProjectCheckpointProjectionAppendsLegacyResultWithoutToolCallEntry(t *t
 		Mode:           "agent",
 		NextTurnSeq:    2,
 		Entries: []HistoryEntry{
+			testCheckpointUserEntry(t),
 			newToolResultEntry(1, "request-1", "call-1", "Read", `{"path":"/tmp/example.txt"}`, "not readable", "", completedToolCall),
 		},
 	}
