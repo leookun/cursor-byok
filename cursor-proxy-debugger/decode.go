@@ -20,6 +20,13 @@ import (
 
 const maxConnectFrameBytes = 64 << 20
 
+const (
+	bidiAppendPath              = "/aiserver.v1.BidiService/BidiAppend"
+	forkBackgroundComposerPath  = "/aiserver.v1.BackgroundComposerService/ForkBackgroundComposer"
+	notifyConversationClonePath = "/agent.v1.AgentService/NotifyConversationClone"
+	uploadConversationBlobsPath = "/agent.v1.AgentService/UploadConversationBlobs"
+)
+
 type connectFrameDecoder struct {
 	buffer      []byte
 	messageType string
@@ -140,10 +147,9 @@ func decompressPayload(payload []byte, codec string) ([]byte, error) {
 	return decoded, nil
 }
 
-func decodeUnary(path string, payload []byte) (decodedJSON string, kind string, requestID string, err error) {
-	var message proto.Message
+func decodeUnaryRequest(path string, payload []byte) (decodedJSON string, kind string, requestID string, err error) {
 	switch path {
-	case "/aiserver.v1.BidiService/BidiAppend":
+	case bidiAppendPath:
 		request := &aiserverv1.BidiAppendRequest{}
 		if err := proto.Unmarshal(payload, request); err != nil {
 			return "", "", "", err
@@ -165,13 +171,65 @@ func decodeUnary(path string, payload []byte) (decodedJSON string, kind string, 
 		}
 		formatted, marshalErr := json.MarshalIndent(combined, "", "  ")
 		return string(formatted), clientKind, requestID, marshalErr
-	default:
-		message = nil
 	}
+	message, kind := unaryRequestMessage(path)
 	if message == nil {
 		return "", "", "", nil
 	}
-	return marshalProtoJSON(message), activeOneofName(message), "", nil
+	if err := proto.Unmarshal(payload, message); err != nil {
+		return "", "", "", err
+	}
+	return marshalProtoJSON(message), kind, "", nil
+}
+
+func decodeUnaryResponse(path string, payload []byte) (decodedJSON string, kind string, err error) {
+	message, kind := unaryResponseMessage(path)
+	if message == nil {
+		return "", "", nil
+	}
+	if err := proto.Unmarshal(payload, message); err != nil {
+		return "", "", err
+	}
+	return marshalProtoJSON(message), kind, nil
+}
+
+func unaryRequestMessage(path string) (proto.Message, string) {
+	switch path {
+	case forkBackgroundComposerPath:
+		return &aiserverv1.ForkBackgroundComposerRequest{}, "fork_background_composer_request"
+	case notifyConversationClonePath:
+		return &agentv1.NotifyConversationCloneRequest{}, "notify_conversation_clone_request"
+	case uploadConversationBlobsPath:
+		return &agentv1.UploadConversationBlobsRequest{}, "upload_conversation_blobs_request"
+	default:
+		return nil, ""
+	}
+}
+
+func unaryResponseMessage(path string) (proto.Message, string) {
+	switch path {
+	case forkBackgroundComposerPath:
+		return &aiserverv1.ForkBackgroundComposerResponse{}, "fork_background_composer_response"
+	case notifyConversationClonePath:
+		return &agentv1.NotifyConversationCloneResponse{}, "notify_conversation_clone_response"
+	case uploadConversationBlobsPath:
+		return &agentv1.UploadConversationBlobsResponse{}, "upload_conversation_blobs_response"
+	default:
+		return nil, ""
+	}
+}
+
+func decodesUnaryRequest(path string) bool {
+	if path == bidiAppendPath {
+		return true
+	}
+	message, _ := unaryRequestMessage(path)
+	return message != nil
+}
+
+func decodesUnaryResponse(path string) bool {
+	message, _ := unaryResponseMessage(path)
+	return message != nil
 }
 
 func newMessage(messageType string) proto.Message {

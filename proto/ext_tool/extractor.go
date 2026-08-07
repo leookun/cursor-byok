@@ -101,24 +101,28 @@ func SetStrictMode(enabled bool) {
 var activeDiagnostics *extractionDiagnostics
 
 var (
-	noRe          = regexp.MustCompile(`(?:^|[,{]\s*)no:\s*(\d+)`)
-	nameRe        = regexp.MustCompile(`(?:^|[,{]\s*)name:\s*["']([^"']+)["']`)
-	kindRe        = regexp.MustCompile(`(?:^|[,{]\s*)kind:\s*["']([^"']+)["']`)
-	enumTypeRe    = regexp.MustCompile(`[,\s]T:\s*[\w$.]+\.getEnumType\s*\(\s*([\w$.]+)\s*\)`)
-	tRe           = regexp.MustCompile(`[,\s]T:\s*([\w$.]+)`)
-	oneofRe       = regexp.MustCompile(`oneof:\s*["']([^"']+)["']`)
-	repeatedRe    = regexp.MustCompile(`repeated:\s*(!0|true)`)
-	optRe         = regexp.MustCompile(`opt:\s*(!0|true)`)
-	keyRe         = regexp.MustCompile(`[,\s]K:\s*(\d+)`)
-	mapValueRe    = regexp.MustCompile(`V:\s*\{([^}]*)\}`)
-	mapValueKRe   = regexp.MustCompile(`(?:^|[,{]\s*)kind:\s*["'](\w+)["']`)
-	mapValueTRe   = regexp.MustCompile(`[,\s]T:\s*([\w$.]+)`)
-	oneofNameRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	fieldNameRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	placeholderRe = regexp.MustCompile(`^\s*(optional\s+|repeated\s+)?[A-Za-z_][A-Za-z0-9_.<>]*\s+(field_\d+|unknown(?:_[A-Za-z0-9_]+)?)\s*=\s*\d+\s*;`)
-	varAliasRe    = regexp.MustCompile(`\b(?:let|const|var)\s+([\w$]+)\s*=\s*([\w$]+)\s*(?:[,;])`)
-	streamCloseRe = regexp.MustCompile(`(?s)message\s+ExecClientControlMessage\s*\{.*?ExecClientStreamClose\s+stream_close\s*=\s*1\s*;`)
-	shellStdoutRe = regexp.MustCompile(`(?s)message\s+ShellStream\s*\{.*?ShellStreamStdout\s+stdout\s*=\s*1\s*;`)
+	noRe                 = regexp.MustCompile(`(?:^|[,{]\s*)no:\s*(\d+)`)
+	nameRe               = regexp.MustCompile(`(?:^|[,{]\s*)name:\s*["']([^"']+)["']`)
+	kindRe               = regexp.MustCompile(`(?:^|[,{]\s*)kind:\s*["']([^"']+)["']`)
+	enumTypeRe           = regexp.MustCompile(`[,\s]T:\s*[\w$.]+\.getEnumType\s*\(\s*([\w$.]+)\s*\)`)
+	tRe                  = regexp.MustCompile(`[,\s]T:\s*([\w$.]+)`)
+	oneofRe              = regexp.MustCompile(`oneof:\s*["']([^"']+)["']`)
+	repeatedRe           = regexp.MustCompile(`repeated:\s*(!0|true)`)
+	optRe                = regexp.MustCompile(`opt:\s*(!0|true)`)
+	keyRe                = regexp.MustCompile(`[,\s]K:\s*(\d+)`)
+	mapValueRe           = regexp.MustCompile(`V:\s*\{([^}]*)\}`)
+	mapValueKRe          = regexp.MustCompile(`(?:^|[,{]\s*)kind:\s*["'](\w+)["']`)
+	mapValueTRe          = regexp.MustCompile(`[,\s]T:\s*([\w$.]+)`)
+	shorthandTRe         = regexp.MustCompile(`(?:^|[,\{])\s*T\s*(?:[,\}])`)
+	oneofNameRe          = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	fieldNameRe          = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	placeholderRe        = regexp.MustCompile(`^\s*(optional\s+|repeated\s+)?[A-Za-z_][A-Za-z0-9_.<>]*\s+(field_\d+|unknown(?:_[A-Za-z0-9_]+)?)\s*=\s*\d+\s*;`)
+	varAliasRe           = regexp.MustCompile(`\b(?:let|const|var)\s+([\w$]+)\s*=\s*([\w$]+)\s*(?:[,;])`)
+	webpackExportBlockRe = regexp.MustCompile(`[\w$]+\.d\(\s*[\w$]+\s*,\s*\{`)
+	webpackExportEntryRe = regexp.MustCompile(`(?:^|[,\{])\s*([\w$]+)\s*:\s*\(\s*\)\s*=>\s*([\w$]+)`)
+	moduleImportRe       = regexp.MustCompile(`(?:\b(?:var|let|const)\s+|,)\s*([\w$]+)\s*=\s*[\w$]+\(\s*(\d+)\s*\)`)
+	streamCloseRe        = regexp.MustCompile(`(?s)message\s+ExecClientControlMessage\s*\{.*?ExecClientStreamClose\s+stream_close\s*=\s*1\s*;`)
+	shellStdoutRe        = regexp.MustCompile(`(?s)message\s+ShellStream\s*\{.*?ShellStreamStdout\s+stdout\s*=\s*1\s*;`)
 )
 
 type Field struct {
@@ -185,13 +189,18 @@ type symbolDef struct {
 }
 
 type TypeResolver struct {
-	bySymbol map[string][]symbolDef
-	byShort  map[string][]symbolDef
+	bySymbol      map[string][]symbolDef
+	byAlias       map[string][]symbolDef
+	byShort       map[string][]symbolDef
+	moduleImports map[int]map[string]int
 }
 
-func newTypeResolver(messages []Message, enums []Enum, aliases map[string][]string) *TypeResolver {
+type aliasIndex map[int]map[string][]string
+
+func newTypeResolver(messages []Message, enums []Enum, aliases aliasIndex, exportAliases aliasIndex) *TypeResolver {
 	resolver := &TypeResolver{
 		bySymbol: make(map[string][]symbolDef),
+		byAlias:  make(map[string][]symbolDef),
 		byShort:  make(map[string][]symbolDef),
 	}
 
@@ -218,43 +227,64 @@ func newTypeResolver(messages []Message, enums []Enum, aliases map[string][]stri
 			}
 		}
 	}
+	addAlias := func(symbol, typeName string, pos int, moduleStart int, kind string) {
+		symbol = strings.TrimSpace(symbol)
+		typeName = strings.TrimSpace(typeName)
+		if symbol == "" || typeName == "" {
+			return
+		}
+		resolver.byAlias[symbol] = append(resolver.byAlias[symbol], symbolDef{
+			TypeName: typeName, Pos: pos, ModuleStart: moduleStart, Kind: kind,
+		})
+	}
 
 	for _, msg := range messages {
 		add(msg.VarName, msg.TypeName, msg.Pos, msg.ModuleStart, "message")
 		if msg.InternalName != "" && msg.InternalName != msg.VarName {
 			add(msg.InternalName, msg.TypeName, msg.Pos, msg.ModuleStart, "message")
 		}
-		for _, alias := range aliasesForSymbols(aliases, msg.VarName, msg.InternalName) {
-			add(alias, msg.TypeName, msg.Pos, msg.ModuleStart, "message")
+		for _, alias := range aliasesForSymbols(aliases[msg.ModuleStart], msg.VarName, msg.InternalName) {
+			addAlias(alias, msg.TypeName, msg.Pos, msg.ModuleStart, "message")
 		}
 	}
 	for _, enum := range enums {
 		add(enum.VarName, enum.TypeName, enum.Pos, enum.ModuleStart, "enum")
-		for _, alias := range aliasesForSymbols(aliases, enum.VarName) {
-			add(alias, enum.TypeName, enum.Pos, enum.ModuleStart, "enum")
+		for _, alias := range aliasesForSymbols(aliases[enum.ModuleStart], enum.VarName) {
+			addAlias(alias, enum.TypeName, enum.Pos, enum.ModuleStart, "enum")
+		}
+	}
+
+	for _, msg := range messages {
+		for _, alias := range aliasesForSymbols(exportAliases[msg.ModuleStart], msg.VarName, msg.InternalName) {
+			addAlias(alias, msg.TypeName, msg.Pos, msg.ModuleStart, "message")
+		}
+	}
+	for _, enum := range enums {
+		for _, alias := range aliasesForSymbols(exportAliases[enum.ModuleStart], enum.VarName) {
+			addAlias(alias, enum.TypeName, enum.Pos, enum.ModuleStart, "enum")
 		}
 	}
 
 	return resolver
 }
 
-func buildAliasIndex(text string) map[string][]string {
-	matches := varAliasRe.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	direct := make(map[string]string, len(matches))
+func buildAliasIndex(text string, moduleStarts []int) aliasIndex {
+	matches := varAliasRe.FindAllStringSubmatchIndex(text, -1)
+	directByModule := make(map[int]map[string]string)
 	for _, match := range matches {
-		alias := strings.TrimSpace(match[1])
-		target := strings.TrimSpace(match[2])
+		alias := strings.TrimSpace(text[match[2]:match[3]])
+		target := strings.TrimSpace(text[match[4]:match[5]])
 		if alias == "" || target == "" || alias == target {
 			continue
 		}
-		direct[alias] = target
+		moduleStart := moduleStartForPos(moduleStarts, match[0])
+		if directByModule[moduleStart] == nil {
+			directByModule[moduleStart] = make(map[string]string)
+		}
+		directByModule[moduleStart][alias] = target
 	}
 
-	resolveRoot := func(symbol string) string {
+	resolveRoot := func(direct map[string]string, symbol string) string {
 		seen := make(map[string]bool)
 		current := symbol
 		for {
@@ -270,16 +300,90 @@ func buildAliasIndex(text string) map[string][]string {
 		}
 	}
 
-	aliases := make(map[string][]string)
-	for alias := range direct {
-		root := resolveRoot(alias)
-		if root == alias {
+	aliasSets := make(map[int]map[string]map[string]bool)
+	addAlias := func(moduleStart int, root string, alias string) {
+		root = strings.TrimSpace(root)
+		alias = strings.TrimSpace(alias)
+		if root == "" || alias == "" || root == alias {
+			return
+		}
+		if aliasSets[moduleStart] == nil {
+			aliasSets[moduleStart] = make(map[string]map[string]bool)
+		}
+		if aliasSets[moduleStart][root] == nil {
+			aliasSets[moduleStart][root] = make(map[string]bool)
+		}
+		aliasSets[moduleStart][root][alias] = true
+	}
+
+	for moduleStart, direct := range directByModule {
+		for alias := range direct {
+			root := resolveRoot(direct, alias)
+			addAlias(moduleStart, root, alias)
+		}
+	}
+
+	if len(aliasSets) == 0 {
+		return nil
+	}
+	aliases := make(aliasIndex, len(aliasSets))
+	for moduleStart, roots := range aliasSets {
+		aliases[moduleStart] = make(map[string][]string, len(roots))
+		for root, set := range roots {
+			for alias := range set {
+				aliases[moduleStart][root] = append(aliases[moduleStart][root], alias)
+			}
+			sort.Strings(aliases[moduleStart][root])
+		}
+	}
+	return aliases
+}
+
+func buildWebpackExportAliasIndex(text string, moduleStarts []int) aliasIndex {
+	aliasSets := make(map[int]map[string]map[string]bool)
+	addAlias := func(moduleStart int, root string, alias string) {
+		root = strings.TrimSpace(root)
+		alias = strings.TrimSpace(alias)
+		if root == "" || alias == "" || root == alias {
+			return
+		}
+		if aliasSets[moduleStart] == nil {
+			aliasSets[moduleStart] = make(map[string]map[string]bool)
+		}
+		if aliasSets[moduleStart][root] == nil {
+			aliasSets[moduleStart][root] = make(map[string]bool)
+		}
+		aliasSets[moduleStart][root][alias] = true
+	}
+
+	// Webpack exposes module members through tables such as
+	// n.d(t, { KS: () => T }). Service descriptors refer to the exported
+	// name (r.KS), while message definitions use the local symbol (T).
+	for _, blockMatch := range webpackExportBlockRe.FindAllStringIndex(text, -1) {
+		moduleStart := moduleStartForPos(moduleStarts, blockMatch[0])
+		blockStart := blockMatch[1] - 1
+		blockEnd := findMatchingBrace(text, blockStart)
+		if blockEnd == -1 {
 			continue
 		}
-		aliases[root] = append(aliases[root], alias)
+		block := text[blockStart:blockEnd]
+		for _, entry := range webpackExportEntryRe.FindAllStringSubmatch(block, -1) {
+			addAlias(moduleStart, entry[2], entry[1])
+		}
 	}
-	for root := range aliases {
-		sort.Strings(aliases[root])
+
+	if len(aliasSets) == 0 {
+		return nil
+	}
+	aliases := make(aliasIndex, len(aliasSets))
+	for moduleStart, roots := range aliasSets {
+		aliases[moduleStart] = make(map[string][]string, len(roots))
+		for root, set := range roots {
+			for alias := range set {
+				aliases[moduleStart][root] = append(aliases[moduleStart][root], alias)
+			}
+			sort.Strings(aliases[moduleStart][root])
+		}
 	}
 	return aliases
 }
@@ -318,11 +422,10 @@ func pickBestDefinition(candidates []symbolDef, contextPos int, contextModuleSta
 	}
 
 	filtered := candidates
-	if strings.TrimSpace(preferredPkg) != "" {
+	if strings.TrimSpace(expectedKind) != "" {
 		tmp := make([]symbolDef, 0, len(candidates))
 		for _, item := range candidates {
-			pkg, _ := parseTypeName(item.TypeName)
-			if pkg == preferredPkg {
+			if item.Kind == expectedKind {
 				tmp = append(tmp, item)
 			}
 		}
@@ -331,10 +434,11 @@ func pickBestDefinition(candidates []symbolDef, contextPos int, contextModuleSta
 		}
 	}
 
-	if strings.TrimSpace(expectedKind) != "" {
+	if strings.TrimSpace(preferredPkg) != "" {
 		tmp := make([]symbolDef, 0, len(filtered))
 		for _, item := range filtered {
-			if item.Kind == expectedKind {
+			pkg, _ := parseTypeName(item.TypeName)
+			if pkg == preferredPkg {
 				tmp = append(tmp, item)
 			}
 		}
@@ -416,6 +520,17 @@ func (resolver *TypeResolver) ResolveTypeName(ref string, contextPos int, contex
 		}
 		return best.TypeName, true
 	}
+	resolveByAlias := func(symbol string, targetModuleStart int) (string, bool) {
+		candidates := resolver.byAlias[symbol]
+		if len(candidates) == 0 {
+			return "", false
+		}
+		best, ok := pickBestDefinition(candidates, contextPos, targetModuleStart, preferredPkg, expectedKind)
+		if !ok {
+			return "", false
+		}
+		return best.TypeName, true
+	}
 	resolveByShort := func(symbol string, preferSameModule bool) (string, bool) {
 		candidates := resolver.byShort[symbol]
 		if len(candidates) == 0 {
@@ -435,17 +550,30 @@ func (resolver *TypeResolver) ResolveTypeName(ref string, contextPos int, contex
 	if typeName, ok := resolveBySymbol(trimmed, !strings.Contains(trimmed, ".")); ok {
 		return typeName, true
 	}
+	if typeName, ok := resolveByAlias(trimmed, 0); ok {
+		return typeName, true
+	}
 	if typeName, ok := resolveByShort(trimmed, !strings.Contains(trimmed, ".")); ok {
 		return typeName, true
 	}
 
 	if strings.Contains(trimmed, ".") {
 		parts := strings.Split(trimmed, ".")
+		first := parts[0]
 		last := parts[len(parts)-1]
+		targetModuleStart := 0
+		if imports := resolver.moduleImports[contextModuleStart]; imports != nil {
+			targetModuleStart = imports[first]
+		}
+		if typeName, ok := resolveByAlias(last, targetModuleStart); ok {
+			return typeName, true
+		}
+		if typeName, ok := resolveBySymbol(last, false); ok {
+			return typeName, true
+		}
 		if typeName, ok := resolveByShort(last, false); ok {
 			return typeName, true
 		}
-		first := parts[0]
 		if typeName, ok := resolveBySymbol(first, false); ok {
 			return typeName, true
 		}
@@ -473,7 +601,7 @@ func absInt(value int) int {
 	return value
 }
 
-var moduleStartRe = regexp.MustCompile(`(?:^|,)(\d+):(?:function\([\w$,]*\)|\([\w$,]*\)=>)\{`)
+var moduleStartRe = regexp.MustCompile(`(?:^|,)\s*(\d+)\s*:\s*(?:function\s*\(\s*[\w$,\s]*\s*\)|\(\s*[\w$,\s]*\s*\)\s*=>)\s*\{`)
 
 func buildModuleStarts(text string) []int {
 	matches := moduleStartRe.FindAllStringSubmatchIndex(text, -1)
@@ -497,6 +625,38 @@ func moduleStartForPos(moduleStarts []int, pos int) int {
 	return moduleStarts[index]
 }
 
+func buildModuleImportIndex(text string, moduleStarts []int) map[int]map[string]int {
+	if len(moduleStarts) == 0 {
+		return nil
+	}
+
+	moduleMatches := moduleStartRe.FindAllStringSubmatchIndex(text, -1)
+	moduleStartByID := make(map[string]int, len(moduleMatches))
+	for _, match := range moduleMatches {
+		moduleStartByID[text[match[2]:match[3]]] = match[0]
+	}
+
+	importsByModule := make(map[int]map[string]int)
+	for index, moduleStart := range moduleStarts {
+		moduleEnd := len(text)
+		if index+1 < len(moduleStarts) {
+			moduleEnd = moduleStarts[index+1]
+		}
+		body := text[moduleStart:moduleEnd]
+		for _, match := range moduleImportRe.FindAllStringSubmatch(body, -1) {
+			targetModuleStart, ok := moduleStartByID[match[2]]
+			if !ok {
+				continue
+			}
+			if importsByModule[moduleStart] == nil {
+				importsByModule[moduleStart] = make(map[string]int)
+			}
+			importsByModule[moduleStart][match[1]] = targetModuleStart
+		}
+	}
+	return importsByModule
+}
+
 // ExtractProtos extracts proto definitions from formatted JS file
 func ExtractProtos(inputFile, outputDir string) {
 	activeDiagnostics = newExtractionDiagnostics()
@@ -512,7 +672,8 @@ func ExtractProtos(inputFile, outputDir string) {
 
 	text := string(content)
 	moduleStarts := buildModuleStarts(text)
-	aliases := buildAliasIndex(text)
+	aliases := buildAliasIndex(text, moduleStarts)
+	exportAliases := buildWebpackExportAliasIndex(text, moduleStarts)
 
 	// Extract messages, enums, and services
 	messages := extractMessages(text, moduleStarts)
@@ -524,7 +685,8 @@ func ExtractProtos(inputFile, outputDir string) {
 		}
 	}
 
-	resolver := newTypeResolver(messages, enums, aliases)
+	resolver := newTypeResolver(messages, enums, aliases, exportAliases)
+	resolver.moduleImports = buildModuleImportIndex(text, moduleStarts)
 
 	// Generate proto files
 	generateProtos(messages, enums, services, resolver, outputDir)
@@ -900,6 +1062,8 @@ func parseFieldObject(obj string) (*Field, error) {
 			} else {
 				field.T = tMatch[1]
 			}
+		} else if shorthandTRe.MatchString(obj) {
+			field.T = "T"
 		}
 	}
 
@@ -1195,8 +1359,9 @@ func copyAllExternalTypes(pkgName string, pkg struct {
 		neededTypes := make(map[string]bool)
 
 		for _, msg := range result.messages {
+			preferredPkg, _ := parseTypeName(msg.TypeName)
 			for _, f := range msg.Fields {
-				collectFieldRefsSimple(f, pkgName, msg.Pos, msg.ModuleStart, resolver, neededTypes, localTypes)
+				collectFieldRefsSimple(f, pkgName, preferredPkg, msg.Pos, msg.ModuleStart, resolver, neededTypes, localTypes)
 			}
 		}
 		for _, svc := range result.services {
@@ -1268,7 +1433,7 @@ func copyAllExternalTypes(pkgName string, pkg struct {
 }
 
 // collectFieldRefsSimple collects external type references from a field (non-recursive, just this field)
-func collectFieldRefsSimple(f Field, currentPkg string, contextPos int, contextModuleStart int, resolver *TypeResolver,
+func collectFieldRefsSimple(f Field, currentPkg string, preferredPkg string, contextPos int, contextModuleStart int, resolver *TypeResolver,
 	neededTypes map[string]bool, localTypes map[string]bool) {
 
 	type refWithKind struct {
@@ -1289,7 +1454,7 @@ func collectFieldRefsSimple(f Field, currentPkg string, contextPos int, contextM
 	}
 
 	for _, item := range refs {
-		typeName, ok := resolver.ResolveTypeName(item.ref, contextPos, contextModuleStart, currentPkg, item.kind)
+		typeName, ok := resolver.ResolveTypeName(item.ref, contextPos, contextModuleStart, preferredPkg, item.kind)
 		if !ok {
 			continue
 		}
@@ -1637,6 +1802,7 @@ func writeMessageFields(msg *Message, sb *strings.Builder, resolver *TypeResolve
 	// Get the current message's path prefix for relative type resolution
 	msgPath := msg.ShortName
 	currentPkg := msg.Package
+	preferredPkg, _ := parseTypeName(msg.TypeName)
 
 	// Group fields by oneof
 	oneofGroups := make(map[string][]Field)
@@ -1652,7 +1818,7 @@ func writeMessageFields(msg *Message, sb *strings.Builder, resolver *TypeResolve
 
 	// Write regular fields
 	for _, f := range regularFields {
-		fieldType := resolveFieldTypeWithPkg(f, resolver, msgPath, currentPkg, msg.Pos, msg.ModuleStart)
+		fieldType := resolveFieldTypeWithPkg(f, resolver, msgPath, currentPkg, preferredPkg, msg.Pos, msg.ModuleStart)
 		prefix := ""
 		if f.Repeated {
 			prefix = "repeated "
@@ -1673,7 +1839,7 @@ func writeMessageFields(msg *Message, sb *strings.Builder, resolver *TypeResolve
 		fields := oneofGroups[oneofName]
 		sb.WriteString(fmt.Sprintf("%soneof %s {\n", indentStr, oneofName))
 		for _, f := range fields {
-			fieldType := resolveFieldTypeWithPkg(f, resolver, msgPath, currentPkg, msg.Pos, msg.ModuleStart)
+			fieldType := resolveFieldTypeWithPkg(f, resolver, msgPath, currentPkg, preferredPkg, msg.Pos, msg.ModuleStart)
 			sb.WriteString(fmt.Sprintf("%s  %s %s = %d;\n", indentStr, fieldType, f.Name, f.No))
 		}
 		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
@@ -1721,15 +1887,15 @@ func getNestedPath(shortName string) []string {
 }
 
 func resolveFieldType(f Field, resolver *TypeResolver, contextPos int, contextModuleStart int) string {
-	return resolveFieldTypeWithPkg(f, resolver, "", "", contextPos, contextModuleStart)
+	return resolveFieldTypeWithPkg(f, resolver, "", "", "", contextPos, contextModuleStart)
 }
 
 // resolveFieldTypeWithPkg resolves field type with package awareness
 // parentPath is like "ConversationMessage" or "ConversationMessage.ToolResult"
 // currentPkg is the package of the current message being written (e.g., "agent.v1")
-func resolveFieldTypeWithPkg(f Field, resolver *TypeResolver, parentPath string, currentPkg string, contextPos int, contextModuleStart int) string {
+func resolveFieldTypeWithPkg(f Field, resolver *TypeResolver, parentPath string, currentPkg string, preferredPkg string, contextPos int, contextModuleStart int) string {
 	resolveNamedType := func(ref string, expectedKind string) string {
-		typeName, ok := resolver.ResolveTypeName(ref, contextPos, contextModuleStart, currentPkg, expectedKind)
+		typeName, ok := resolver.ResolveTypeName(ref, contextPos, contextModuleStart, preferredPkg, expectedKind)
 		if !ok {
 			activeDiagnostics.addUnresolvedType(expectedKind + ":" + ref)
 			return fallbackTypeToken(ref)

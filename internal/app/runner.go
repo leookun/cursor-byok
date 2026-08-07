@@ -215,9 +215,9 @@ func Run(resources EmbeddedResources) error {
 	mainWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               appName,
 		Width:               700,
-		Height:              520,
-		MinWidth:            640,
-		MinHeight:           480,
+		Height:              530,
+		MinWidth:            700,
+		MinHeight:           530,
 		DisableResize:       false,
 		Frameless:           goruntime.GOOS == "windows",
 		URL:                 "/",

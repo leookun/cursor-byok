@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-这是一个独立运行的本地 HTTPS 调试代理，用于观察 Cursor 的 `BidiAppend` 和 `RunSSE` 通信。它不会修改 Cursor、系统代理或已安装客户端。
+这是一个独立运行的本地 HTTPS 调试代理，用于观察 Cursor 的 `BidiAppend`、`RunSSE` 和 Fork Chat 相关通信。它不会修改 Cursor、系统代理或已安装客户端。
 
 ## 启动
 
@@ -51,6 +51,8 @@ go build -o bin/cursor-proxy-debugger ./cmd/cursor-proxy-debugger
 - 仅对 `target-host` 执行 HTTPS MITM，其他 CONNECT 流量直接透传。
 - `RunSSE` 按 5 字节 Connect 帧头增量拆帧，支持逐帧 gzip 解压。
 - `BidiAppendRequest.data` 会继续解码为 `agent.v1.AgentClientMessage`。
+- Fork Chat 相关的 `ForkBackgroundComposer`、`NotifyConversationClone` 和 `UploadConversationBlobs` 会双向解码为 protobuf JSON。
+- 本地 Fork Chat 主要在客户端完成，只有启用克隆 blob 同步且隐私设置允许时才会产生 `NotifyConversationClone` 和 `UploadConversationBlobs` 流量。
 - 请求列表支持按抓包时间正序/倒序排列，并可按协议中的 `request_id` 过滤。
 - 调试界面支持简体中文和英文，可跟随浏览器语言并记住手动选择。
 - 抓包只保留在当前进程内存中；关闭进程后消失。

@@ -13,8 +13,8 @@ tasks:
     preconditions:
       - sh: 'test -z "{{.PROTO_INPUT}}" || test -f "{{.PROTO_INPUT}}"'
         msg: "PROTO_INPUT 指向的 Cursor 扩展 bundle 不存在。"
-      - sh: 'test -n "{{.PROTO_INPUT}}" || test -f ./proto/extensions-cursor-app/cursor-always-local/dist/main.js || test -f /Applications/Cursor.app/Contents/Resources/app/extensions/cursor-always-local/dist/main.js'
-        msg: "未找到 Cursor 扩展 bundle；请传入 PROTO_INPUT=/path/to/cursor-always-local/dist/main.js。"
+      - sh: 'test -n "{{.PROTO_INPUT}}" || test -f /Applications/Cursor.app/Contents/Resources/app/extensions/cursor-always-local/dist/main.js'
+        msg: "未找到已安装 Cursor 的扩展 bundle；请传入 PROTO_INPUT=/path/to/cursor-always-local/dist/main.js。"
     cmds:
       - chmod +x ./proto/extract_extensions_proto.sh
       - '{{if .PROTO_INPUT}}./proto/extract_extensions_proto.sh "{{.PROTO_INPUT}}"{{else}}./proto/extract_extensions_proto.sh{{end}}'
@@ -29,8 +29,15 @@ tasks:
       - cp ./proto/from_extensions/aiserver_v1.proto ./proto/aiserver_v1.proto
       - perl -0pi -e 's|option go_package = "react-admin/cursor-server/gen/agent/v1;agentv1";|option go_package = "cursor/gen/agentv1;agentv1";|' ./proto/agent_v1.proto
       - perl -0pi -e 's|option go_package = "react-admin/cursor-server/gen/aiserver/v1;aiserverv1";|option go_package = "cursor/gen/aiserverv1;aiserverv1";|' ./proto/aiserver_v1.proto
+      - ./proto/check_proto_sync.sh
       - rm -rf ./gen/agentv1 ./gen/aiserverv1
       - task: generate:proto
+
+  check:proto:
+    summary: 检查根 proto 与扩展提取快照是否一致
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - ./proto/check_proto_sync.sh
 
   generate:proto:
     summary: 生成 proto Go/Connect 代码

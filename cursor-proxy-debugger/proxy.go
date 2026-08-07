@@ -226,28 +226,29 @@ func (server *Server) captureResponse(response *http.Response, context *goproxy.
 	if id == "" || response == nil {
 		return response
 	}
+	path := ""
+	if response.Request != nil && response.Request.URL != nil {
+		path = response.Request.URL.Path
+	}
+	responseCodec := responseContentCodec(path, response.Header)
 	server.store.update(id, func(exchange *Exchange) {
 		exchange.Status = response.StatusCode
 		exchange.State = "streaming"
 		exchange.DurationMS = elapsedMS(exchange.StartedAt)
 		exchange.Response.Headers = sortedHeaders(response.Header)
 		exchange.Response.ContentType = response.Header.Get("Content-Type")
-		exchange.Response.ContentCodec = responseContentCodec(response.Header)
+		exchange.Response.ContentCodec = responseCodec
 	})
 	if response.Body == nil {
-		server.finishResponseBody(id, nil, 0, false, nil)
+		server.finishResponseBody(id, path, responseCodec, nil, 0, false, nil)
 		return response
 	}
 
-	path := ""
-	if response.Request != nil && response.Request.URL != nil {
-		path = response.Request.URL.Path
-	}
 	var frameDecoder *connectFrameDecoder
 	if path == "/agent.v1.AgentService/RunSSE" {
 		frameDecoder = newConnectFrameDecoder(
 			"agent.v1.AgentServerMessage",
-			response.Header.Get("Connect-Content-Encoding"),
+			responseCodec,
 			server.config.MaxFrames,
 			func(frame FrameView) { server.appendResponseFrame(id, frame) },
 		)
@@ -264,7 +265,7 @@ func (server *Server) captureResponse(response *http.Response, context *goproxy.
 			if frameDecoder != nil {
 				frameDecoder.Close()
 			}
-			server.finishResponseBody(id, captured, size, truncated, readErr)
+			server.finishResponseBody(id, path, responseCodec, captured, size, truncated, readErr)
 		},
 	)
 	return response
@@ -273,14 +274,14 @@ func (server *Server) captureResponse(response *http.Response, context *goproxy.
 func (server *Server) finishRequestBody(id, path string, codec string, captured []byte, size int64, truncated bool, readErr error) {
 	decodePayload := captured
 	var contentDecodeErr error
-	if path == "/aiserver.v1.BidiService/BidiAppend" && truncated {
+	if decodesUnaryRequest(path) && truncated {
 		contentDecodeErr = errors.New("请求正文超过抓取上限，无法完整解码")
-	} else if path == "/aiserver.v1.BidiService/BidiAppend" && codec != "" && !strings.EqualFold(codec, "identity") {
+	} else if decodesUnaryRequest(path) && codec != "" && !strings.EqualFold(codec, "identity") {
 		decodePayload, contentDecodeErr = decompressPayload(captured, codec)
 	}
 	decodedJSON, kind, requestID, decodeErr := "", "", "", contentDecodeErr
 	if decodeErr == nil {
-		decodedJSON, kind, requestID, decodeErr = decodeUnary(path, decodePayload)
+		decodedJSON, kind, requestID, decodeErr = decodeUnaryRequest(path, decodePayload)
 	}
 	server.store.update(id, func(exchange *Exchange) {
 		exchange.RequestBytes = size
@@ -312,19 +313,44 @@ func requestContentCodec(path string, headers http.Header) string {
 	return strings.TrimSpace(headers.Get("Content-Encoding"))
 }
 
-func responseContentCodec(headers http.Header) string {
-	if codec := strings.TrimSpace(headers.Get("Connect-Content-Encoding")); codec != "" {
-		return codec
+func responseContentCodec(path string, headers http.Header) string {
+	if path == "/agent.v1.AgentService/RunSSE" {
+		return strings.TrimSpace(headers.Get("Connect-Content-Encoding"))
+	}
+	if !decodesUnaryResponse(path) {
+		if codec := strings.TrimSpace(headers.Get("Connect-Content-Encoding")); codec != "" {
+			return codec
+		}
 	}
 	return strings.TrimSpace(headers.Get("Content-Encoding"))
 }
 
-func (server *Server) finishResponseBody(id string, captured []byte, size int64, truncated bool, readErr error) {
+func (server *Server) finishResponseBody(id, path, codec string, captured []byte, size int64, truncated bool, readErr error) {
+	decodePayload := captured
+	var contentDecodeErr error
+	if decodesUnaryResponse(path) && truncated {
+		contentDecodeErr = errors.New("响应正文超过抓取上限，无法完整解码")
+	} else if decodesUnaryResponse(path) && codec != "" && !strings.EqualFold(codec, "identity") {
+		decodePayload, contentDecodeErr = decompressPayload(captured, codec)
+	}
+	decodedJSON, kind, decodeErr := "", "", contentDecodeErr
+	if decodeErr == nil {
+		decodedJSON, kind, decodeErr = decodeUnaryResponse(path, decodePayload)
+	}
 	server.store.update(id, func(exchange *Exchange) {
 		exchange.ResponseBytes = size
 		exchange.Response.Size = size
 		exchange.Response.RawHex = rawHex(captured)
 		exchange.Response.RawTruncated = truncated
+		if decodedJSON != "" {
+			exchange.Response.DecodedJSON = decodedJSON
+		}
+		if kind != "" {
+			exchange.ResponseKind = kind
+		}
+		if decodeErr != nil {
+			exchange.Response.DecodeError = decodeErr.Error()
+		}
 		exchange.DurationMS = elapsedMS(exchange.StartedAt)
 		exchange.State = "completed"
 		if readErr != nil && !errors.Is(readErr, io.EOF) {

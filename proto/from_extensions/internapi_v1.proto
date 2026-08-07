@@ -4,7 +4,7 @@ package internapi.v1;
 
 option go_package = "react-admin/cursor-server/gen/internapi/v1;internapiv1";
 
-// Copied from: local:internapi.v1.BlobData (var: hxe)
+// Copied from: local:internapi.v1.BlobData (var: Mn)
 message BlobData {
   BlobType blob_type = 1;
   bytes blob_id = 2;
@@ -14,12 +14,12 @@ message BlobData {
   }
 }
 
-// Copied from: local:internapi.v1.BlobDataPerMessage (var: Txe)
+// Copied from: local:internapi.v1.BlobDataPerMessage (var: Ln)
 message BlobDataPerMessage {
   repeated BlobData blob_data = 1;
 }
 
-// Copied from: local:internapi.v1.BlobType (var: Axe)
+// Copied from: local:internapi.v1.BlobType (var: Nn)
 enum BlobType {
   BLOB_TYPE_UNSPECIFIED = 0;
   BLOB_TYPE_IMAGE = 1;
@@ -34,7 +34,7 @@ enum BlobType {
   BLOB_TYPE_VIDEO = 10;
 }
 
-// Copied from: local:internapi.v1.ImageBlobData (var: pxe)
+// Copied from: local:internapi.v1.ImageBlobData (var: bn)
 message ImageBlobData {
   string mime_type = 1;
 }

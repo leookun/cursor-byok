@@ -24,6 +24,12 @@ type ModelAdapterTestResult = client.ModelAdapterTestResult
 // ModelAdapterTestResultsPayload 定义测速结果事件载荷。
 type ModelAdapterTestResultsPayload = client.ModelAdapterTestResultsPayload
 
+// ModelAdapterModelsRequest 定义模型列表查询请求。
+type ModelAdapterModelsRequest = client.ModelAdapterModelsRequest
+
+// ModelAdapterModelsResult 定义模型列表查询结果。
+type ModelAdapterModelsResult = client.ModelAdapterModelsResult
+
 // CursorAccountStatus 是可安全展示给桌面前端的独立 Cursor 账号状态。
 type CursorAccountStatus = client.CursorAccountStatus
 
@@ -117,6 +123,11 @@ func (s *ProxyService) TestModelAdapter(adapter ModelAdapterConfig) (ModelAdapte
 // GetModelAdapterTestResults 用于处理与 GetModelAdapterTestResults 相关的逻辑。
 func (s *ProxyService) GetModelAdapterTestResults() []ModelAdapterTestResult {
 	return s.core.GetModelAdapterTestResults()
+}
+
+// FetchModelAdapterModels 用于从模型服务读取可用模型列表。
+func (s *ProxyService) FetchModelAdapterModels(input ModelAdapterModelsRequest) (ModelAdapterModelsResult, error) {
+	return s.core.FetchModelAdapterModels(input)
 }
 
 // GetDeviceID 用于处理与 GetDeviceID 相关的逻辑。

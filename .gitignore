@@ -15,6 +15,7 @@ server-go/log/
 .cursor-local-assistant
 .cursor-local-assistant-v2
 .cursor-app-formatted/
+proto/extensions-cursor-app/
 ads-server-linux-amd64.tar
 cmd/ads-server/*.db
 cmd/ads-server/*.db-*

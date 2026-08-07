@@ -44,7 +44,7 @@ const summaryText = computed(() => {
     return "测试中...";
   }
   if (normalizedStatus.value === "error") {
-    return "测试失败";
+    return "测试失败,请查看原始信息";
   }
   return props.emptyText;
 });
@@ -100,16 +100,16 @@ const summaryClass = computed(() => {
 </script>
 
 <template>
-  <div class="rounded-[8px] border px-3 py-3" :class="panelClass">
+  <div class="rounded-[8px] border-none px-3 py-3" :class="panelClass">
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1.5">
           <div
-            :class="compact ? 'text-[11px] uppercase tracking-[0.08em] text-[#666]' : 'text-sm font-medium text-white'"
+            :class="compact ? 'text-[11px] uppercase tracking-[0.08em] text-white/80' : 'text-[11px] uppercase tracking-[0.08em] text-white/80'"
           >
             {{ title }}
           </div>
-          <div v-if="rawResponseText" class="center-row gap-1 text-[11px] text-[#8f8f8f]">
+          <div v-if="rawResponseText" class="center-row gap-1 text-[11px] text-white/80">
             <span>原始返回</span>
             <Tooltip :content="rawResponseText" copyable />
           </div>
@@ -118,12 +118,7 @@ const summaryClass = computed(() => {
           {{ summaryText }}
         </div>
       </div>
-      <span
-        v-if="stale"
-        class="shrink-0 rounded-[999px] border border-[#8a6d1a] px-2 py-1 text-xs text-[#f6d77a]"
-      >
-        需重测
-      </span>
+
     </div>
 
     <div v-if="stale" class="mt-2 text-xs text-[#f6d77a]">
@@ -134,19 +129,19 @@ const summaryClass = computed(() => {
       v-if="showMetrics && normalizedStatus === 'success'"
       class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2"
     >
-      <div class="rounded-[8px] bg-[#1c1c1c] px-3 py-2">
+      <div class="rounded-[8px] bg-black/20 px-3 py-2">
         <div class="text-[11px] uppercase tracking-[0.08em] text-[#666]">总耗时</div>
-        <div class="mt-1 text-sm text-[#d4d4d4]">{{ formatDuration(result?.totalDurationMS) }}</div>
+        <div class="mt-1 text-sm text-white/80">{{ formatDuration(result?.totalDurationMS) }}</div>
       </div>
-      <div class="rounded-[8px] bg-[#1c1c1c] px-3 py-2">
+      <div class="rounded-[8px] bg-black/20 px-3 py-2">
         <div class="text-[11px] uppercase tracking-[0.08em] text-[#666]">输出 Token</div>
-        <div class="mt-1 text-sm text-[#d4d4d4]">{{ result?.outputTokens ?? 0 }}</div>
+        <div class="mt-1 text-sm text-white/80">{{ result?.outputTokens ?? 0 }}</div>
       </div>
     </div>
 
     <div
       v-if="normalizedStatus === 'success' && result?.tokensEstimated"
-      class="mt-2 text-xs text-[#8f8f8f]"
+      class="mt-2 text-xs text-white/80"
     >
       输出 Token 为估算值
     </div>

@@ -10,9 +10,3 @@
 
 <!-- 描述如何验证这个变更 / Describe how to verify this change -->
 
-## 检查清单 / Checklist
-
-- [ ] 代码已通过 `gofmt` 和 `go vet` / Code passes `gofmt` and `go vet`
-- [ ] 前端构建无报错 / Frontend builds without errors
-- [ ] 新增 UI 文案已同步所有 locale 文件 / New UI strings synced to all locale files
-- [ ] 提交信息符合 Conventional Commits 规范 / Commit messages follow Conventional Commits

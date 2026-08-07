@@ -2,6 +2,7 @@
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Tooltip from "@/components/ui/Tooltip.vue";
+import { useMessage } from "@/composables/useMessage";
 import { showModal } from "@/composables/useModal";
 import {
   disconnectCursorAccount,
@@ -13,6 +14,7 @@ import { Browser } from "@wailsio/runtime";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 const CURSOR_ACCOUNT_CONTRIBUTOR_URL = "https://github.com/aike0210";
+const message = useMessage();
 
 const cursorAccountStatus = ref({
   state: "signed_out",
@@ -35,18 +37,16 @@ const cursorAccountStateText = computed(() => {
   return "未连接";
 });
 
-async function showActionError(title, error) {
-  await showModal({
-    title,
-    content: String(error || "服务错误").trim() || "服务错误",
-  });
+function showActionError(title, error) {
+  const detail = String(error || "服务错误").trim() || "服务错误";
+  message(`${title}：${detail}`);
 }
 
 async function handleOpenContributor() {
   try {
     await Browser.OpenURL(CURSOR_ACCOUNT_CONTRIBUTOR_URL);
   } catch (error) {
-    await showActionError("打开贡献者主页失败", toUserError(error));
+    showActionError("打开贡献者主页失败", toUserError(error));
   }
 }
 
@@ -59,7 +59,7 @@ async function handleCursorAccountLogin() {
   try {
     cursorAccountStatus.value = await startCursorAccountLogin();
   } catch (error) {
-    await showActionError("登录失败", toUserError(error));
+    showActionError("登录失败", toUserError(error));
     await refreshCursorAccountStatus().catch(() => {});
   } finally {
     cursorAccountBusy.value = false;
@@ -80,7 +80,7 @@ async function handleCursorAccountDisconnect() {
   try {
     cursorAccountStatus.value = await disconnectCursorAccount();
   } catch (error) {
-    await showActionError("退出登录失败", toUserError(error));
+    showActionError("退出登录失败", toUserError(error));
   } finally {
     cursorAccountBusy.value = false;
   }

@@ -35,10 +35,9 @@ function removeMessage(id, options = {}) {
   messageState.current = null;
 }
 
-function showMessage(options = {}) {
-  const type = typeof options.type === "string" ? options.type : "info";
-  const content = String(options.content || "").trim();
-  if (!content) {
+function showMessage(content, options = {}) {
+  const normalizedContent = String(content || "").trim();
+  if (!normalizedContent) {
     return null;
   }
 
@@ -48,14 +47,11 @@ function showMessage(options = {}) {
 
   const duration = Number.isFinite(options.duration)
     ? Math.max(0, options.duration)
-    : type === "loading"
-      ? 0
-      : 2400;
+    : 2400;
   const id = `message-${Date.now()}-${messageSeed += 1}`;
   const item = {
     id,
-    type,
-    content,
+    content: normalizedContent,
     shownAt: Date.now(),
     timer: null,
   };
@@ -70,40 +66,24 @@ function showMessage(options = {}) {
   return id;
 }
 
-export function createMessageApi() {
-  return {
-    state: messageState,
-    show: showMessage,
-    success(content, options = {}) {
-      return showMessage({ ...options, type: "success", content });
-    },
-    error(content, options = {}) {
-      return showMessage({ ...options, type: "error", content });
-    },
-    info(content, options = {}) {
-      return showMessage({ ...options, type: "info", content });
-    },
-    loading(content, options = {}) {
-      return showMessage({ ...options, type: "loading", content });
-    },
-    remove: removeMessage,
-    clear() {
-      if (messageState.current) {
-        removeMessage(messageState.current.id, { force: true });
-      }
-    },
-  };
+export function message(content, options = {}) {
+  return showMessage(content, options);
 }
 
-const defaultMessageApi = createMessageApi();
+message.remove = removeMessage;
+message.clear = () => {
+  if (messageState.current) {
+    removeMessage(messageState.current.id, { force: true });
+  }
+};
 
 export function provideMessage() {
-  provide(MESSAGE_API_SYMBOL, defaultMessageApi);
-  return defaultMessageApi;
+  provide(MESSAGE_API_SYMBOL, message);
+  return message;
 }
 
 export function useMessage() {
-  return inject(MESSAGE_API_SYMBOL, defaultMessageApi);
+  return inject(MESSAGE_API_SYMBOL, message);
 }
 
 export { messageState, showMessage, removeMessage };

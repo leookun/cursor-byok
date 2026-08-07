@@ -701,9 +701,21 @@ func appendEntriesInPlace(conversation *ConversationFile, entries []HistoryEntry
 	}
 	now := time.Now().UTC()
 	assigned := make([]HistoryEntry, 0, len(entries))
+	existingIdempotencyKeys := make(map[string]struct{})
+	for _, existing := range conversation.Entries {
+		if key := strings.TrimSpace(existing.IdempotencyKey); key != "" {
+			existingIdempotencyKeys[key] = struct{}{}
+		}
+	}
 	maxTurnSeq := conversation.NextTurnSeq - 1
 	for _, entry := range entries {
 		next := entry
+		if key := strings.TrimSpace(next.IdempotencyKey); key != "" {
+			if _, exists := existingIdempotencyKeys[key]; exists {
+				continue
+			}
+			existingIdempotencyKeys[key] = struct{}{}
+		}
 		if next.CreatedAt.IsZero() {
 			next.CreatedAt = now
 		}

@@ -138,6 +138,7 @@ function filteredExchanges() {
     .filter((item) => {
       if (state.endpoint === "runsse" && !item.path.toLowerCase().includes("runsse")) return false;
       if (state.endpoint === "bidiappend" && !item.path.toLowerCase().includes("bidiappend")) return false;
+      if (state.endpoint === "fork" && !isForkTrafficPath(item.path)) return false;
       if (requestId && !String(item.requestId || "").toLowerCase().includes(requestId)) return false;
       if (!query) return true;
       return [item.url, item.requestId, item.requestKind, item.responseKind, item.state, String(item.status)]
@@ -149,6 +150,13 @@ function filteredExchanges() {
       if (startedAtDelta !== 0) return startedAtDelta * direction;
       return left.id.localeCompare(right.id, undefined, { numeric: true }) * direction;
     });
+}
+
+function isForkTrafficPath(path) {
+  const normalized = String(path || "").toLowerCase();
+  return ["forkbackgroundcomposer", "notifyconversationclone", "uploadconversationblobs"].some((endpoint) =>
+    normalized.includes(endpoint),
+  );
 }
 
 function renderList() {

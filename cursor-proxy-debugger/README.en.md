@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-This standalone local HTTPS debugging proxy captures Cursor's `BidiAppend` and `RunSSE` traffic. It does not modify Cursor, the system proxy, or the installed client.
+This standalone local HTTPS debugging proxy captures Cursor's `BidiAppend`, `RunSSE`, and Fork Chat traffic. It does not modify Cursor, the system proxy, or the installed client.
 
 ## Start
 
@@ -51,6 +51,8 @@ go build -o bin/cursor-proxy-debugger ./cmd/cursor-proxy-debugger
 - HTTPS MITM is applied only to `target-host`; other CONNECT traffic passes through unchanged.
 - `RunSSE` is decoded incrementally using the 5-byte Connect frame header and supports per-frame gzip decompression.
 - `BidiAppendRequest.data` is further decoded as `agent.v1.AgentClientMessage`.
+- Fork Chat's `ForkBackgroundComposer`, `NotifyConversationClone`, and `UploadConversationBlobs` traffic is decoded bidirectionally as protobuf JSON.
+- Local Fork Chat is primarily client-side and only emits `NotifyConversationClone` and `UploadConversationBlobs` when clone blob synchronization is enabled and privacy settings allow it.
 - Requests can be sorted chronologically or in reverse chronological order and filtered by protocol `request_id`.
 - The UI supports Simplified Chinese and English, follows the browser language, and remembers a manual selection.
 - Captured traffic is stored only in process memory and is discarded when the process exits.

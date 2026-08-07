@@ -79,6 +79,7 @@ type HistoryEntry struct {
 	Seq              int64           `json:"seq"`
 	TurnSeq          int64           `json:"turn_seq"`
 	RequestID        string          `json:"request_id,omitempty"`
+	IdempotencyKey   string          `json:"idempotency_key,omitempty"`
 	Role             string          `json:"role"`
 	Kind             string          `json:"kind"`
 	ToolCallID       string          `json:"tool_call_id,omitempty"`
@@ -164,6 +165,10 @@ type ActiveStream struct {
 	ProviderUsage                               turnUsageSnapshot
 	ProviderTerminalToolInvocation              bool
 	PendingCompaction                           *PendingCompaction
+	PendingCheckpointBlobWrites                 map[uint32]string
+	ConfirmedCheckpointBlobs                    map[string]struct{}
+	NextCheckpointBlobRequestID                 uint32
+	PendingCheckpoint                           *pendingCheckpointPublish
 
 	Backlog                     []StreamEvent
 	Subscribers                 map[string]*StreamSubscriber
@@ -219,6 +224,13 @@ type pendingTurnCompletion struct {
 	ProviderPass   int
 	Usage          turnUsageSnapshot
 	Disposition    pendingCompletionDisposition
+}
+
+type pendingCheckpointPublish struct {
+	State      *agentv1.ConversationStateStructure
+	Required   map[string]struct{}
+	Completion *pendingTurnCompletion
+	Published  bool
 }
 
 type PendingCompaction struct {

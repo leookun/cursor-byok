@@ -342,3 +342,15 @@ go run ./cmd/cursor-proxy-debugger
   - `PendingInteraction`
 - 同一 backend 进程内的 `RunSSE` 重连，要优先看 checkpoint / `pending_tool_calls` 里的 live pending
 - backend 重启后，不要把 checkpoint 当持久恢复点；跨轮承接与持久恢复只看 `history/<conversationId>/state.json` + `history/<conversationId>/context.json`
+
+### 5.1 checkpoint 投影必须幂等且只有一个事实源
+
+- 把 checkpoint 当作 `state.json + context.json` 的纯投影，不要把它写成第二套语义历史。
+- 不要创建或维护 `checkpoint.json`、checkpoint history、独立 checkpoint entry 序列等持久化事实源。
+- 允许在当前 stream 内存中保留 latest checkpoint 供 retry/resume 使用；进程重启后必须能从唯一事实源重新投影。
+- 对同一份 semantic history 重复投影时，要求 state、turn 顺序、blob ID 和 blob 内容在语义上完全一致；投影函数不得修改输入 history。
+- 把重复发送视为同一快照的幂等覆盖，不要追加一条新的会话历史；内容寻址 blob 的重复写入必须可安全忽略。
+- 将 `turns` 投影为 UI 可恢复的完整结构，保留所有需要展示的 `ThinkingMessage`、`ToolCall` 和工具结果；不要为了模型 prompt 过滤而删除 UI step。
+- 将 `root_prompt_messages_json` 单独投影为模型 replay；只在这条投影上应用 provider/context 过滤，不能反向改变 `turns`。
+- 将工具完成结果合并回同一 `ToolCall`，保留开始态的 `args`、调用 ID 和开始时间，再补齐 `result` 与完成时间；不要制造协议不存在的独立 `ToolResult` step。
+- 用 TDD 覆盖至少这些性质：重复投影相等、投影不修改 history、开始态字段在结果合并后仍存在、UI turns 保留思考/工具内容而模型 replay 仍遵守独立过滤规则。

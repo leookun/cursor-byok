@@ -2,7 +2,7 @@
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import LocaleSelect from "@/components/LocaleSelect.vue";
-import { showModal } from "@/composables/useModal";
+import { useMessage } from "@/composables/useMessage";
 import {
   appState,
   openModelConfigWindow,
@@ -12,30 +12,27 @@ import {
 } from "@/state/appState";
 import { onMounted } from "vue";
 
-async function showActionError(title, error) {
-  await showModal({
-    title,
-    content: String(error || "服务错误").trim() || "服务错误",
-  });
+const message = useMessage();
+
+function showActionError(title, error) {
+  const detail = String(error || "服务错误").trim() || "服务错误";
+  message(`${title}：${detail}`);
 }
 
 async function handleSaveConfig() {
   const result = await persistUserConfig();
   if (!result.ok) {
-    await showActionError("保存失败", result.error);
+    showActionError("保存失败", result.error);
     return;
   }
-  await showModal({
-    title: "提示",
-    content: "本地配置已保存",
-  });
+  message("本地配置已保存");
 }
 
 async function handleOpenModelConfig() {
   try {
     await openModelConfigWindow();
   } catch (error) {
-    await showActionError("打开失败", toUserError(error));
+    showActionError("打开失败", toUserError(error));
   }
 }
 

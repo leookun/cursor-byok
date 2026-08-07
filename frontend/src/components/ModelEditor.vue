@@ -1,10 +1,11 @@
 <script setup>
 import Button from "@/components/ui/Button.vue";
+import Combobox from "@/components/ui/Combobox.vue";
 import Input from "@/components/ui/Input.vue";
 import ModelAdapterTestCard from "@/components/ModelAdapterTestCard.vue";
 import Select from "@/components/ui/Select.vue";
 import Tooltip from "@/components/ui/Tooltip.vue";
-import { getModelEditorContext } from "@/services/clientApi";
+import { useMessage } from "@/composables/useMessage";
 import {
   ANTHROPIC_THINKING_EFFORT_DEFAULT,
   appState,
@@ -12,6 +13,7 @@ import {
   createEmptyModelAdapter,
   CUSTOM_HEADERS_DEFAULT_JSON,
   EXTRA_PARAMS_DEFAULT_JSON,
+  fetchAvailableModelIDs,
   getModelAdapterTestResult,
   getModelAdapterTestResultByID,
   isModelAdapterTestResultStale,
@@ -25,8 +27,7 @@ import {
   toUserError,
   validateModelAdapters,
 } from "@/state/appState";
-import { Window } from "@wailsio/runtime";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 
 const modelTypeTabs = [
   { label: "OpenAI", value: "openai", icon: "icon-[bxl--openai]" },
@@ -55,12 +56,25 @@ const openAIEndpointOptions = [
   { label: "自定义路径(请输入完整请求地址)", value: OPENAI_ENDPOINT_CUSTOM, icon: "icon-[mdi--pencil-outline]" },
 ];
 
-const editorIndex = ref(-1);
-const draft = reactive(createEmptyModelAdapter());
-const errorMessage = ref("");
-const loading = ref(true);
+const props = defineProps({
+  index: { type: Number, default: -1 },
+  adapter: { type: Object, default: () => createEmptyModelAdapter() },
+});
+
+const emit = defineEmits(["close", "saved"]);
+const message = useMessage();
+
+const editorIndex = ref(props.index);
+const draft = reactive(normalizeModelAdapter(props.adapter));
+if (!draft.type) {
+  draft.type = "openai";
+}
 const lastTestAdapterID = ref("");
 const localTestFailure = ref("");
+const availableModelIDs = ref(draft.modelID ? [draft.modelID] : []);
+const modelListLoading = ref(false);
+const modelListRequestSeq = ref(0);
+let modelListDebounceTimer = 0;
 
 function createOptionalPositiveIntegerModel(key) {
   return computed({
@@ -80,14 +94,23 @@ const contextWindowTokensInput = createOptionalPositiveIntegerModel("contextWind
 const interfacePlaceholder = computed(() =>
   draft.type === "anthropic" ? "例如：https://api.anthropic.com" : "例如：https://api.openai.com/v1",
 );
-const currentRequestHash = computed(() => buildModelAdapterTestRequestHash(draft));
-const directModelTestResult = computed(() => getModelAdapterTestResult(draft));
+const modelOptions = computed(() => availableModelIDs.value.map((modelID) => ({
+  label: modelID,
+  value: modelID,
+  icon: "icon-[mdi--cube-outline]",
+})));
+const canFetchModels = computed(() => Boolean(
+  draft.type && String(draft.baseURL || "").trim() && String(draft.apiKey || "").trim(),
+));
+const selectedTestAdapter = computed(() => normalizeModelAdapter(draft));
+const currentRequestHash = computed(() => buildModelAdapterTestRequestHash(selectedTestAdapter.value));
+const directModelTestResult = computed(() => getModelAdapterTestResult(selectedTestAdapter.value));
 const rememberedModelTestResult = computed(() =>
   lastTestAdapterID.value ? getModelAdapterTestResultByID(lastTestAdapterID.value) : null,
 );
 const activeModelTestResult = computed(() => directModelTestResult.value || rememberedModelTestResult.value);
 const modelTestResultStale = computed(() =>
-  isModelAdapterTestResultStale(draft, activeModelTestResult.value),
+  isModelAdapterTestResultStale(selectedTestAdapter.value, activeModelTestResult.value),
 );
 const isCurrentConfigTesting = computed(() => directModelTestResult.value?.status === "running");
 const modelTestSummary = computed(() => {
@@ -96,8 +119,6 @@ const modelTestSummary = computed(() => {
   }
   return activeModelTestResult.value?.summaryText || "尚未测试";
 });
-
-const title = computed(() => (editorIndex.value >= 0 ? "编辑模型配置" : "新增模型配置"));
 
 function ensureOpenAIExtraParamsJSON() {
   if (!String(draft.openAIExtraParamsJSON || "").trim()) {
@@ -125,7 +146,7 @@ function ensureAnthropicThinkingEffort() {
 
 const fieldTips = {
   displayName: "仅用于界面展示，便于你区分不同模型。",
-  modelID: "请求实际发送给服务端的模型名称，例如 gpt-4.1 或 claude-sonnet。",
+  modelID: "可以直接输入模型标识，或从服务端返回的列表中选择。",
   baseURL: "模型服务的 API 根地址，通常为兼容 OpenAI 或 Anthropic 的接口入口。",
   apiKey: "调用该模型服务需要使用的访问密钥。",
   contextWindowTokens: "模型单次可接受的最大上下文 Token 数。留空时使用默认值。",
@@ -140,20 +161,42 @@ const fieldTips = {
   tooltipData: "模型列表 hover 时显示的备注说明。",
 };
 
-async function loadContext() {
+async function refreshModelList() {
+  const baseURL = String(draft.baseURL || "").trim();
+  const apiKey = String(draft.apiKey || "").trim();
+  if (!baseURL || !apiKey || !draft.type) {
+    modelListRequestSeq.value += 1;
+    availableModelIDs.value = [];
+    modelListLoading.value = false;
+    return [];
+  }
+
+  const requestSeq = modelListRequestSeq.value + 1;
+  modelListRequestSeq.value = requestSeq;
+  modelListLoading.value = true;
+  availableModelIDs.value = [];
   try {
-    const ctx = await getModelEditorContext();
-    editorIndex.value = typeof ctx.index === "number" ? ctx.index : -1;
-    const parsed = JSON.parse(ctx.adapterJSON || "{}");
-    Object.assign(draft, normalizeModelAdapter(parsed));
-    if (!draft.type) {
-      draft.type = "openai";
+    const models = await fetchAvailableModelIDs({
+      type: draft.type,
+      baseURL,
+      apiKey,
+      customHeadersEnabled: draft.customHeadersEnabled,
+      customHeadersJSON: draft.customHeadersJSON,
+    });
+    if (requestSeq !== modelListRequestSeq.value) {
+      return availableModelIDs.value;
     }
+    availableModelIDs.value = models;
+    return models;
   } catch (_error) {
-    Object.assign(draft, createEmptyModelAdapter());
-    draft.type = "openai";
+    if (requestSeq === modelListRequestSeq.value) {
+      availableModelIDs.value = [];
+    }
+    return availableModelIDs.value;
   } finally {
-    loading.value = false;
+    if (requestSeq === modelListRequestSeq.value) {
+      modelListLoading.value = false;
+    }
   }
 }
 
@@ -162,13 +205,13 @@ async function persistDraft() {
 
   const singleCheck = validateModelAdapters([adapter]);
   if (singleCheck) {
-    errorMessage.value = singleCheck;
+    message(singleCheck);
     return { ok: false, error: singleCheck, adapter: null };
   }
 
   const result = await saveModelAdapterAt(editorIndex.value, adapter);
   if (!result.ok) {
-    errorMessage.value = result.error;
+    message(result.error);
     return { ok: false, error: result.error, adapter: null };
   }
 
@@ -177,12 +220,13 @@ async function persistDraft() {
   }
   if (result.adapter) {
     Object.assign(draft, normalizeModelAdapter(result.adapter));
+  } else {
+    Object.assign(draft, adapter);
   }
-  errorMessage.value = "";
   return {
     ok: true,
     error: "",
-    adapter: result.adapter ? normalizeModelAdapter(result.adapter) : normalizeModelAdapter(draft),
+    adapter: result.adapter ? normalizeModelAdapter(result.adapter) : normalizeModelAdapter(adapter),
   };
 }
 
@@ -191,15 +235,20 @@ async function handleSave() {
   if (!result.ok) {
     return;
   }
-  await Window.Close();
+  emit("saved", result.adapter);
+  emit("close");
 }
 
-async function handleCancel() {
-  await Window.Close();
+function handleCancel() {
+  emit("close");
 }
 
 function handleModelTypeChange(type) {
   draft.type = type;
+  modelListRequestSeq.value += 1;
+  modelListLoading.value = false;
+  availableModelIDs.value = [];
+  draft.modelID = "";
   if (type === "openai" && !draft.openAIEndpoint) {
     draft.openAIEndpoint = OPENAI_ENDPOINT_RESPONSES;
   } else if (type === "anthropic") {
@@ -273,31 +322,40 @@ watch(
   },
 );
 
-onMounted(async () => {
-  await loadContext();
+watch(
+  () => [draft.type, draft.baseURL, draft.apiKey, draft.customHeadersEnabled, draft.customHeadersJSON],
+  () => {
+    window.clearTimeout(modelListDebounceTimer);
+    const baseURL = String(draft.baseURL || "").trim();
+    const apiKey = String(draft.apiKey || "").trim();
+    if (!baseURL || !apiKey) {
+      modelListRequestSeq.value += 1;
+      modelListLoading.value = false;
+      availableModelIDs.value = [];
+      return;
+    }
+    modelListDebounceTimer = window.setTimeout(() => {
+      void refreshModelList();
+    }, 600);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  window.clearTimeout(modelListDebounceTimer);
 });
 </script>
 
 <template>
   <div class="flex h-full flex-col text-[#e5e5e5]">
-    <div class="flex shrink-0 items-center justify-between px-4 pb-2">
-      <h2 class="text-base font-medium text-white">{{ title }}</h2>
-      <div class="flex items-center gap-2">
-        <Button variant="default" @click="handleCancel">取消</Button>
-        <Button variant="default" :disabled="isCurrentConfigTesting || appState.configSaving" @click="handleTest">
-          {{ isCurrentConfigTesting ? "测试中..." : "保存并测试" }}
-        </Button>
-        <Button variant="primary" :disabled="appState.configSaving" @click="handleSave">
-          {{ appState.configSaving ? "保存中..." : "保存" }}
-        </Button>
-      </div>
-    </div>
-
-    <div v-if="loading" class="flex flex-1 items-center justify-center text-sm text-[#a3a3a3]">
-      加载中...
-    </div>
-
-    <div v-else class="flex-1 overflow-y-auto min-h-0 px-4 pb-4">
+     <div class="flex-shrink-0 p-4"   v-if="localTestFailure || activeModelTestResult">
+       <ModelAdapterTestCard
+          :result="localTestFailure ? { status: 'error', error: '测试失败', summaryText: '测试失败', rawResponse: modelTestSummary } : activeModelTestResult"
+          :stale="modelTestResultStale"
+          :show-metrics="true"
+        />
+     </div>
+    <div class="flex-1 min-h-0 overflow-y-auto px-4 py-4 scroll-shadow-bottom">
       <div class="flex flex-col gap-4">
         <div class="center-row gap-2">
           <button
@@ -318,26 +376,13 @@ onMounted(async () => {
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label class="flex flex-col gap-1">
             <span class="center-row justify-start gap-1.5 text-sm text-[#d4d4d4]">
-              <Tooltip :content="fieldTips.displayName" />
-              <span>显示名称</span>
+              <Tooltip :content="fieldTips.baseURL" />
+              <span>接口地址</span>
             </span>
             <input
-              v-model="draft.displayName"
+              v-model="draft.baseURL"
               type="text"
-              placeholder="例如：OpenAI - GPT-4.1"
-              class="h-9 rounded-[6px] border border-[#3f3f3f] bg-[#232323] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
-            />
-          </label>
-
-          <label class="flex flex-col gap-1">
-            <span class="center-row justify-start gap-1.5 text-sm text-[#d4d4d4]">
-              <Tooltip :content="fieldTips.modelID" />
-              <span>模型标识</span>
-            </span>
-            <input
-              v-model="draft.modelID"
-              type="text"
-              placeholder="例如：gpt-4.1"
+              :placeholder="interfacePlaceholder"
               class="h-9 rounded-[6px] border border-[#3f3f3f] bg-[#232323] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
             />
           </label>
@@ -358,16 +403,42 @@ onMounted(async () => {
 
           <label class="flex flex-col gap-1">
             <span class="center-row justify-start gap-1.5 text-sm text-[#d4d4d4]">
-              <Tooltip :content="fieldTips.baseURL" />
-              <span>接口地址</span>
+              <Tooltip :content="fieldTips.displayName" />
+              <span>显示名称</span>
             </span>
             <input
-              v-model="draft.baseURL"
+              v-model="draft.displayName"
               type="text"
-              :placeholder="interfacePlaceholder"
+              placeholder="例如：GPT-5"
               class="h-9 rounded-[6px] border border-[#3f3f3f] bg-[#232323] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#10AD5D]"
             />
           </label>
+
+          <div class="flex flex-col gap-1">
+            <span class="center-row justify-start gap-1.5 text-sm text-[#d4d4d4]">
+              <Tooltip :content="fieldTips.modelID" />
+              <span>模型标识</span>
+            </span>
+            <Combobox
+              v-model="draft.modelID"
+              :options="modelOptions"
+              :loading="modelListLoading"
+              placeholder="例如：gpt-4.1"
+              empty-text="没有匹配的模型"
+              aria-label="选择模型"
+            >
+              <template #append>
+                <button
+                  type="button"
+                  class="center-row h-9  shrink-0 gap-1.5 whitespace-nowrap rounded-[6px] border border-[#3f3f3f] bg-[#292929] px-[8px]  text-sm text-[#d4d4d4] outline-none transition-colors hover:border-[#505050] hover:bg-[#303030] hover:text-white focus-visible:border-[#10AD5D] disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="modelListLoading || !canFetchModels"
+                  @click="refreshModelList"
+                >
+                  <span>获取模型</span>
+                </button>
+              </template>
+            </Combobox>
+          </div>
 
           <label class="flex flex-col gap-1">
             <span class="center-row justify-start gap-1.5 text-sm text-[#d4d4d4]">
@@ -533,19 +604,16 @@ onMounted(async () => {
           />
         </label>
 
-        <ModelAdapterTestCard
-          :result="localTestFailure ? { status: 'error', error: '测试失败', summaryText: '测试失败', rawResponse: modelTestSummary } : activeModelTestResult"
-          :stale="modelTestResultStale"
-          :show-metrics="true"
-        />
-
-        <div
-          v-if="errorMessage"
-          class="rounded-[8px] border border-[#4b1d1d] bg-[#2a1313] px-3 py-2 text-sm text-[#fca5a5]"
-        >
-          {{ errorMessage }}
-        </div>
       </div>
+    </div>
+    <div class="flex shrink-0 items-center justify-end gap-2 px-4 py-3">
+      <Button variant="default" :disabled="appState.configSaving" @click="handleCancel">取消</Button>
+      <Button variant="default" :disabled="isCurrentConfigTesting || appState.configSaving" @click="handleTest">
+        {{ isCurrentConfigTesting ? "测试中..." : "保存并测试" }}
+      </Button>
+      <Button variant="primary" :disabled="appState.configSaving" @click="handleSave">
+        {{ appState.configSaving ? "保存中..." : "保存" }}
+      </Button>
     </div>
   </div>
 </template>
