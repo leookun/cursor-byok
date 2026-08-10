@@ -1134,10 +1134,20 @@ func isAnthropicCacheableBlock(block map[string]any) bool {
 	}
 }
 
+// anthropicThinkingCarrier 记录请求内最近一个有 reasoning+signature 的 assistant 轮次。
+// thinking 模式下上游要求每个 assistant 轮次都回传 thinking 块；当某轮次（如 DeepSeek
+// adaptive thinking 跳过思考的 tool-call 轮次）没有 reasoning 时，用 carrier 的
+// thinking+signature 兜底，避免上游 "thinking must be passed back" 400。
+type anthropicThinkingCarrier struct {
+	reasoning string
+	signature string
+}
+
 func normalizeAnthropicProviderMessages(input []Message, thinkingEnabled bool, relocateImages bool) ([]string, []anthropicMessage, error) {
 	systemParts := make([]string, 0, len(input))
 	messages := make([]anthropicMessage, 0, len(input))
 	pendingToolResults := make([]map[string]any, 0, 2)
+	var thinkingCarrier *anthropicThinkingCarrier
 	flushToolResults := func() {
 		if len(pendingToolResults) == 0 {
 			return
@@ -1175,7 +1185,15 @@ func normalizeAnthropicProviderMessages(input []Message, thinkingEnabled bool, r
 			})
 		case "user", "assistant":
 			flushToolResults()
-			contentBlocks, err := anthropicProviderContentBlocks(message, thinkingEnabled)
+			if thinkingEnabled && role == "assistant" {
+				if reasoning := strings.TrimSpace(message.ReasoningContent); reasoning != "" {
+					thinkingCarrier = &anthropicThinkingCarrier{
+						reasoning: reasoning,
+						signature: anthropicThinkingSignature(message),
+					}
+				}
+			}
+			contentBlocks, err := anthropicProviderContentBlocks(message, thinkingEnabled, thinkingCarrier)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1284,7 +1302,7 @@ func isAnthropicImageBlock(block map[string]any) bool {
 	return strings.TrimSpace(anthropicStringField(block, "type")) == "image"
 }
 
-func anthropicProviderContentBlocks(message Message, thinkingEnabled bool) ([]map[string]any, error) {
+func anthropicProviderContentBlocks(message Message, thinkingEnabled bool, carrier *anthropicThinkingCarrier) ([]map[string]any, error) {
 	blocks, err := anthropicContentBlocks(message)
 	if err != nil {
 		return nil, err
@@ -1293,11 +1311,17 @@ func anthropicProviderContentBlocks(message Message, thinkingEnabled bool) ([]ma
 		return blocks, nil
 	}
 
+	reasoning := strings.TrimSpace(message.ReasoningContent)
+	signature := anthropicThinkingSignature(message)
+	if reasoning == "" && carrier != nil {
+		reasoning = carrier.reasoning
+		signature = carrier.signature
+	}
 	thinkingBlock := map[string]any{
 		"type":     "thinking",
-		"thinking": message.ReasoningContent,
+		"thinking": reasoning,
 	}
-	if signature := anthropicThinkingSignature(message); signature != "" {
+	if signature != "" {
 		thinkingBlock["signature"] = signature
 	}
 	return append([]map[string]any{thinkingBlock}, blocks...), nil
@@ -1379,9 +1403,6 @@ func shouldIncludeAnthropicThinkingBlock(message Message, thinkingEnabled bool) 
 		return false
 	}
 	if strings.TrimSpace(message.Role) != "assistant" {
-		return false
-	}
-	if strings.TrimSpace(message.ReasoningContent) == "" {
 		return false
 	}
 	return true

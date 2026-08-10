@@ -566,6 +566,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		}
 		intent.ConversationID = conversationID
 		intent.ConversationState = runRequest.GetConversationState()
+		intent.PreFetchedBlobs = runRequest.GetPreFetchedBlobs()
 		intent.UserMessage = extractUserMessage(message)
 		intent.RequestContext = extractRequestContext(message)
 		if service.shouldIgnoreEmptyResumeRunRequest(requestID, runRequest, intent.UserMessage, intent.RequestContext) {
@@ -613,6 +614,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		intent.ConversationID = conversationID
 		intent.SubagentTypeName = strings.TrimSpace(prewarmRequest.GetSubagentTypeName())
 		intent.ConversationState = prewarmRequest.GetConversationState()
+		intent.PreFetchedBlobs = prewarmRequest.GetPreFetchedBlobs()
 		intent.Mode, intent.ModeSource, intent.HasExplicitMode, err = extractPrewarmMode(prewarmRequest)
 		if err != nil {
 			return InboundIntent{}, err
@@ -1055,6 +1057,11 @@ func (service *Service) handleExecResult(intent InboundIntent) error {
 			Message: buildShellOutputDeltaMessage(result.ShellOutputDelta),
 		}); err != nil {
 			return err
+		}
+		if message := buildShellToolCallDeltaMessage(pending.ToolCallID, pending.ModelCallID, result.ShellOutputDelta); message != nil {
+			if err := service.broker.Publish(intent.RequestID, StreamEvent{Message: message}); err != nil {
+				return err
+			}
 		}
 	}
 	if !result.IsTerminal {
@@ -2354,6 +2361,15 @@ func (service *Service) finishCanceledTurnAfterCheckpoint(stream *ActiveStream, 
 	return service.broker.Cancel(stream.RequestID, firstNonEmpty(strings.TrimSpace(terminalMessage), "[canceled] User aborted request"))
 }
 
+func (service *Service) finishFailedTurnAfterCheckpoint(stream *ActiveStream, terminalCode string, terminalMessage string) error {
+	if stream == nil {
+		return nil
+	}
+	err := service.broker.Fail(stream.RequestID, terminalCode, terminalMessage)
+	service.setTurnPhase(stream, TurnPhaseFailed)
+	return err
+}
+
 func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCode string, cause error) error {
 	if stream == nil || cause == nil {
 		return nil
@@ -2373,6 +2389,10 @@ func (service *Service) publishCheckpoint(requestID string, conversationID strin
 }
 
 func (service *Service) publishCheckpointWithCompletion(requestID string, _ string, completion *pendingTurnCompletion) error {
+	return service.publishCheckpointWithTerminalAction(requestID, successfulCheckpointTerminalAction(completion))
+}
+
+func (service *Service) publishCheckpointWithTerminalAction(requestID string, terminal checkpointTerminalAction) error {
 	stream, ok := service.broker.Get(requestID)
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", requestID)
@@ -2390,7 +2410,7 @@ func (service *Service) publishCheckpointWithCompletion(requestID string, _ stri
 	}
 	projection.State.PendingToolCalls = buildPendingToolCalls(pendingExecs, pendingInteractions)
 	service.rewriteCheckpointTokenDetailsForClient(stream, conversation, projection.State)
-	return service.queueCheckpointProjection(stream, projection, completion)
+	return service.queueCheckpointProjectionWithTerminal(stream, projection, terminal)
 }
 
 func (service *Service) rewriteCheckpointTokenDetailsForClient(stream *ActiveStream, conversation *ConversationFile, state *agentv1.ConversationStateStructure) {
@@ -2530,18 +2550,20 @@ func (service *Service) failActiveStream(stream *ActiveStream, conversationID st
 	if cancel != nil {
 		cancel()
 	}
-	service.setTurnPhase(stream, TurnPhaseFailed)
-	var firstErr error
-	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil && firstErr == nil {
-		firstErr = err
+	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil {
+		log.Printf(
+			"forwarder summary sync before failed terminal skipped request_id=%s model_call_id=%s err=%v",
+			strings.TrimSpace(requestID),
+			strings.TrimSpace(modelCallID),
+			err,
+		)
 	}
-	if err := service.publishCheckpoint(requestID, conversationID); err != nil && firstErr == nil {
-		firstErr = err
+	terminal := failedCheckpointTerminalAction(terminalCode, terminalMessage)
+	if err := service.publishCheckpointWithTerminalAction(requestID, terminal); err != nil {
+		log.Printf("forwarder checkpoint queue before failed terminal skipped request_id=%s err=%v", strings.TrimSpace(requestID), err)
+		return service.finishFailedTurnAfterCheckpoint(stream, terminalCode, terminalMessage)
 	}
-	if err := service.broker.Fail(requestID, terminalCode, terminalMessage); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	return firstErr
+	return nil
 }
 
 // buildRunEntries 构造一次 run intent 需要写入 history 的首批 entry。
@@ -3598,6 +3620,9 @@ func (service *Service) normalizeCallMCPToolInvocation(stream *ActiveStream, inv
 	}
 
 	if serverIdentifier != "" {
+		if resolvedServer := lookupMCPToolServer(stream, forwarderCanonicalMCPToolLookupName(serverIdentifier, toolName)); resolvedServer != "" {
+			serverIdentifier = resolvedServer
+		}
 		toolName = runtimecore.InferMCPToolName(serverIdentifier, firstNonEmpty(name, toolName))
 	}
 	if toolName == "" {

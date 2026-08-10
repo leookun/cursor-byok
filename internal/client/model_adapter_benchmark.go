@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -438,7 +437,6 @@ func (s *ProxyService) TestModelAdapter(adapter serverconfig.ModelAdapterConfig)
 		AdapterID:   normalized.ID,
 		RequestHash: requestHash,
 		Status:      string(ModelAdapterTestStatusRunning),
-		SummaryText: "测试中...",
 		TestedAt:    time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	s.storeAndEmitModelAdapterTestResult(running)
@@ -516,7 +514,6 @@ func (s *ProxyService) runModelAdapterTest(adapter serverconfig.ModelAdapterConf
 		TestedAt:         time.Now().UTC().Format(time.RFC3339Nano),
 		RawResponse:      strings.TrimSpace(metrics.rawResponse),
 	}
-	result.SummaryText = buildModelAdapterTestSummaryText(result)
 	return result, nil
 }
 
@@ -747,13 +744,6 @@ func buildErroredModelAdapterTestResult(adapterID string, requestHash string, er
 	}
 }
 
-func buildModelAdapterTestSummaryText(result ModelAdapterTestResult) string {
-	if strings.TrimSpace(result.Status) != string(ModelAdapterTestStatusSuccess) {
-		return firstNonEmptyTrimmed(result.SummaryText, "测试失败")
-	}
-	return fmt.Sprintf("%d t/s | 首字 %s", int(math.Round(maxFloat64(result.TokensPerSecond, 0))), formatModelAdapterTestDuration(result.FirstTextTokenMS))
-}
-
 func buildModelAdapterHTTPStatusError(prefix string, resp *http.Response) error {
 	if resp == nil {
 		return fmt.Errorf("%s response is nil", strings.TrimSpace(prefix))
@@ -847,17 +837,6 @@ func buildModelAdapterTestErrorSummary(err error) string {
 	default:
 		return "测试失败"
 	}
-}
-
-func formatModelAdapterTestDuration(durationMS int64) string {
-	if durationMS < 1000 {
-		if durationMS < 0 {
-			durationMS = 0
-		}
-		return fmt.Sprintf("%d ms", durationMS)
-	}
-	seconds := float64(durationMS) / 1000
-	return fmt.Sprintf("%.1f s", seconds)
 }
 
 func estimateBenchmarkTextTokens(text string) int64 {
@@ -1052,13 +1031,6 @@ func normalizeModelAdapterTestAnthropicExtraParamsJSON(adapter serverconfig.Mode
 func normalizeModelAdapterTestInt(value int) int {
 	if value <= 0 {
 		return 0
-	}
-	return value
-}
-
-func maxFloat64(value float64, fallback float64) float64 {
-	if value < fallback {
-		return fallback
 	}
 	return value
 }

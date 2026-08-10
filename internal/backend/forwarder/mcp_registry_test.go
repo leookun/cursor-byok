@@ -13,7 +13,8 @@ func TestMCPToolRegistryUsesCanonicalServerAndToolName(t *testing.T) {
 		McpFileSystemOptions: &agentv1.McpFileSystemOptions{
 			McpDescriptors: []*agentv1.McpDescriptor{
 				{
-					ServerIdentifier: "fast-context",
+					ServerIdentifier: "user-fast-context",
+					ServerName:       "fast-context",
 					Tools: []*agentv1.McpToolDescriptor{
 						{ToolName: "fast_context_search"},
 					},
@@ -29,8 +30,11 @@ func TestMCPToolRegistryUsesCanonicalServerAndToolName(t *testing.T) {
 	}
 
 	registry := collectMCPToolServers(requestContext)
-	if registry["fast-context-fast_context_search"] != "fast-context" {
-		t.Fatalf("fast-context canonical lookup = %q", registry["fast-context-fast_context_search"])
+	if registry["user-fast-context-fast_context_search"] != "user-fast-context" {
+		t.Fatalf("identifier canonical lookup = %q", registry["user-fast-context-fast_context_search"])
+	}
+	if registry["fast-context-fast_context_search"] != "user-fast-context" {
+		t.Fatalf("server-name alias lookup = %q", registry["fast-context-fast_context_search"])
 	}
 	if registry["backup-context-fast_context_search"] != "backup-context" {
 		t.Fatalf("backup-context canonical lookup = %q", registry["backup-context-fast_context_search"])
@@ -64,6 +68,33 @@ func TestRewriteDirectMCPInvocationUsesCanonicalLookup(t *testing.T) {
 	}
 	if payload.Server != "fast-context" {
 		t.Fatalf("server = %q, want fast-context", payload.Server)
+	}
+	if payload.ToolName != "fast_context_search" {
+		t.Fatalf("tool name = %q, want fast_context_search", payload.ToolName)
+	}
+}
+
+func TestNormalizeCallMCPInvocationResolvesServerNameAlias(t *testing.T) {
+	stream := &ActiveStream{
+		MCPToolServers: map[string]string{
+			"fast-context-fast_context_search": "user-fast-context",
+		},
+	}
+	invocation := runtimecore.ToolInvocation{
+		ToolName: "CallMcpTool",
+		ArgsJSON: []byte(`{"server":"fast-context","toolName":"fast_context_search","arguments":{"query":"trace mcp lifecycle"}}`),
+	}
+
+	normalized := (&Service{}).normalizeCallMCPToolInvocation(stream, invocation)
+	var payload struct {
+		Server   string `json:"server"`
+		ToolName string `json:"toolName"`
+	}
+	if err := json.Unmarshal(normalized.ArgsJSON, &payload); err != nil {
+		t.Fatalf("decode normalized args: %v", err)
+	}
+	if payload.Server != "user-fast-context" {
+		t.Fatalf("server = %q, want user-fast-context", payload.Server)
 	}
 	if payload.ToolName != "fast_context_search" {
 		t.Fatalf("tool name = %q, want fast_context_search", payload.ToolName)

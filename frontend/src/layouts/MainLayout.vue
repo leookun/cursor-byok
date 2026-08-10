@@ -2,11 +2,6 @@
 import { Browser, Window } from "@wailsio/runtime";
 import LocaleSelect from "@/components/LocaleSelect.vue";
 import { useMessage } from "@/composables/useMessage";
-import { showModal } from "@/composables/useModal";
-import {
-  getFooterAuthorInfo,
-  openFooterAuthorHome,
-} from "@/services/clientApi";
 import {
   appState,
   checkForAppUpdates,
@@ -14,7 +9,7 @@ import {
   updateViewState,
 } from "@/state/appState";
 import { isWindows } from "@/utils/isWindows";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import Logo from "@/assets/logo.png";
 
@@ -24,18 +19,8 @@ const showIcon = computed(() => route.meta.showIcon !== false);
 const title = computed(() => route.meta.title ?? "Cursor助手｜永久免费｜自定义API");
 const directlyClose = computed(() => route.meta.directlyClose === true);
 const showFooter = computed(() => route.path === "/");
-const footerAuthorInfo = ref(null);
-
-const localizedAuthorInfo = computed(() => {
-  if (!footerAuthorInfo.value) return null;
-  return {
-    buttonText: "作者 leookun",
-    dialogTitle: "作者寄语",
-    dialogContent: "本软件是纯免费软件，如果你被收费，那大概率就是被骗了。\n欢迎点击访问作者主页 https://space.bilibili.com/311706663/upload/video\n查看更多更新动态、使用分享和后续内容。",
-    dialogConfirmText: "访问主页",
-    dialogCancelText: "关闭",
-  };
-});
+const AUTHOR_REPOSITORY_URL = "https://github.com/leookun/cursor-byok";
+const AUTHOR_LABEL = "@leookun";
 const usageDocsURL = "https://docs.leokun.cn";
 let proxyStateTimer = null;
 const proxyStatePollIntervalMs = 10000;
@@ -99,37 +84,16 @@ async function handleCheckForUpdates() {
   }
 }
 
-async function loadFooterAuthorInfo() {
-  try {
-    footerAuthorInfo.value = await getFooterAuthorInfo();
-  } catch (error) {
-    console.error("[MainLayout] 加载作者信息失败", error);
-  }
-}
-
 function showActionError(title, error) {
   const detail = String(error || "操作失败").trim() || "操作失败";
   message(`${title}：${detail}`);
 }
 
 async function handleOpenAuthorHome() {
-  if (!localizedAuthorInfo.value) {
-    return;
-  }
-  const confirmed = await showModal({
-    title: localizedAuthorInfo.value.dialogTitle,
-    content: localizedAuthorInfo.value.dialogContent,
-    confirmText: localizedAuthorInfo.value.dialogConfirmText,
-    cancelText: localizedAuthorInfo.value.dialogCancelText,
-    showCancel: true,
-  });
-  if (!confirmed) {
-    return;
-  }
   try {
-    await openFooterAuthorHome();
+    await Browser.OpenURL(AUTHOR_REPOSITORY_URL);
   } catch (error) {
-    showActionError("打开主页失败", error);
+    showActionError("打开作者地址失败", error);
   }
 }
 
@@ -142,7 +106,6 @@ async function handleOpenUsageDocs() {
 }
 
 onMounted(() => {
-  void loadFooterAuthorInfo();
   proxyStateTimer = window.setInterval(() => {
     if (showFooter.value) {
       void syncServiceState().catch(() => {});
@@ -228,13 +191,12 @@ onUnmounted(() => {
         <span>使用教程</span>
       </button>
       <button
-        v-if="localizedAuthorInfo"
         type="button"
         class="center-row shrink-0 gap-[6px] cursor-pointer rounded-[6px] px-[6px] py-[3px] transition-colors duration-150 hover:bg-[#1f1f1f] hover:text-[#e5e5e5]"
         @click="handleOpenAuthorHome"
       >
-        <span class="icon-[ant-design--bilibili-outlined] text-[14px]"></span>
-        <span>{{ localizedAuthorInfo.buttonText }}</span>
+        <span class="icon-[mdi--github] text-[14px]"></span>
+        <span>{{ AUTHOR_LABEL }}</span>
       </button>
       <div
         v-if="updateViewState.footerDownloading"

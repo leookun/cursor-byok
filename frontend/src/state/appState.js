@@ -226,7 +226,7 @@ function normalizeModelAdapterTestResult(source) {
     rawResponse: asString(raw.rawResponse),
     testedAt: asString(raw.testedAt),
   };
-  if (!normalized.summaryText) {
+  if (status === "running" || status === "success") {
     normalized.summaryText = formatModelAdapterTestSummary(normalized);
   }
   if (status === "error" && !normalized.summaryText) {

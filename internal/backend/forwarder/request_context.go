@@ -326,6 +326,7 @@ func collectMCPToolServers(requestContext *agentv1.RequestContext) map[string]st
 				continue
 			}
 			serverIdentifier := strings.TrimSpace(firstNonEmpty(descriptor.GetServerIdentifier(), descriptor.GetServerName()))
+			serverName := strings.TrimSpace(descriptor.GetServerName())
 			if serverIdentifier == "" {
 				continue
 			}
@@ -338,6 +339,9 @@ func collectMCPToolServers(requestContext *agentv1.RequestContext) map[string]st
 					continue
 				}
 				servers[forwarderCanonicalMCPToolLookupName(serverIdentifier, toolName)] = serverIdentifier
+				if serverName != "" && serverName != serverIdentifier {
+					servers[forwarderCanonicalMCPToolLookupName(serverName, toolName)] = serverIdentifier
+				}
 				if owner, exists := bareOwners[toolName]; !exists {
 					bareOwners[toolName] = serverIdentifier
 				} else if owner != serverIdentifier {
