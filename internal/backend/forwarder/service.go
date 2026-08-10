@@ -463,21 +463,13 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 			for _, event := range backlog {
 				if event.Message != nil {
 					if err := stream.Send(event.Message); err != nil {
-						service.debug.LogRunSSE(ctx, requestID, "", "send_error", map[string]any{
-							"cursor":       cursor,
-							"message_case": agentServerMessageCase(event.Message),
-							"message":      protoJSONDebugPayload(event.Message),
-							"error":        err.Error(),
-						})
+						service.logRunSSEMessage(ctx, requestID, "send_error", cursor, event.Message, err)
 						return err
 					}
-					service.debug.LogRunSSE(ctx, requestID, "", "send_message", map[string]any{
-						"cursor":       cursor,
-						"message_case": agentServerMessageCase(event.Message),
-						"message":      protoJSONDebugPayload(event.Message),
-					})
+					service.logRunSSEMessage(ctx, requestID, "send_message", cursor, event.Message, nil)
 				}
 				cursor++
+				_ = service.broker.AcknowledgeCursor(requestID, subscriberID, cursor)
 				if event.End {
 					service.debug.LogRunSSE(ctx, requestID, "", "terminal", map[string]any{
 						"cursor":                 cursor,
@@ -538,6 +530,21 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 			"message":      protoJSONDebugPayload(heartbeat),
 		})
 	}
+}
+
+func (service *Service) logRunSSEMessage(ctx context.Context, requestID string, eventName string, cursor int, message *agentv1.AgentServerMessage, streamErr error) {
+	if service == nil || service.debug == nil || !service.debug.enabled(ctx) {
+		return
+	}
+	fields := map[string]any{
+		"cursor":       cursor,
+		"message_case": agentServerMessageCase(message),
+		"message":      protoJSONDebugPayload(message),
+	}
+	if streamErr != nil {
+		fields["error"] = streamErr.Error()
+	}
+	service.debug.LogRunSSE(ctx, requestID, "", eventName, fields)
 }
 
 // decodeInboundIntent 把 legacy AgentClientMessage 映射为 forwarder 内部 intent。

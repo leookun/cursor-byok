@@ -116,6 +116,7 @@ type StreamEvent struct {
 
 type StreamSubscriber struct {
 	Signal chan struct{}
+	Cursor int
 }
 
 type manualCompactionDirective struct {
@@ -171,6 +172,7 @@ type ActiveStream struct {
 	PendingCheckpoint                           *pendingCheckpointPublish
 
 	Backlog                     []StreamEvent
+	BacklogBaseCursor           int
 	Subscribers                 map[string]*StreamSubscriber
 	CheckpointConversation      *ConversationFile
 	PendingExecs                map[string]runtimecore.PendingExec
