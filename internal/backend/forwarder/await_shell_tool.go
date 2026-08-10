@@ -104,6 +104,31 @@ func (service *Service) awaitShellSnapshot(stream *ActiveStream, args awaitShell
 	if args.BlockUntilMS != nil {
 		blockUntilMS = *args.BlockUntilMS
 	}
+	if blockUntilMS <= 0 {
+		return service.awaitShellSnapshotOnce(stream, args)
+	}
+
+	deadline := time.Now().Add(time.Duration(blockUntilMS) * time.Millisecond)
+	for {
+		result := service.awaitShellSnapshotOnce(stream, args)
+		if result.ShellID == "" || result.Status == "error" || result.Status == backgroundShellStatusUnknown || result.Matched || isBackgroundShellTerminalStatus(result.Status) {
+			return result
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			result.TimedOut = true
+			return result
+		}
+		interval := min(50*time.Millisecond, remaining)
+		time.Sleep(interval)
+	}
+}
+
+func (service *Service) awaitShellSnapshotOnce(stream *ActiveStream, args awaitShellArgs) awaitShellResult {
+	blockUntilMS := int64(30000)
+	if args.BlockUntilMS != nil {
+		blockUntilMS = *args.BlockUntilMS
+	}
 	shellID := strings.TrimSpace(args.ShellID)
 	if shellID == "" {
 		return awaitShellResult{
