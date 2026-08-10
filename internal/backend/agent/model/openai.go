@@ -49,7 +49,8 @@ type openAIResponsesRequestBody struct {
 }
 
 type openAIResponsesReasoning struct {
-	Effort string `json:"effort,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type openAIToolAccumulator struct {
@@ -944,7 +945,7 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 			requestBody.Tools = tools
 		}
 		if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
-			requestBody.Reasoning = &openAIResponsesReasoning{Effort: effort}
+			requestBody.Reasoning = &openAIResponsesReasoning{Effort: effort, Summary: "auto"}
 			requestBody.Include = []string{"reasoning.encrypted_content"}
 		}
 		body = requestBody

@@ -30,6 +30,7 @@ const (
 var cursorStateDisabledStatsigGates = []string{
 	"decompose_always_local_ext_host",
 	"cursor_extensions_isolation_v2",
+	"disable_terminal_output_ui_streaming",
 }
 
 // InjectCursorUserInfo synchronizes the Cursor user-level auth cache used by the

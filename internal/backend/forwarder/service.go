@@ -463,21 +463,13 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 			for _, event := range backlog {
 				if event.Message != nil {
 					if err := stream.Send(event.Message); err != nil {
-						service.debug.LogRunSSE(ctx, requestID, "", "send_error", map[string]any{
-							"cursor":       cursor,
-							"message_case": agentServerMessageCase(event.Message),
-							"message":      protoJSONDebugPayload(event.Message),
-							"error":        err.Error(),
-						})
+						service.logRunSSEMessage(ctx, requestID, "send_error", cursor, event.Message, err)
 						return err
 					}
-					service.debug.LogRunSSE(ctx, requestID, "", "send_message", map[string]any{
-						"cursor":       cursor,
-						"message_case": agentServerMessageCase(event.Message),
-						"message":      protoJSONDebugPayload(event.Message),
-					})
+					service.logRunSSEMessage(ctx, requestID, "send_message", cursor, event.Message, nil)
 				}
 				cursor++
+				_ = service.broker.AcknowledgeCursor(requestID, subscriberID, cursor)
 				if event.End {
 					service.debug.LogRunSSE(ctx, requestID, "", "terminal", map[string]any{
 						"cursor":                 cursor,
@@ -540,6 +532,21 @@ func (service *Service) RunSSE(ctx context.Context, req *connect.Request[aiserve
 	}
 }
 
+func (service *Service) logRunSSEMessage(ctx context.Context, requestID string, eventName string, cursor int, message *agentv1.AgentServerMessage, streamErr error) {
+	if service == nil || service.debug == nil || !service.debug.enabled(ctx) {
+		return
+	}
+	fields := map[string]any{
+		"cursor":       cursor,
+		"message_case": agentServerMessageCase(message),
+		"message":      protoJSONDebugPayload(message),
+	}
+	if streamErr != nil {
+		fields["error"] = streamErr.Error()
+	}
+	service.debug.LogRunSSE(ctx, requestID, "", eventName, fields)
+}
+
 // decodeInboundIntent 把 legacy AgentClientMessage 映射为 forwarder 内部 intent。
 func (service *Service) decodeInboundIntent(requestID string, message *agentv1.AgentClientMessage, clientKind string) (InboundIntent, error) {
 	intent := InboundIntent{
@@ -559,6 +566,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		}
 		intent.ConversationID = conversationID
 		intent.ConversationState = runRequest.GetConversationState()
+		intent.PreFetchedBlobs = runRequest.GetPreFetchedBlobs()
 		intent.UserMessage = extractUserMessage(message)
 		intent.RequestContext = extractRequestContext(message)
 		if service.shouldIgnoreEmptyResumeRunRequest(requestID, runRequest, intent.UserMessage, intent.RequestContext) {
@@ -606,6 +614,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		intent.ConversationID = conversationID
 		intent.SubagentTypeName = strings.TrimSpace(prewarmRequest.GetSubagentTypeName())
 		intent.ConversationState = prewarmRequest.GetConversationState()
+		intent.PreFetchedBlobs = prewarmRequest.GetPreFetchedBlobs()
 		intent.Mode, intent.ModeSource, intent.HasExplicitMode, err = extractPrewarmMode(prewarmRequest)
 		if err != nil {
 			return InboundIntent{}, err
@@ -756,6 +765,7 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 		return err
 	}
 	updateStreamRequestContextData(stream, intent.RequestContext)
+	hydrateStreamMCPToolServers(stream, conversation.MCPToolServers)
 	service.updateStreamMCPToolServers(stream, intent.RequestContext)
 	clearPendingProviderCompletion(stream)
 	stream.mu.Lock()
@@ -1047,6 +1057,11 @@ func (service *Service) handleExecResult(intent InboundIntent) error {
 			Message: buildShellOutputDeltaMessage(result.ShellOutputDelta),
 		}); err != nil {
 			return err
+		}
+		if message := buildShellToolCallDeltaMessage(pending.ToolCallID, pending.ModelCallID, result.ShellOutputDelta); message != nil {
+			if err := service.broker.Publish(intent.RequestID, StreamEvent{Message: message}); err != nil {
+				return err
+			}
 		}
 	}
 	if !result.IsTerminal {
@@ -2346,6 +2361,15 @@ func (service *Service) finishCanceledTurnAfterCheckpoint(stream *ActiveStream, 
 	return service.broker.Cancel(stream.RequestID, firstNonEmpty(strings.TrimSpace(terminalMessage), "[canceled] User aborted request"))
 }
 
+func (service *Service) finishFailedTurnAfterCheckpoint(stream *ActiveStream, terminalCode string, terminalMessage string) error {
+	if stream == nil {
+		return nil
+	}
+	err := service.broker.Fail(stream.RequestID, terminalCode, terminalMessage)
+	service.setTurnPhase(stream, TurnPhaseFailed)
+	return err
+}
+
 func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCode string, cause error) error {
 	if stream == nil || cause == nil {
 		return nil
@@ -2365,6 +2389,10 @@ func (service *Service) publishCheckpoint(requestID string, conversationID strin
 }
 
 func (service *Service) publishCheckpointWithCompletion(requestID string, _ string, completion *pendingTurnCompletion) error {
+	return service.publishCheckpointWithTerminalAction(requestID, successfulCheckpointTerminalAction(completion))
+}
+
+func (service *Service) publishCheckpointWithTerminalAction(requestID string, terminal checkpointTerminalAction) error {
 	stream, ok := service.broker.Get(requestID)
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", requestID)
@@ -2382,7 +2410,7 @@ func (service *Service) publishCheckpointWithCompletion(requestID string, _ stri
 	}
 	projection.State.PendingToolCalls = buildPendingToolCalls(pendingExecs, pendingInteractions)
 	service.rewriteCheckpointTokenDetailsForClient(stream, conversation, projection.State)
-	return service.queueCheckpointProjection(stream, projection, completion)
+	return service.queueCheckpointProjectionWithTerminal(stream, projection, terminal)
 }
 
 func (service *Service) rewriteCheckpointTokenDetailsForClient(stream *ActiveStream, conversation *ConversationFile, state *agentv1.ConversationStateStructure) {
@@ -2522,18 +2550,20 @@ func (service *Service) failActiveStream(stream *ActiveStream, conversationID st
 	if cancel != nil {
 		cancel()
 	}
-	service.setTurnPhase(stream, TurnPhaseFailed)
-	var firstErr error
-	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil && firstErr == nil {
-		firstErr = err
+	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil {
+		log.Printf(
+			"forwarder summary sync before failed terminal skipped request_id=%s model_call_id=%s err=%v",
+			strings.TrimSpace(requestID),
+			strings.TrimSpace(modelCallID),
+			err,
+		)
 	}
-	if err := service.publishCheckpoint(requestID, conversationID); err != nil && firstErr == nil {
-		firstErr = err
+	terminal := failedCheckpointTerminalAction(terminalCode, terminalMessage)
+	if err := service.publishCheckpointWithTerminalAction(requestID, terminal); err != nil {
+		log.Printf("forwarder checkpoint queue before failed terminal skipped request_id=%s err=%v", strings.TrimSpace(requestID), err)
+		return service.finishFailedTurnAfterCheckpoint(stream, terminalCode, terminalMessage)
 	}
-	if err := service.broker.Fail(requestID, terminalCode, terminalMessage); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	return firstErr
+	return nil
 }
 
 // buildRunEntries 构造一次 run intent 需要写入 history 的首批 entry。
@@ -3474,36 +3504,73 @@ func recentlyCompletedExecExists(stream *ActiveStream, messageID uint32) bool {
 }
 
 func (service *Service) updateStreamMCPToolServers(stream *ActiveStream, requestContext *agentv1.RequestContext) {
-	if stream == nil {
+	servers := collectMCPToolServers(requestContext)
+	if stream == nil || len(servers) == 0 {
 		return
 	}
-	servers := collectMCPToolServers(requestContext)
-	if len(servers) == 0 {
+	hydrateStreamMCPToolServers(stream, servers)
+
+	if service == nil || service.store == nil {
 		return
 	}
 	stream.mu.Lock()
-	if stream.MCPToolServers == nil {
-		stream.MCPToolServers = make(map[string]string, len(servers))
+	conversationID := strings.TrimSpace(stream.ConversationID)
+	stream.mu.Unlock()
+	if conversationID == "" {
+		return
 	}
-	for toolName, serverIdentifier := range servers {
-		trimmedToolName := strings.TrimSpace(toolName)
-		trimmedServerIdentifier := strings.TrimSpace(serverIdentifier)
-		if trimmedToolName == "" || trimmedServerIdentifier == "" {
-			continue
+	_, _ = service.store.UpdateConversationMeta(conversationID, func(conversation *ConversationFile) error {
+		if conversation == nil {
+			return nil
 		}
-		stream.MCPToolServers[trimmedToolName] = trimmedServerIdentifier
+		conversation.MCPToolServers = mergeMCPToolServerRegistry(conversation.MCPToolServers, servers)
+		return nil
+	})
+}
+
+func hydrateStreamMCPToolServers(stream *ActiveStream, servers map[string]string) {
+	if stream == nil || len(servers) == 0 {
+		return
 	}
+	stream.mu.Lock()
+	stream.MCPToolServers = mergeMCPToolServerRegistry(stream.MCPToolServers, servers)
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
 }
 
+func mergeMCPToolServerRegistry(existing map[string]string, additions map[string]string) map[string]string {
+	merged := make(map[string]string, len(existing)+len(additions))
+	for toolName, serverIdentifier := range existing {
+		if toolName = strings.TrimSpace(toolName); toolName != "" {
+			if serverIdentifier = strings.TrimSpace(serverIdentifier); serverIdentifier != "" {
+				merged[toolName] = serverIdentifier
+			}
+		}
+	}
+	for toolName, serverIdentifier := range additions {
+		if toolName = strings.TrimSpace(toolName); toolName != "" {
+			if serverIdentifier = strings.TrimSpace(serverIdentifier); serverIdentifier != "" {
+				merged[toolName] = serverIdentifier
+			}
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
 func (service *Service) rewriteDirectMCPToolInvocation(stream *ActiveStream, invocation runtimecore.ToolInvocation) runtimecore.ToolInvocation {
-	toolName := strings.TrimSpace(invocation.ToolName)
-	if toolName == "" || isExecTool(toolName) {
+	requestedToolName := strings.TrimSpace(invocation.ToolName)
+	if requestedToolName == "" || isExecTool(requestedToolName) {
 		return invocation
 	}
-	serverIdentifier := lookupMCPToolServer(stream, toolName)
+	serverIdentifier := lookupMCPToolServer(stream, requestedToolName)
 	if serverIdentifier == "" {
+		return invocation
+	}
+	toolName := runtimecore.InferMCPToolName(serverIdentifier, requestedToolName)
+	if toolName == "" {
 		return invocation
 	}
 
@@ -3552,6 +3619,12 @@ func (service *Service) normalizeCallMCPToolInvocation(stream *ActiveStream, inv
 		}
 	}
 
+	if serverIdentifier != "" {
+		if resolvedServer := lookupMCPToolServer(stream, forwarderCanonicalMCPToolLookupName(serverIdentifier, toolName)); resolvedServer != "" {
+			serverIdentifier = resolvedServer
+		}
+		toolName = runtimecore.InferMCPToolName(serverIdentifier, firstNonEmpty(name, toolName))
+	}
 	if toolName == "" {
 		return invocation
 	}

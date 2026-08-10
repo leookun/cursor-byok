@@ -25,12 +25,36 @@ const cursorAccountStatus = ref({
 const cursorAccountBusy = ref(false);
 let cursorAccountTimer = null;
 
+function maskCursorAccountIdentifier(value) {
+  const identifier = String(value || "").trim();
+  if (!identifier) return "";
+
+  const atIndex = identifier.indexOf("@");
+  if (atIndex > 0 && atIndex < identifier.length - 1) {
+    const localPart = identifier.slice(0, atIndex);
+    const domain = identifier.slice(atIndex + 1);
+    const maskedLocalPart = localPart.length <= 2
+      ? `${localPart[0]}***`
+      : `${localPart[0]}***${localPart.at(-1)}`;
+    return `${maskedLocalPart}@${domain}`;
+  }
+
+  if (identifier.length <= 8) return "****";
+  return `${identifier.slice(0, 4)}****${identifier.slice(-4)}`;
+}
+
 const cursorAccountSignedIn = computed(
   () => cursorAccountStatus.value.state === "signed_in",
 );
 const cursorAccountWaiting = computed(
   () => cursorAccountStatus.value.state === "waiting",
 );
+const cursorAccountDisplayIdentifier = computed(() => {
+  if (!cursorAccountSignedIn.value) return "";
+  return maskCursorAccountIdentifier(
+    cursorAccountStatus.value.email || cursorAccountStatus.value.authId,
+  );
+});
 const cursorAccountStateText = computed(() => {
   if (cursorAccountSignedIn.value) return "已经登录";
   if (cursorAccountWaiting.value) return "等待浏览器登录";
@@ -137,10 +161,10 @@ onUnmounted(() => {
       <div class="flex items-end justify-between gap-4">
         <div class="min-w-0">
           <div
-            v-if="cursorAccountSignedIn && (cursorAccountStatus.email || cursorAccountStatus.authId)"
+            v-if="cursorAccountDisplayIdentifier"
             class="truncate text-sm text-[#d0d0d0]"
           >
-            {{ cursorAccountStatus.email || cursorAccountStatus.authId }}
+            {{ cursorAccountDisplayIdentifier }}
           </div>
           <div class="mt-1 text-sm text-[#a3a3a3]">
             独立用于插件、Skills 和 MCP；不会改变 Cursor 客户端当前账号

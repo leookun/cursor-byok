@@ -121,10 +121,15 @@ func (store *ConversationFileStore) LoadConversation(conversationID string) (*Co
 
 // AppendEntries 把已经发生的语义事件追加到 context.json，并同步 state.json。
 func (store *ConversationFileStore) AppendEntries(conversationID string, entries []HistoryEntry) (*ConversationFile, []HistoryEntry, error) {
+	return store.AppendEntriesWithUpdate(conversationID, entries, nil)
+}
+
+// AppendEntriesWithUpdate 原子追加 context entries，并在同一把会话锁内更新 state metadata。
+func (store *ConversationFileStore) AppendEntriesWithUpdate(conversationID string, entries []HistoryEntry, update func(*ConversationFile) error) (*ConversationFile, []HistoryEntry, error) {
 	if store == nil {
 		return nil, nil, fmt.Errorf("conversation file store is nil")
 	}
-	if len(entries) == 0 {
+	if len(entries) == 0 && update == nil {
 		conversation, err := store.LoadConversation(conversationID)
 		return conversation, nil, err
 	}
@@ -162,6 +167,11 @@ func (store *ConversationFileStore) AppendEntries(conversationID string, entries
 		conversation.Mode = alias
 	}
 	assigned := appendEntriesInPlace(conversation, entries)
+	if update != nil {
+		if err := update(conversation); err != nil {
+			return nil, nil, err
+		}
+	}
 	deriveConversationLoopState(conversation)
 	if err := store.writeConversationLocked(normalizedConversationID, conversation); err != nil {
 		return nil, nil, err
@@ -773,6 +783,8 @@ func mergeConversationMetadata(target *ConversationFile, source *ConversationFil
 	target.CurrentPlanText = source.CurrentPlanText
 	target.CurrentPlans = clonePlanRegistryEntries(source.CurrentPlans)
 	target.CurrentTodos = cloneTodoItems(source.CurrentTodos)
+	target.MCPToolServers = mergeMCPToolServerRegistry(target.MCPToolServers, source.MCPToolServers)
+	target.ImportedTurnIDs = cloneByteSlices(source.ImportedTurnIDs)
 	target.LatestRequestPrefix = cloneConversationRequestPrefix(source.LatestRequestPrefix)
 	target.LastProviderCall = cloneConversationProviderCall(source.LastProviderCall)
 	if !source.CreatedAt.IsZero() && (target.CreatedAt.IsZero() || source.CreatedAt.Before(target.CreatedAt)) {
@@ -905,6 +917,8 @@ func cloneConversationFile(conversation *ConversationFile) *ConversationFile {
 	cloned := *conversation
 	cloned.CurrentPlans = clonePlanRegistryEntries(conversation.CurrentPlans)
 	cloned.CurrentTodos = cloneTodoItems(conversation.CurrentTodos)
+	cloned.MCPToolServers = cloneStringMap(conversation.MCPToolServers)
+	cloned.ImportedTurnIDs = cloneByteSlices(conversation.ImportedTurnIDs)
 	cloned.LatestRequestPrefix = cloneConversationRequestPrefix(conversation.LatestRequestPrefix)
 	cloned.LastProviderCall = cloneConversationProviderCall(conversation.LastProviderCall)
 	cloned.Entries = append([]HistoryEntry(nil), conversation.Entries...)

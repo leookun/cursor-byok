@@ -108,12 +108,12 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 111,
+          "line": 88,
           "column": 34
         },
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 111,
+          "line": 88,
           "column": 52
         }
       ]
@@ -127,18 +127,6 @@
           "file": "src/views/Config.vue",
           "line": 50,
           "column": 48
-        }
-      ]
-    },
-    "0dde813d719dbd01": {
-      "source": "打开主页失败",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 132,
-          "column": 21
         }
       ]
     },
@@ -245,7 +233,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 55,
+          "line": 40,
           "column": 9
         }
       ]
@@ -269,7 +257,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 173,
+          "line": 197,
           "column": 14
         }
       ]
@@ -383,18 +371,6 @@
         }
       ]
     },
-    "2a24519398684ed5": {
-      "source": "访问主页",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 35,
-          "column": 24
-        }
-      ]
-    },
     "2cd0f3be8738a86c": {
       "source": "取消",
       "kind": "text",
@@ -402,7 +378,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 74,
+          "line": 98,
           "column": 17
         },
         {
@@ -519,7 +495,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 140,
+          "line": 104,
           "column": 21
         }
       ]
@@ -557,18 +533,6 @@
           "file": "src/components/ModelAdapterTestCard.vue",
           "line": 124,
           "column": 60
-        }
-      ]
-    },
-    "358f07b2c1445ab1": {
-      "source": "作者寄语",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 33,
-          "column": 18
         }
       ]
     },
@@ -630,17 +594,17 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 71,
+          "line": 95,
           "column": 12
         },
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 73,
+          "line": 97,
           "column": 18
         },
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 163,
+          "line": 187,
           "column": 11
         }
       ]
@@ -681,7 +645,7 @@
         },
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 261,
+          "line": 223,
           "column": 11
         },
         {
@@ -698,7 +662,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 37,
+          "line": 61,
           "column": 10
         }
       ]
@@ -736,11 +700,6 @@
           "file": "src/components/ui/ContentModal.vue",
           "line": 125,
           "column": 15
-        },
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 36,
-          "column": 23
         }
       ]
     },
@@ -883,7 +842,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 60,
+          "line": 45,
           "column": 9
         }
       ]
@@ -941,7 +900,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 49,
+          "line": 73,
           "column": 21
         }
       ]
@@ -953,7 +912,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 24,
+          "line": 19,
           "column": 50
         },
         {
@@ -1030,7 +989,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 59,
+          "line": 44,
           "column": 9
         }
       ]
@@ -1194,7 +1153,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 173,
+          "line": 197,
           "column": 14
         }
       ]
@@ -1235,12 +1194,12 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 41,
+          "line": 65,
           "column": 34
         },
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 41,
+          "line": 65,
           "column": 52
         },
         {
@@ -1480,7 +1439,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 220,
+          "line": 183,
           "column": 15
         },
         {
@@ -1557,7 +1516,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 111,
+          "line": 135,
           "column": 56
         }
       ]
@@ -1779,18 +1738,6 @@
         }
       ]
     },
-    "93faf55cd25c8319": {
-      "source": "本软件是纯免费软件，如果你被收费，那大概率就是被骗了。\n欢迎点击访问作者主页 https://space.bilibili.com/311706663/upload/video\n查看更多更新动态、使用分享和后续内容。",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 34,
-          "column": 20
-        }
-      ]
-    },
     "942ff2d88baca0c6": {
       "source": "检查更新中...",
       "kind": "text",
@@ -1798,7 +1745,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 92,
+          "line": 77,
           "column": 36
         }
       ]
@@ -2122,18 +2069,6 @@
         }
       ]
     },
-    "ab607d54d86dc789": {
-      "source": "作者 leookun",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 32,
-          "column": 17
-        }
-      ]
-    },
     "ac217e4d1ca410f1": {
       "source": "发现新版本",
       "kind": "text",
@@ -2324,7 +2259,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 47,
+          "line": 32,
           "column": 12
         }
       ]
@@ -2384,7 +2319,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 63,
+          "line": 48,
           "column": 12
         }
       ]
@@ -2425,7 +2360,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 72,
+          "line": 96,
           "column": 14
         }
       ]
@@ -2473,7 +2408,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 83,
+          "line": 107,
           "column": 21
         }
       ]
@@ -2579,7 +2514,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 36,
+          "line": 60,
           "column": 42
         }
       ]
@@ -2593,18 +2528,6 @@
           "file": "src/components/charts/CacheHitRateChart.vue",
           "line": 115,
           "column": 20
-        }
-      ]
-    },
-    "d1bde4a4e057b2c7": {
-      "source": "[MainLayout] 加载作者信息失败",
-      "kind": "text",
-      "placeholders": 0,
-      "refs": [
-        {
-          "file": "src/layouts/MainLayout.vue",
-          "line": 106,
-          "column": 19
         }
       ]
     },
@@ -2702,7 +2625,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 145,
+          "line": 169,
           "column": 53
         }
       ]
@@ -2878,7 +2801,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 62,
+          "line": 86,
           "column": 21
         }
       ]
@@ -2890,7 +2813,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 122,
+          "line": 146,
           "column": 20
         }
       ]
@@ -2902,7 +2825,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 148,
+          "line": 172,
           "column": 81
         }
       ]
@@ -2938,7 +2861,7 @@
       "refs": [
         {
           "file": "src/components/CursorAccountCard.vue",
-          "line": 35,
+          "line": 59,
           "column": 43
         }
       ]
@@ -2998,7 +2921,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 54,
+          "line": 39,
           "column": 9
         }
       ]
@@ -3119,6 +3042,18 @@
         }
       ]
     },
+    "f526ab6eff33039a": {
+      "source": "打开作者地址失败",
+      "kind": "text",
+      "placeholders": 0,
+      "refs": [
+        {
+          "file": "src/layouts/MainLayout.vue",
+          "line": 96,
+          "column": 21
+        }
+      ]
+    },
     "f56c6c82203b33f6": {
       "source": "提示",
       "kind": "text",
@@ -3180,7 +3115,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 65,
+          "line": 50,
           "column": 10
         }
       ]
@@ -3236,7 +3171,7 @@
       "refs": [
         {
           "file": "src/layouts/MainLayout.vue",
-          "line": 228,
+          "line": 191,
           "column": 15
         }
       ]

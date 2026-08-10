@@ -2,6 +2,7 @@ package forwarder
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -122,6 +123,53 @@ func TestCancelPersistsInterruptedProviderOutputIdempotently(t *testing.T) {
 	}
 	if checkpoint == nil || checkpoint.State == nil || len(checkpoint.State.GetTurns()) != 1 {
 		t.Fatalf("checkpoint state = %#v, want interrupted turn", checkpoint)
+	}
+}
+
+func TestGenericProviderFailurePersistsAccumulatedOutput(t *testing.T) {
+	service, stream, _ := testCheckpointBlobProjection(t)
+	conversation, _, _, err := service.snapshotCheckpointConversation(stream)
+	if err != nil {
+		t.Fatalf("snapshotCheckpointConversation() error = %v", err)
+	}
+	if _, err := service.store.SaveConversationWithEntries(stream.ConversationID, conversation, conversation.Entries); err != nil {
+		t.Fatalf("SaveConversationWithEntries() error = %v", err)
+	}
+
+	stream.mu.Lock()
+	stream.CurrentModelCallID = "model-call-1"
+	stream.ProviderActive = true
+	stream.ProviderAccumulatedText = "partial answer before transport failure"
+	stream.Status = StreamStatusStreaming
+	stream.Phase = TurnPhaseProviderRunning
+	stream.mu.Unlock()
+	if err := service.handleProviderDoneEvent(stream, &streamProviderEvent{
+		Done: true,
+		Err:  errors.New("transport failed"),
+	}); err != nil {
+		t.Fatalf("handleProviderDoneEvent() error = %v", err)
+	}
+
+	persisted, err := service.store.LoadConversation(stream.ConversationID)
+	if err != nil {
+		t.Fatalf("LoadConversation() error = %v", err)
+	}
+	foundPartialOutput := false
+	for _, entry := range persisted.Entries {
+		if entry.Kind != "assistant_text" {
+			continue
+		}
+		var payload assistantTextPayload
+		if err := json.Unmarshal(entry.Payload, &payload); err != nil {
+			t.Fatalf("decode assistant entry: %v", err)
+		}
+		if payload.Text == "partial answer before transport failure" {
+			foundPartialOutput = true
+			break
+		}
+	}
+	if !foundPartialOutput {
+		t.Fatal("generic provider failure discarded accumulated assistant output")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -20,19 +21,132 @@ type debugLogConfig interface {
 	IsObservabilityLogEnabled(context.Context) bool
 }
 
+const defaultDebugQueueCapacity = 1024
+
+type debugRecorderMetrics struct {
+	QueueDepth        int64
+	Enqueued          int64
+	Dropped           int64
+	Written           int64
+	WriteLatencyNanos int64
+}
+
+type debugRecord struct {
+	dir      string
+	filename string
+	payload  []byte
+	barrier  chan struct{}
+}
+
 type debugRecorder struct {
 	historyRoot string
 	broker      *StreamBroker
 	config      debugLogConfig
-	mu          sync.Mutex
+	queue       chan debugRecord
+	writeMu     sync.Mutex
+	worker      sync.WaitGroup
+	closeOnce   sync.Once
+	queueDepth  atomic.Int64
+	enqueued    atomic.Int64
+	dropped     atomic.Int64
+	written     atomic.Int64
+	writeNanos  atomic.Int64
 }
 
 func newDebugRecorder(historyRoot string, broker *StreamBroker, config debugLogConfig) *debugRecorder {
-	return &debugRecorder{
+	return newDebugRecorderWithQueue(historyRoot, broker, config, defaultDebugQueueCapacity)
+}
+
+func newDebugRecorderWithQueue(historyRoot string, broker *StreamBroker, config debugLogConfig, queueCapacity int) *debugRecorder {
+	if queueCapacity < 1 {
+		queueCapacity = 1
+	}
+	recorder := &debugRecorder{
 		historyRoot: strings.TrimSpace(historyRoot),
 		broker:      broker,
 		config:      config,
+		queue:       make(chan debugRecord, queueCapacity),
 	}
+	recorder.worker.Add(1)
+	go recorder.runWriter()
+	return recorder
+}
+
+func (recorder *debugRecorder) runWriter() {
+	defer recorder.worker.Done()
+	for record := range recorder.queue {
+		if record.barrier != nil {
+			close(record.barrier)
+			continue
+		}
+		recorder.queueDepth.Add(-1)
+		started := time.Now()
+		recorder.writeJSONL(record)
+		recorder.written.Add(1)
+		recorder.writeNanos.Add(time.Since(started).Nanoseconds())
+	}
+}
+
+func (recorder *debugRecorder) writeJSONL(record debugRecord) {
+	recorder.writeMu.Lock()
+	defer recorder.writeMu.Unlock()
+	if err := os.MkdirAll(record.dir, 0o755); err != nil {
+		return
+	}
+	file, err := os.OpenFile(filepath.Join(record.dir, record.filename), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(record.payload)
+}
+
+func (recorder *debugRecorder) Flush(ctx context.Context) error {
+	if recorder == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	barrier := make(chan struct{})
+	select {
+	case recorder.queue <- debugRecord{barrier: barrier}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-barrier:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (recorder *debugRecorder) Close() {
+	if recorder == nil {
+		return
+	}
+	recorder.closeOnce.Do(func() {
+		close(recorder.queue)
+		recorder.worker.Wait()
+	})
+}
+
+func (recorder *debugRecorder) Metrics() debugRecorderMetrics {
+	if recorder == nil {
+		return debugRecorderMetrics{}
+	}
+	return debugRecorderMetrics{
+		QueueDepth:        recorder.queueDepth.Load(),
+		Enqueued:          recorder.enqueued.Load(),
+		Dropped:           recorder.dropped.Load(),
+		Written:           recorder.written.Load(),
+		WriteLatencyNanos: recorder.writeNanos.Load(),
+	}
+}
+
+func debugFilePath(historyRoot string, elements ...string) string {
+	return filepath.Join(append([]string{historyRoot}, elements...)...)
 }
 
 func (recorder *debugRecorder) enabled(ctx context.Context) bool {
@@ -154,17 +268,18 @@ func (recorder *debugRecorder) appendJSONL(ctx context.Context, requestID string
 	if err != nil {
 		return
 	}
-	recorder.mu.Lock()
-	defer recorder.mu.Unlock()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
+	record := debugRecord{
+		dir:      dir,
+		filename: filename,
+		payload:  append(payload, '\n'),
 	}
-	file, err := os.OpenFile(filepath.Join(dir, filename), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return
+	select {
+	case recorder.queue <- record:
+		recorder.queueDepth.Add(1)
+		recorder.enqueued.Add(1)
+	default:
+		recorder.dropped.Add(1)
 	}
-	defer file.Close()
-	_, _ = file.Write(append(payload, '\n'))
 }
 
 func (recorder *debugRecorder) debugDir(requestID string, conversationID string) string {

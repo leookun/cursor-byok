@@ -39,6 +39,8 @@ type ConversationFile struct {
 	CurrentPlanText                 string                                `json:"current_plan_text,omitempty"`
 	CurrentPlans                    map[string]*agentv1.PlanRegistryEntry `json:"current_plans,omitempty"`
 	CurrentTodos                    []*agentv1.TodoItem                   `json:"current_todos,omitempty"`
+	MCPToolServers                  map[string]string                     `json:"mcp_tool_servers,omitempty"`
+	ImportedTurnIDs                 [][]byte                              `json:"imported_turn_ids,omitempty"`
 	LatestRequestPrefix             *ConversationRequestPrefix            `json:"latest_request_prefix,omitempty"`
 	LastProviderCall                *ConversationProviderCall             `json:"last_provider_call,omitempty"`
 	CreatedAt                       time.Time                             `json:"created_at"`
@@ -116,6 +118,7 @@ type StreamEvent struct {
 
 type StreamSubscriber struct {
 	Signal chan struct{}
+	Cursor int
 }
 
 type manualCompactionDirective struct {
@@ -171,6 +174,7 @@ type ActiveStream struct {
 	PendingCheckpoint                           *pendingCheckpointPublish
 
 	Backlog                     []StreamEvent
+	BacklogBaseCursor           int
 	Subscribers                 map[string]*StreamSubscriber
 	CheckpointConversation      *ConversationFile
 	PendingExecs                map[string]runtimecore.PendingExec
@@ -226,11 +230,25 @@ type pendingTurnCompletion struct {
 	Disposition    pendingCompletionDisposition
 }
 
+type checkpointTerminalActionKind uint8
+
+const (
+	checkpointTerminalActionNone checkpointTerminalActionKind = iota
+	checkpointTerminalActionComplete
+	checkpointTerminalActionFail
+)
+
+type checkpointTerminalAction struct {
+	Kind         checkpointTerminalActionKind
+	Completion   pendingTurnCompletion
+	ErrorCode    string
+	ErrorMessage string
+}
+
 type pendingCheckpointPublish struct {
-	State      *agentv1.ConversationStateStructure
-	Required   map[string]struct{}
-	Completion *pendingTurnCompletion
-	Published  bool
+	State    *agentv1.ConversationStateStructure
+	Required map[string]struct{}
+	Terminal checkpointTerminalAction
 }
 
 type PendingCompaction struct {
@@ -432,6 +450,7 @@ type InboundIntent struct {
 	SubagentTypeName         string
 	SubagentModelOverrides   map[string]runtimecore.SubagentModelOverrideSelection
 	ConversationState        *agentv1.ConversationStateStructure
+	PreFetchedBlobs          []*agentv1.PreFetchedBlob
 	UserMessage              *agentv1.UserMessage
 	RequestContext           *agentv1.RequestContext
 	ClientMessage            *agentv1.AgentClientMessage
