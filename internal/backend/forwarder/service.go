@@ -763,6 +763,7 @@ func (service *Service) handleRunIntent(intent InboundIntent) error {
 		return err
 	}
 	updateStreamRequestContextData(stream, intent.RequestContext)
+	hydrateStreamMCPToolServers(stream, conversation.MCPToolServers)
 	service.updateStreamMCPToolServers(stream, intent.RequestContext)
 	clearPendingProviderCompletion(stream)
 	stream.mu.Lock()
@@ -3481,36 +3482,73 @@ func recentlyCompletedExecExists(stream *ActiveStream, messageID uint32) bool {
 }
 
 func (service *Service) updateStreamMCPToolServers(stream *ActiveStream, requestContext *agentv1.RequestContext) {
-	if stream == nil {
+	servers := collectMCPToolServers(requestContext)
+	if stream == nil || len(servers) == 0 {
 		return
 	}
-	servers := collectMCPToolServers(requestContext)
-	if len(servers) == 0 {
+	hydrateStreamMCPToolServers(stream, servers)
+
+	if service == nil || service.store == nil {
 		return
 	}
 	stream.mu.Lock()
-	if stream.MCPToolServers == nil {
-		stream.MCPToolServers = make(map[string]string, len(servers))
+	conversationID := strings.TrimSpace(stream.ConversationID)
+	stream.mu.Unlock()
+	if conversationID == "" {
+		return
 	}
-	for toolName, serverIdentifier := range servers {
-		trimmedToolName := strings.TrimSpace(toolName)
-		trimmedServerIdentifier := strings.TrimSpace(serverIdentifier)
-		if trimmedToolName == "" || trimmedServerIdentifier == "" {
-			continue
+	_, _ = service.store.UpdateConversationMeta(conversationID, func(conversation *ConversationFile) error {
+		if conversation == nil {
+			return nil
 		}
-		stream.MCPToolServers[trimmedToolName] = trimmedServerIdentifier
+		conversation.MCPToolServers = mergeMCPToolServerRegistry(conversation.MCPToolServers, servers)
+		return nil
+	})
+}
+
+func hydrateStreamMCPToolServers(stream *ActiveStream, servers map[string]string) {
+	if stream == nil || len(servers) == 0 {
+		return
 	}
+	stream.mu.Lock()
+	stream.MCPToolServers = mergeMCPToolServerRegistry(stream.MCPToolServers, servers)
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
 }
 
+func mergeMCPToolServerRegistry(existing map[string]string, additions map[string]string) map[string]string {
+	merged := make(map[string]string, len(existing)+len(additions))
+	for toolName, serverIdentifier := range existing {
+		if toolName = strings.TrimSpace(toolName); toolName != "" {
+			if serverIdentifier = strings.TrimSpace(serverIdentifier); serverIdentifier != "" {
+				merged[toolName] = serverIdentifier
+			}
+		}
+	}
+	for toolName, serverIdentifier := range additions {
+		if toolName = strings.TrimSpace(toolName); toolName != "" {
+			if serverIdentifier = strings.TrimSpace(serverIdentifier); serverIdentifier != "" {
+				merged[toolName] = serverIdentifier
+			}
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
 func (service *Service) rewriteDirectMCPToolInvocation(stream *ActiveStream, invocation runtimecore.ToolInvocation) runtimecore.ToolInvocation {
-	toolName := strings.TrimSpace(invocation.ToolName)
-	if toolName == "" || isExecTool(toolName) {
+	requestedToolName := strings.TrimSpace(invocation.ToolName)
+	if requestedToolName == "" || isExecTool(requestedToolName) {
 		return invocation
 	}
-	serverIdentifier := lookupMCPToolServer(stream, toolName)
+	serverIdentifier := lookupMCPToolServer(stream, requestedToolName)
 	if serverIdentifier == "" {
+		return invocation
+	}
+	toolName := runtimecore.InferMCPToolName(serverIdentifier, requestedToolName)
+	if toolName == "" {
 		return invocation
 	}
 
@@ -3559,6 +3597,9 @@ func (service *Service) normalizeCallMCPToolInvocation(stream *ActiveStream, inv
 		}
 	}
 
+	if serverIdentifier != "" {
+		toolName = runtimecore.InferMCPToolName(serverIdentifier, firstNonEmpty(name, toolName))
+	}
 	if toolName == "" {
 		return invocation
 	}
