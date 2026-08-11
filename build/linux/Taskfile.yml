@@ -58,8 +58,8 @@ tasks:
         msg: "未检测到 pkg-config，请先安装。"
       - sh: 'command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1'
         msg: "未检测到 gcc 或 clang，请先安装 C 编译器。"
-      - sh: pkg-config --exists gtk+-3.0 webkit2gtk-4.1 gio-unix-2.0
-        msg: "缺少 Linux GUI 构建依赖，请安装 gtk+-3.0、webkit2gtk-4.1 和 gio-unix-2.0 开发包（Ubuntu: apt install libgtk-3-dev libwebkit2gtk-4.1-dev libglib2.0-dev）。"
+      - sh: pkg-config --exists gtk+-3.0 webkit2gtk-4.1 gdk-3.0 gio-unix-2.0
+        msg: "缺少 Linux GUI 构建依赖，请安装 gtk+-3.0、webkit2gtk-4.1、gdk-3.0 和 gio-unix-2.0 开发包。"
     cmds:
       - go build {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"
     vars:
@@ -153,8 +153,6 @@ tasks:
             ref: .OUTPUT
           BINARY_NAME:
             ref: .BINARY_NAME
-          DEV:
-            ref: .DEV
 
   create:archive:
     summary: 生成 Linux updater tar.gz 归档
@@ -181,197 +179,7 @@ tasks:
       BINARY_NAME: '{{.BINARY_NAME | default .APP_NAME}}'
       BINARY_PATH: '{{.OUTPUT | default (printf "%s/%s" .BIN_DIR .BINARY_NAME)}}'
     cmds:
-      - '{{if ne .DEV "true"}}rm -f "{{.BINARY_PATH}}"{{end}}'
-
-  package:deb:
-    summary: 打包 .deb 安装包
-    vars:
-      VERSION: '{{.VERSION | default .APP_VERSION}}'
-    cmds:
-      - task: build
-        vars:
-          ARCH: amd64
-          BINARY_NAME: '{{.APP_NAME}}'
-          OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
-          SCAN:
-            ref: .SCAN
-      - task: internal:package:deb
-        vars:
-          VERSION:
-            ref: .VERSION
-
-  internal:package:deb:
-    internal: true
-    vars:
-      VERSION: '{{.VERSION | default .APP_VERSION}}'
-    cmds:
-      - |
-        mkdir -p build/deb/DEBIAN
-        mkdir -p build/deb/usr/bin
-        mkdir -p build/deb/usr/share/applications
-        mkdir -p build/deb/usr/share/icons/hicolor/256x256/apps
-        mkdir -p build/deb/usr/share/cursor-byok/certs
-        mkdir -p build/deb/usr/lib/systemd/user
-      - |
-        cat > build/deb/DEBIAN/control <<CTRL
-        Package: cursor-byok
-        Version: {{.VERSION}}
-        Section: utils
-        Priority: optional
-        Architecture: amd64
-        Depends: libgtk-4-1, libwebkitgtk-6.0-4, libglib2.0-0, ca-certificates
-        Maintainer: cursor-byok <https://github.com/leookun/cursor-byok>
-        Description: Cursor助手 - Cursor BYOK (Bring Your Own Key)
-         在 Cursor IDE 中自由切换模型 API，打破平台对模型的绑定。
-        CTRL
-      - |
-        cat > build/deb/DEBIAN/postinst <<'PST'
-        #!/bin/bash
-        set -e
-        case "$1" in
-            configure)
-                CA_SRC="/usr/share/cursor-byok/certs/ca.crt"
-                CA_DST="/usr/local/share/ca-certificates/cursor-byok-ca.crt"
-                if [ -f "$CA_SRC" ]; then
-                    cp "$CA_SRC" "$CA_DST"
-                    update-ca-certificates 2>/dev/null || true
-                fi
-                ;;
-        esac
-        PST
-      - |
-        cat > build/deb/DEBIAN/prerm <<'PRM'
-        #!/bin/bash
-        set -e
-        case "$1" in
-            remove|purge)
-                CA_DST="/usr/local/share/ca-certificates/cursor-byok-ca.crt"
-                if [ -f "$CA_DST" ]; then
-                    rm -f "$CA_DST"
-                    update-ca-certificates 2>/dev/null || true
-                fi
-                ;;
-        esac
-        PRM
-      - |
-        cat > build/deb/usr/share/applications/cursor-byok.desktop <<DKT
-        [Desktop Entry]
-        Name=Cursor助手
-        Name[en]=Cursor BYOK
-        Comment=在 Cursor IDE 中自由切换模型 API
-        Comment[en]=Bring Your Own Key to Cursor IDE
-        Exec=/usr/bin/cursor-byok
-        Icon=cursor-byok
-        Terminal=false
-        Type=Application
-        Categories=Development;Utility;
-        StartupNotify=true
-        DKT
-      - |
-        cat > build/deb/usr/lib/systemd/user/cursor-byok.service <<SVC
-        [Unit]
-        Description=Cursor BYOK Proxy Service
-        After=network.target
-        [Service]
-        Type=simple
-        ExecStart=/usr/bin/cursor-byok
-        Restart=on-failure
-        RestartSec=5
-        [Install]
-        WantedBy=default.target
-        SVC
-      - chmod 755 build/deb/DEBIAN/postinst build/deb/DEBIAN/prerm
-      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" build/deb/usr/bin/cursor-byok
-      - cp build/appicon.png build/deb/usr/share/icons/hicolor/256x256/apps/cursor-byok.png
-      - cp internal/certs/ca.crt build/deb/usr/share/cursor-byok/certs/
-      - cp internal/certs/ca.key build/deb/usr/share/cursor-byok/certs/
-      - fakeroot dpkg-deb --build build/deb "{{.BIN_DIR}}/cursor-byok-{{.VERSION}}-linux-amd64.deb"
-
-  package:appimage:
-    summary: 打包 .AppImage 便携包
-    vars:
-      VERSION: '{{.VERSION | default .APP_VERSION}}'
-    cmds:
-      - task: build
-        vars:
-          ARCH: amd64
-          BINARY_NAME: '{{.APP_NAME}}'
-          OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
-          SCAN:
-            ref: .SCAN
-      - task: internal:package:appimage
-        vars:
-          VERSION:
-            ref: .VERSION
-
-  package:portable:
-    summary: 打包 Linux 便携版（.tar.gz）
-    cmds:
-      - task: package:archive
-        vars:
-          ARCH:
-            ref: .ARCH
-          BINARY_NAME:
-            ref: .BINARY_NAME
-          OUTPUT:
-            ref: .OUTPUT
-          ARCHIVE_BINARY_NAME:
-            ref: .ARCHIVE_BINARY_NAME
-          ARCHIVE_PATH:
-            ref: .ARCHIVE_PATH
-          BUILD_FLAGS:
-            ref: .BUILD_FLAGS
-          EXTRA_TAGS:
-            ref: .EXTRA_TAGS
-          DEV:
-            ref: .DEV
-          SCAN:
-            ref: .SCAN
-  internal:package:appimage:
-    internal: true
-    vars:
-      VERSION: '{{.VERSION | default .APP_VERSION}}'
-      APPDIR: '{{.BIN_DIR}}/cursor-byok.AppDir'
-      TOOL_URL: 'https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage'
-      TOOL_PATH: '{{.BIN_DIR}}/.appimagetool'
-    cmds:
-      - rm -rf "{{.APPDIR}}"
-      - mkdir -p "{{.APPDIR}}/usr/bin"
-      - mkdir -p "{{.APPDIR}}/usr/share/applications"
-      - mkdir -p "{{.APPDIR}}/usr/share/icons/hicolor/256x256/apps"
-      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.APPDIR}}/usr/bin/cursor-byok"
-      - cp build/appicon.png "{{.APPDIR}}/usr/share/icons/hicolor/256x256/apps/cursor-byok.png"
-      - cp build/appicon.png "{{.APPDIR}}/cursor-byok.png"
-      - |
-        cat > "{{.APPDIR}}/cursor-byok.desktop" <<DKT
-        [Desktop Entry]
-        Name=Cursor助手
-        Name[en]=Cursor BYOK
-        Comment=在 Cursor IDE 中自由切换模型 API
-        Comment[en]=Bring Your Own Key to Cursor IDE
-        Exec=cursor-byok
-        Icon=cursor-byok
-        Terminal=false
-        Type=Application
-        Categories=Development;Utility;
-        StartupNotify=true
-        DKT
-      - |
-        cat > "{{.APPDIR}}/AppRun" <<'RUN'
-        #!/bin/bash
-        SELF=$(readlink -f "$0")
-        HERE=${SELF%/*}
-        exec "$HERE/usr/bin/cursor-byok" "$@"
-        RUN
-      - chmod +x "{{.APPDIR}}/AppRun"
-      - |
-        if [ ! -f "{{.TOOL_PATH}}" ]; then
-          echo "正在下载 appimagetool..."
-          curl -sL -o "{{.TOOL_PATH}}" "{{.TOOL_URL}}"
-          chmod +x "{{.TOOL_PATH}}"
-        fi
-      - ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "{{.TOOL_PATH}}" --appimage-extract-and-run "{{.APPDIR}}" "{{.BIN_DIR}}/cursor-byok-{{.VERSION}}-linux-amd64.AppImage" || ARCH=x86_64 "{{.TOOL_PATH}}" "{{.APPDIR}}" "{{.BIN_DIR}}/cursor-byok-{{.VERSION}}-linux-amd64.AppImage"
-      - rm -rf "{{.APPDIR}}"
+      - rm -f "{{.BINARY_PATH}}"
 
   run:
     summary: 运行 Linux 可执行文件

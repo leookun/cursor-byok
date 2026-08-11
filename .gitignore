@@ -4,8 +4,6 @@ dist
 bin
 logs/
 gen/
-.idea/
-dev.sh
 logs.zip
 frontend/bindings
 dist
@@ -27,3 +25,5 @@ cmd/ads-server/data/
 cmd/ads-server/ads-server
 cmd/ads-server/ads-server-linux-amd64.tar
 cursor-tab-server/cursor-tab-server-linux-amd64.tar
+/build.bat
+/build.ps1

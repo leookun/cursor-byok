@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -48,14 +49,18 @@ var releaseAssets = []assetSpec{
 	{platform: "linux-amd64", suffix: ".tar.gz"},
 }
 
+var releaseTagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$`)
+
 func main() {
 	if len(os.Args) < 2 {
-		exitf("usage: go run ./scripts/release <version|notes|manifest> [flags]")
+		exitf("usage: go run ./scripts/release <version|verify-tag|notes|manifest> [flags]")
 	}
 
 	switch os.Args[1] {
 	case "version":
 		runVersion(os.Args[2:])
+	case "verify-tag":
+		runVerifyTag(os.Args[2:])
 	case "notes":
 		runNotes(os.Args[2:])
 	case "manifest":
@@ -63,6 +68,34 @@ func main() {
 	default:
 		exitf("unknown subcommand: %s", os.Args[1])
 	}
+}
+
+func runVerifyTag(args []string) {
+	flags := flag.NewFlagSet("verify-tag", flag.ExitOnError)
+	configPath := flags.String("config", "build/config.yml", "path to build config")
+	tag := flags.String("tag", "", "release tag in v<semver> form")
+	_ = flags.Parse(args)
+
+	version, err := readVersion(*configPath)
+	if err != nil {
+		exitErr(err)
+	}
+	if err := verifyReleaseTag(*tag, version); err != nil {
+		exitErr(err)
+	}
+}
+
+func verifyReleaseTag(tag string, version string) error {
+	tag = strings.TrimSpace(tag)
+	version = strings.TrimSpace(strings.TrimPrefix(version, "v"))
+	if !releaseTagPattern.MatchString(tag) {
+		return fmt.Errorf("release tag %q must match v<semver>", tag)
+	}
+	expected := "v" + version
+	if tag != expected {
+		return fmt.Errorf("release tag %q does not match build config version %q", tag, expected)
+	}
+	return nil
 }
 
 func runVersion(args []string) {

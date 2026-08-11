@@ -1,9 +1,0 @@
-Package: cursor-byok
-Version: 0.0.45
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: libgtk-4-1, libwebkitgtk-6.0-4, libglib2.0-0, ca-certificates
-Maintainer: cursor-byok <https://github.com/leookun/cursor-byok>
-Description: Cursor助手 - Cursor BYOK (Bring Your Own Key)
- 在 Cursor IDE 中自由切换模型 API，打破平台对模型的绑定。

@@ -16,6 +16,7 @@ vars:
   RELEASE_SOURCE_PATH: "release-notes.md"
   RELEASE_DIR: '{{.BIN_DIR}}/release/{{.APP_VERSION}}'
   RELEASE_NOTES_PATH: '{{.RELEASE_DIR}}/.release-notes.md'
+  RELEASE_TAG: 'v{{.APP_VERSION}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   SCAN: '{{.SCAN | default "false"}}'
   CURRENT_WINDOWS_ARCH: '{{if eq ARCH "386"}}386{{else}}amd64{{end}}'
@@ -81,7 +82,7 @@ tasks:
           SCAN: '{{.SCAN}}'
 
   build:darwin:amd64:
-    internal: false
+    internal: true
     cmds:
       - task: darwin:package:dmg
         vars:
@@ -144,6 +145,26 @@ tasks:
           ARCHIVE_PATH: '{{.BIN_DIR}}/linux-amd64.tar.gz'
           SCAN: '{{.SCAN}}'
 
+  cursor-tab-server:docker:amd64:
+    summary: 构建 cursor-tab-server 的 linux/amd64 Docker 镜像并保存到 cursor-tab-server 目录
+    vars:
+      IMAGE_NAME: '{{.IMAGE_NAME | default "cursor-tab-server:linux-amd64"}}'
+      IMAGE_TAR: '{{.IMAGE_TAR | default "cursor-tab-server/cursor-tab-server-linux-amd64.tar"}}'
+      CONTEXT_DIR: cursor-tab-server
+      DOCKERFILE: cursor-tab-server/Dockerfile
+    preconditions:
+      - sh: docker info >/dev/null 2>&1
+        msg: "未检测到可用的 Docker daemon，请先启动 Docker。"
+      - sh: test -f "{{.DOCKERFILE}}"
+        msg: "未找到 cursor-tab-server/Dockerfile。"
+      - sh: test -f "{{.CONTEXT_DIR}}/go.mod"
+        msg: "未找到 cursor-tab-server/go.mod。"
+    cmds:
+      - mkdir -p "{{.CONTEXT_DIR}}"
+      - docker build --platform linux/amd64 -t "{{.IMAGE_NAME}}" -f "{{.DOCKERFILE}}" "{{.CONTEXT_DIR}}"
+      - docker save "{{.IMAGE_NAME}}" -o "{{.IMAGE_TAR}}"
+      - ls -lh "{{.IMAGE_TAR}}"
+
   clean:dist:
     internal: true
     cmds:
@@ -153,38 +174,47 @@ tasks:
       - rm -f "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
       - rm -rf "{{.BIN_DIR}}/macos-arm64.app" "{{.BIN_DIR}}/macos-intel.app" "{{.BIN_DIR}}/{{.APP_NAME}}.app" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
 
-  version:
-    summary: 修改版本号（单一来源：build/config.yml），自动更新所有平台构建资产
-    requires:
-      vars: [VERSION]
-    preconditions:
-      - sh: wails3 version >/dev/null 2>&1
-        msg: "未检测到 wails3，请先安装 Wails v3 CLI：go install github.com/wailsapp/wails/v3/cmd/wails3@latest"
-    cmds:
-      - |
-        python3 -c "
-        import yaml, sys
-        path = 'build/config.yml'
-        with open(path) as f:
-            cfg = yaml.safe_load(f)
-        cfg['info']['version'] = '{{.VERSION}}'
-        with open(path, 'w') as f:
-            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        print(f'version updated to {{.VERSION}} in build/config.yml')
-        "
-      - task: common:update:build-assets
-      - |
-        echo ""
-        echo "Done! Version {{.VERSION}} set in build/config.yml"
-        echo "All Wails platform assets regenerated (plist, icons, manifests, etc.)"
-        echo ""
-        echo "Next: git add -A . && git commit -m 'chore: bump version to {{.VERSION}}' && git tag v{{.VERSION}}"
-        echo "      git push && git push --tags"
-
   dev:
     summary: 启动开发模式（前台，终端会保持占用）
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  proxy-debugger:
+    summary: 启动独立 Cursor 协议调试代理
+    cmds:
+      - go run ./cmd/cursor-proxy-debugger
+
+  proxy-debugger:build:
+    summary: 构建独立 Cursor 协议调试代理
+    cmds:
+      - go build -o ./bin/cursor-proxy-debugger ./cmd/cursor-proxy-debugger
+
+  ads:install:
+    summary: 安装广告页依赖
+    dir: '{{.TASKFILE_DIR}}/ads-page'
+    sources:
+      - package.json
+      - yarn.lock
+    generates:
+      - node_modules
+    cmds:
+      - yarn install --frozen-lockfile
+
+  ads:dev:
+    summary: 启动广告页开发服务（http://127.0.0.1:5174/ad/）
+    dir: '{{.TASKFILE_DIR}}/ads-page'
+    deps:
+      - task: ads:install
+    cmds:
+      - yarn dev
+
+  ads:build:
+    summary: 构建广告 ZIP 产物
+    dir: '{{.TASKFILE_DIR}}/ads-page'
+    deps:
+      - task: ads:install
+    cmds:
+      - yarn build
 
   setup:docker:
     summary: 构建 Linux 交叉编译 Docker 镜像
@@ -196,6 +226,17 @@ tasks:
     cmds:
       - rm -rf "{{.RELEASE_DIR}}"
       - mkdir -p "{{.RELEASE_DIR}}"
+
+  release:version:
+    summary: 输出 build/config.yml 中的发布版本
+    silent: true
+    cmds:
+      - go run ./scripts/release version -config ./build/config.yml
+
+  release:verify:tag:
+    summary: 验证发布 tag 格式且与 build/config.yml 版本一致
+    cmds:
+      - go run ./scripts/release verify-tag -config ./build/config.yml -tag "{{.RELEASE_TAG}}"
 
   release:ensure:dir:
     internal: true
@@ -255,6 +296,38 @@ tasks:
           ARCHIVE_BINARY_NAME: '{{.APP_NAME}}'
           ARCHIVE_PATH: '{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-linux-amd64.tar.gz'
           SCAN: '{{.SCAN}}'
+
+  release:ci:build:macos:arm64:
+    summary: 在 CI 中构建 macOS arm64 发布资产
+    cmds:
+      - task: release:verify:tag
+      - task: release:clean
+      - task: common:update:build-assets
+      - task: release:build:macos:arm64
+
+  release:ci:build:macos:amd64:
+    summary: 在 CI 中构建 macOS amd64 发布资产
+    cmds:
+      - task: release:verify:tag
+      - task: release:clean
+      - task: common:update:build-assets
+      - task: release:build:macos:amd64
+
+  release:ci:build:windows:amd64:
+    summary: 在 CI 中构建 Windows amd64 发布资产
+    cmds:
+      - task: release:verify:tag
+      - task: release:clean
+      - task: common:update:build-assets
+      - task: release:build:windows:amd64
+
+  release:ci:build:linux:amd64:
+    summary: 在 CI 中构建 Linux amd64 发布资产
+    cmds:
+      - task: release:verify:tag
+      - task: release:clean
+      - task: common:update:build-assets
+      - task: release:build:linux:amd64
 
   release:manifest:
     summary: 生成 update.json
@@ -316,6 +389,68 @@ tasks:
         msg: "缺少 Linux amd64 发布资产。"
     cmds:
       - echo "release assets verified"
+
+  release:ci:assemble:
+    summary: 汇总并验证 CI 产物，生成发布说明与 update.json
+    cmds:
+      - task: release:verify:tag
+      - task: release:ensure:dir
+      - task: release:notes
+      - task: release:verify:assets
+      - task: release:manifest
+
+  release:publish:
+    summary: 幂等创建或更新 GitHub Release，并覆盖上传当前版本资产
+    env:
+      GH_PAGER: cat
+      GIT_PAGER: cat
+      PAGER: cat
+    preconditions:
+      - sh: gh --version >/dev/null 2>&1
+        msg: "未检测到 gh，请先安装 GitHub CLI。"
+      - sh: gh auth token >/dev/null 2>&1
+        msg: "gh 未登录，请先执行 gh auth login，或设置 GH_TOKEN。"
+      - sh: test -f "{{.RELEASE_DIR}}/update.json"
+        msg: "未找到 update.json，请先执行 release:manifest 或 release:ci:assemble。"
+    cmds:
+      - task: release:verify:tag
+      - task: release:verify:assets
+      - |
+        set -eu
+        prerelease_flag=""
+        case "{{.RELEASE_TAG}}" in
+          *-*) prerelease_flag="--prerelease" ;;
+        esac
+
+        if gh release view "{{.RELEASE_TAG}}" --repo "{{.RELEASE_REPO}}" >/dev/null 2>&1; then
+          gh release edit "{{.RELEASE_TAG}}" \
+            --repo "{{.RELEASE_REPO}}" \
+            --title "{{.RELEASE_TAG}}" \
+            --notes-file "{{.RELEASE_NOTES_PATH}}" \
+            $prerelease_flag
+        else
+          gh release create "{{.RELEASE_TAG}}" \
+            --repo "{{.RELEASE_REPO}}" \
+            --verify-tag \
+            --title "{{.RELEASE_TAG}}" \
+            --notes-file "{{.RELEASE_NOTES_PATH}}" \
+            $prerelease_flag
+        fi
+
+        gh release upload "{{.RELEASE_TAG}}" \
+          "{{.RELEASE_DIR}}/update.json" \
+          "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-macos-arm64.tar.gz" \
+          "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-macos-amd64.tar.gz" \
+          "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-windows-amd64.zip" \
+          "{{.RELEASE_DIR}}/{{.RELEASE_BASE_NAME}}-{{.APP_VERSION}}-linux-amd64.tar.gz" \
+          --repo "{{.RELEASE_REPO}}" \
+          --clobber
+
+  release:ci:publish:
+    summary: 从 CI 汇总产物并发布 tag 对应的 GitHub Release
+    cmds:
+      - task: release:ci:assemble
+      - task: release:publish
 
   release:sync:readme:
     summary: 同步 README 到公开发布仓库（发布日志来源固定为 release-notes.md）

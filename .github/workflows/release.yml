@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-24.04
+            task: release:ci:build:linux:amd64
+            asset: bin/release/*/cursor-byok-*-linux-amd64.tar.gz
+          - target: macos-arm64
+            runner: macos-15
+            task: release:ci:build:macos:arm64
+            asset: bin/release/*/cursor-byok-*-macos-arm64.tar.gz
+          - target: macos-amd64
+            runner: macos-15-intel
+            task: release:ci:build:macos:amd64
+            asset: bin/release/*/cursor-byok-*-macos-amd64.tar.gz
+          - target: windows-amd64
+            runner: windows-2022
+            task: release:ci:build:windows:amd64
+            asset: bin/release/*/cursor-byok-*-windows-amd64.zip
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+
+      - name: Set up Task
+        uses: go-task/setup-task@v2.2.0
+        with:
+          version: 3.52.0
+
+      - name: Set up protoc
+        uses: arduino/setup-protoc@v3.0.0
+        with:
+          version: "35.1"
+          repo-token: ${{ github.token }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config
+
+      - name: Install project build tools
+        shell: bash
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.74
+
+      - name: Build release asset
+        shell: bash
+        run: task "${{ matrix.task }}" RELEASE_TAG="$GITHUB_REF_NAME" SCAN=false
+
+      - name: Upload release asset
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Task
+        uses: go-task/setup-task@v2.2.0
+        with:
+          version: 3.52.0
+
+      - name: Resolve and verify release version
+        id: release
+        shell: bash
+        run: |
+          version="$(task --silent release:version)"
+          task release:verify:tag RELEASE_TAG="$GITHUB_REF_NAME"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: bin/release/${{ steps.release.outputs.version }}
+          merge-multiple: true
+
+      - name: Assemble and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: task release:ci:publish RELEASE_TAG="$GITHUB_REF_NAME"

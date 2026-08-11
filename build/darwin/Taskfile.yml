@@ -142,6 +142,7 @@ tasks:
 
   package:archive:
     summary: 打包 macOS updater 归档（.tar.gz）
+    internal: true
     cmds:
       - task: package
         vars:
