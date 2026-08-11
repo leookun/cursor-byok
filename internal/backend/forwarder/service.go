@@ -248,6 +248,7 @@ func subagentModelOverrideSummaries(overrides map[string]runtimecore.SubagentMod
 
 type Service struct {
 	store              *ConversationFileStore
+	contentBlobs       *ContentBlobStore
 	usageStore         *UsageFileStore
 	codebaseIndexStore *CodebaseIndexStore
 	docsIndexStore     *DocsIndexStore
@@ -274,6 +275,7 @@ type agentModelMemory interface {
 func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Service {
 	projector := NewHistoryProjector()
 	store := NewConversationFileStore(historyRoot)
+	contentBlobs := NewContentBlobStore(historyRoot)
 	broker := NewStreamBroker()
 	rules := NewUserRuleStore(appdata.RulesRootPath())
 	var modelMemory agentModelMemory
@@ -287,12 +289,13 @@ func NewService(historyRoot string, resolver modeladapter.ChannelResolver) *Serv
 	debug := newDebugRecorder(historyRoot, broker, debugConfig)
 	service := &Service{
 		store:              store,
+		contentBlobs:       contentBlobs,
 		usageStore:         NewUsageFileStore(historyRoot),
 		codebaseIndexStore: NewCodebaseIndexStore(appdata.CodebaseIndexRootPath()),
 		docsIndexStore:     NewDocsIndexStore(appdata.DocsIndexRootPath()),
 		rules:              rules,
 		projector:          projector,
-		compiler:           NewPromptCompiler(projector, NewToolCatalog(), NewReminderInjector(), rules),
+		compiler:           NewPromptCompiler(projector, NewToolCatalog(), NewReminderInjector(), rules, contentBlobs),
 		provider:           NewProviderGateway(resolver),
 		resolver:           resolver,
 		modelMemory:        modelMemory,
@@ -317,6 +320,7 @@ func newServiceWithDependencies(store *ConversationFileStore, projector *History
 	debug := newDebugRecorder(historyRoot, broker, nil)
 	return &Service{
 		store:              store,
+		contentBlobs:       NewContentBlobStore(historyRoot),
 		rules:              NewUserRuleStore(appdata.RulesRootPath()),
 		projector:          projector,
 		compiler:           compiler,
@@ -559,6 +563,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		}
 		intent.ConversationID = conversationID
 		intent.ConversationState = runRequest.GetConversationState()
+		intent.PreFetchedBlobs = runRequest.GetPreFetchedBlobs()
 		intent.UserMessage = extractUserMessage(message)
 		intent.RequestContext = extractRequestContext(message)
 		if service.shouldIgnoreEmptyResumeRunRequest(requestID, runRequest, intent.UserMessage, intent.RequestContext) {
@@ -606,6 +611,7 @@ func (service *Service) decodeInboundIntent(requestID string, message *agentv1.A
 		intent.ConversationID = conversationID
 		intent.SubagentTypeName = strings.TrimSpace(prewarmRequest.GetSubagentTypeName())
 		intent.ConversationState = prewarmRequest.GetConversationState()
+		intent.PreFetchedBlobs = prewarmRequest.GetPreFetchedBlobs()
 		intent.Mode, intent.ModeSource, intent.HasExplicitMode, err = extractPrewarmMode(prewarmRequest)
 		if err != nil {
 			return InboundIntent{}, err
@@ -1003,9 +1009,17 @@ func (service *Service) handleExecResult(intent InboundIntent) error {
 		}); err != nil {
 			return err
 		}
+		if message := buildShellToolCallDeltaMessage(pending.ToolCallID, pending.ModelCallID, result.ShellOutputDelta); message != nil {
+			if err := service.broker.Publish(intent.RequestID, StreamEvent{Message: message}); err != nil {
+				return err
+			}
+		}
 	}
 	if !result.IsTerminal {
 		return nil
+	}
+	if err := service.persistExecContentBlobs(result.ContentBlobs); err != nil {
+		return err
 	}
 	markExecCompleted(stream, pending)
 	backgroundShellToolCallID := ""
@@ -1043,6 +1057,21 @@ func (service *Service) handleExecResult(intent InboundIntent) error {
 		return err
 	}
 	return service.reconcileStream(stream)
+}
+
+func (service *Service) persistExecContentBlobs(blobs []execbridge.ContentBlob) error {
+	if len(blobs) == 0 {
+		return nil
+	}
+	if service == nil || service.contentBlobs == nil {
+		return fmt.Errorf("content blob store is not initialized")
+	}
+	for _, blob := range blobs {
+		if err := service.contentBlobs.Put(blob.ID, blob.Data); err != nil {
+			return fmt.Errorf("persist exec content blob: %w", err)
+		}
+	}
+	return nil
 }
 
 // handleExecControl 处理执行桥控制面结果，例如 stream_close 或 throw。
@@ -2241,6 +2270,15 @@ func (service *Service) finishSuccessfulTurnAfterCheckpoint(stream *ActiveStream
 	return nil
 }
 
+func (service *Service) finishFailedTurnAfterCheckpoint(stream *ActiveStream, terminalCode string, terminalMessage string) error {
+	if stream == nil {
+		return nil
+	}
+	err := service.broker.Fail(stream.RequestID, terminalCode, terminalMessage)
+	service.setTurnPhase(stream, TurnPhaseFailed)
+	return err
+}
+
 func (service *Service) failStreamIfNonTerminal(stream *ActiveStream, terminalCode string, cause error) error {
 	if stream == nil || cause == nil {
 		return nil
@@ -2260,6 +2298,10 @@ func (service *Service) publishCheckpoint(requestID string, conversationID strin
 }
 
 func (service *Service) publishCheckpointWithCompletion(requestID string, _ string, completion *pendingTurnCompletion) error {
+	return service.publishCheckpointWithTerminalAction(requestID, successfulCheckpointTerminalAction(completion))
+}
+
+func (service *Service) publishCheckpointWithTerminalAction(requestID string, terminal checkpointTerminalAction) error {
 	stream, ok := service.broker.Get(requestID)
 	if !ok || stream == nil {
 		return fmt.Errorf("request is not active: %s", requestID)
@@ -2277,7 +2319,7 @@ func (service *Service) publishCheckpointWithCompletion(requestID string, _ stri
 	}
 	projection.State.PendingToolCalls = buildPendingToolCalls(pendingExecs, pendingInteractions)
 	service.rewriteCheckpointTokenDetailsForClient(stream, conversation, projection.State)
-	return service.queueCheckpointProjection(stream, projection, completion)
+	return service.queueCheckpointProjectionWithTerminal(stream, projection, terminal)
 }
 
 func (service *Service) rewriteCheckpointTokenDetailsForClient(stream *ActiveStream, conversation *ConversationFile, state *agentv1.ConversationStateStructure) {
@@ -2417,18 +2459,20 @@ func (service *Service) failActiveStream(stream *ActiveStream, conversationID st
 	if cancel != nil {
 		cancel()
 	}
-	service.setTurnPhase(stream, TurnPhaseFailed)
-	var firstErr error
-	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil && firstErr == nil {
-		firstErr = err
+	if err := service.syncSummaryCarryForward(conversationID, requestID, modelCallID); err != nil {
+		log.Printf(
+			"forwarder summary sync before failed terminal skipped request_id=%s model_call_id=%s err=%v",
+			strings.TrimSpace(requestID),
+			strings.TrimSpace(modelCallID),
+			err,
+		)
 	}
-	if err := service.publishCheckpoint(requestID, conversationID); err != nil && firstErr == nil {
-		firstErr = err
+	terminal := failedCheckpointTerminalAction(terminalCode, terminalMessage)
+	if err := service.publishCheckpointWithTerminalAction(requestID, terminal); err != nil {
+		log.Printf("forwarder checkpoint queue before failed terminal skipped request_id=%s err=%v", strings.TrimSpace(requestID), err)
+		return service.finishFailedTurnAfterCheckpoint(stream, terminalCode, terminalMessage)
 	}
-	if err := service.broker.Fail(requestID, terminalCode, terminalMessage); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	return firstErr
+	return nil
 }
 
 // buildRunEntries 构造一次 run intent 需要写入 history 的首批 entry。

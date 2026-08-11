@@ -49,7 +49,8 @@ type openAIResponsesRequestBody struct {
 }
 
 type openAIResponsesReasoning struct {
-	Effort string `json:"effort,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type openAIToolAccumulator struct {
@@ -944,7 +945,7 @@ func (adapter *OpenAIAdapter) streamResponses(ctx context.Context, req StreamReq
 			requestBody.Tools = tools
 		}
 		if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
-			requestBody.Reasoning = &openAIResponsesReasoning{Effort: effort}
+			requestBody.Reasoning = &openAIResponsesReasoning{Effort: effort, Summary: "auto"}
 			requestBody.Include = []string{"reasoning.encrypted_content"}
 		}
 		body = requestBody
@@ -1967,10 +1968,18 @@ func normalizeOpenAIResponsesInput(messages []Message) (string, []map[string]any
 		}
 		if role == "tool" && strings.TrimSpace(message.ToolCallID) != "" {
 			callID := openAIResponsesToolMessageCallID(message, responsesCallIDs)
+			var output any = openAIResponsesMessageText(message)
+			if hasImageContentParts(message.ContentParts) {
+				content, err := openAIResponsesMessageContent(message, false)
+				if err != nil {
+					return "", nil, err
+				}
+				output = content
+			}
 			items = append(items, map[string]any{
 				"type":    "function_call_output",
 				"call_id": callID,
-				"output":  openAIResponsesMessageText(message),
+				"output":  output,
 			})
 			activeAssistantReasoningKey = ""
 			continue

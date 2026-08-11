@@ -326,20 +326,24 @@ func compactedPromptProjectionEntries(entries []HistoryEntry) []HistoryEntry {
 		latestToolCallID := latestCompletedToolCallIDForTurn(entries, compactionPayload.CurrentTurnSeq, compactionPayload.CurrentRequestID)
 		preservedIndexes = autoCompactionPreservedEntryIndexes(entries, compactionPayload.CurrentTurnSeq, compactionPayload.CurrentRequestID, latestToolCallID)
 	}
-	filtered := make([]HistoryEntry, 0, len(entries)-compactionIndex)
-	for index, entry := range entries {
-		if index < compactionIndex && isPromptReplayEntryKind(entry.Kind) {
-			if _, ok := preservedIndexes[index]; !ok {
-				continue
-			}
+	filtered := make([]HistoryEntry, 0, len(entries)-compactionIndex+len(preservedIndexes))
+	for index := 0; index < compactionIndex; index++ {
+		if !isPromptReplayEntryKind(entries[index].Kind) {
+			filtered = append(filtered, entries[index])
 		}
-		if index < compactionIndex {
-			if rewritten, ok := compactedProjectionPreservedEntry(entry); ok {
-				entry = rewritten
-			}
+	}
+	filtered = append(filtered, entries[compactionIndex])
+	for index := 0; index < compactionIndex; index++ {
+		if _, ok := preservedIndexes[index]; !ok || isCompactionSummaryKind(entries[index].Kind) {
+			continue
+		}
+		entry := entries[index]
+		if rewritten, ok := compactedProjectionPreservedEntry(entry); ok {
+			entry = rewritten
 		}
 		filtered = append(filtered, entry)
 	}
+	filtered = append(filtered, entries[compactionIndex+1:]...)
 	return filtered
 }
 
@@ -575,7 +579,7 @@ func (projector *HistoryProjector) ProjectCheckpointProjection(conversation *Con
 	if err != nil {
 		return nil, err
 	}
-	state.Turns = turnIDs
+	state.Turns = append(cloneByteSlices(conversation.ImportedTurnIDs), turnIDs...)
 	replayMessages, err := projector.ProjectPromptReplay(conversation)
 	if err != nil {
 		return nil, err
@@ -1292,7 +1296,7 @@ func filterCheckpointPersistentToolReplay(messages []promptengine.Message) []pro
 	return filtered
 }
 
-func restoreImportedReplayUserMessages(messages []promptengine.Message, importedTurns [][]byte) []promptengine.Message {
+func restoreImportedReplayUserMessages(messages []promptengine.Message, importedTurns [][]byte, blobs importedBlobStore) []promptengine.Message {
 	if len(messages) == 0 || len(importedTurns) == 0 {
 		return messages
 	}
@@ -1301,16 +1305,16 @@ func restoreImportedReplayUserMessages(messages []promptengine.Message, imported
 		if len(rawTurn) == 0 {
 			continue
 		}
-		turn := &agentv1.ConversationTurnStructure{}
-		if err := proto.Unmarshal(rawTurn, turn); err != nil {
+		turn, _, err := decodeImportedTurn(rawTurn, blobs)
+		if err != nil || turn == nil {
 			continue
 		}
 		agentTurn := turn.GetAgentConversationTurn()
 		if agentTurn == nil || len(agentTurn.GetUserMessage()) == 0 {
 			continue
 		}
-		userMessage := &agentv1.UserMessage{}
-		if err := proto.Unmarshal(agentTurn.GetUserMessage(), userMessage); err != nil {
+		userMessage, err := decodeImportedUserMessage(agentTurn.GetUserMessage(), blobs)
+		if err != nil {
 			continue
 		}
 		replay, ok := promptengine.BuildUserMessageReplayMessage(userMessage)

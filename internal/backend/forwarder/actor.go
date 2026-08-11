@@ -730,6 +730,9 @@ func (service *Service) handleProviderDoneEvent(stream *ActiveStream, payload *s
 			service.setTurnPhase(stream, TurnPhaseFailed)
 			return service.closeStreamWithProviderError(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, usage, providerErr, !hadToolInvocation)
 		}
+		if err := service.flushAssistantText(stream, conversationID, turnSeq, requestID, accumulatedText, accumulatedReasoning, accumulatedReasoningSignature, accumulatedReasoningSignatureSource, accumulatedReasoningItemID, accumulatedReasoningStatus, accumulatedReasoningSummary, !hadToolInvocation); err != nil {
+			return service.failStream(stream, "unknown", fmt.Errorf("flush failed provider output: %w", err))
+		}
 		service.setTurnPhase(stream, TurnPhaseFailed)
 		return service.failStream(stream, "unknown", payload.Err)
 	}

@@ -19,15 +19,29 @@ type pendingCheckpointBlobWrite struct {
 	blob      CheckpointBlob
 }
 
-func clonePendingTurnCompletion(completion *pendingTurnCompletion) *pendingTurnCompletion {
+func successfulCheckpointTerminalAction(completion *pendingTurnCompletion) checkpointTerminalAction {
 	if completion == nil {
-		return nil
+		return checkpointTerminalAction{}
 	}
-	cloned := *completion
-	return &cloned
+	return checkpointTerminalAction{
+		Kind:       checkpointTerminalActionComplete,
+		Completion: *completion,
+	}
+}
+
+func failedCheckpointTerminalAction(errorCode string, errorMessage string) checkpointTerminalAction {
+	return checkpointTerminalAction{
+		Kind:         checkpointTerminalActionFail,
+		ErrorCode:    strings.TrimSpace(errorCode),
+		ErrorMessage: strings.TrimSpace(errorMessage),
+	}
 }
 
 func (service *Service) queueCheckpointProjection(stream *ActiveStream, projection *CheckpointProjection, completion *pendingTurnCompletion) error {
+	return service.queueCheckpointProjectionWithTerminal(stream, projection, successfulCheckpointTerminalAction(completion))
+}
+
+func (service *Service) queueCheckpointProjectionWithTerminal(stream *ActiveStream, projection *CheckpointProjection, terminal checkpointTerminalAction) error {
 	if service == nil || stream == nil || projection == nil || projection.State == nil {
 		return nil
 	}
@@ -43,8 +57,8 @@ func (service *Service) queueCheckpointProjection(stream *ActiveStream, projecti
 	if stream.ConfirmedCheckpointBlobs == nil {
 		stream.ConfirmedCheckpointBlobs = make(map[string]struct{})
 	}
-	if completion == nil && stream.PendingCheckpoint != nil {
-		completion = stream.PendingCheckpoint.Completion
+	if terminal.Kind == checkpointTerminalActionNone && stream.PendingCheckpoint != nil {
+		terminal = stream.PendingCheckpoint.Terminal
 	}
 	required := make(map[string]struct{}, len(projection.Blobs))
 	pendingKeys := make(map[string]struct{}, len(stream.PendingCheckpointBlobWrites))
@@ -74,11 +88,11 @@ func (service *Service) queueCheckpointProjection(stream *ActiveStream, projecti
 		toWrite = append(toWrite, pendingCheckpointBlobWrite{requestID: requestID, blob: blob})
 	}
 	stream.PendingCheckpoint = &pendingCheckpointPublish{
-		State:      state,
-		Required:   required,
-		Completion: clonePendingTurnCompletion(completion),
+		State:    state,
+		Required: required,
+		Terminal: terminal,
 	}
-	if completion != nil {
+	if terminal.Kind != checkpointTerminalActionNone {
 		stream.Phase = TurnPhaseCheckpointing
 	}
 	stream.UpdatedAt = time.Now().UTC()
@@ -94,13 +108,8 @@ func (service *Service) queueCheckpointProjection(stream *ActiveStream, projecti
 	if service.checkpointProjectionReady(stream) {
 		return service.publishReadyCheckpoint(stream)
 	}
-	// Keep the latest live UI state ahead of an immediate client abort. Blob writes are
-	// ordered before this snapshot; acknowledgements still gate terminal completion.
-	if completion == nil {
-		if err := service.publishPendingCheckpoint(stream); err != nil {
-			return service.finishAfterCheckpointSyncFailure(stream, fmt.Errorf("publish pending checkpoint: %w", err))
-		}
-	}
+	// Checkpoints reference these Blob IDs, so the client must confirm every
+	// required Blob before the checkpoint becomes visible.
 	service.scheduleStreamTimer(
 		stream,
 		providerTimerKey(streamTimerCheckpointBlobs, ""),
@@ -110,31 +119,6 @@ func (service *Service) queueCheckpointProjection(stream *ActiveStream, projecti
 		0,
 		"checkpoint blob write timeout",
 	)
-	return nil
-}
-
-func (service *Service) publishPendingCheckpoint(stream *ActiveStream) error {
-	if service == nil || stream == nil {
-		return nil
-	}
-	stream.mu.Lock()
-	pending := stream.PendingCheckpoint
-	if pending == nil || pending.Published {
-		stream.mu.Unlock()
-		return nil
-	}
-	pending.Published = true
-	state := pending.State
-	stream.UpdatedAt = time.Now().UTC()
-	stream.mu.Unlock()
-	if err := service.broker.Publish(stream.RequestID, StreamEvent{Message: buildCheckpointMessage(state)}); err != nil {
-		stream.mu.Lock()
-		if stream.PendingCheckpoint == pending {
-			pending.Published = false
-		}
-		stream.mu.Unlock()
-		return err
-	}
 	return nil
 }
 
@@ -207,24 +191,18 @@ func (service *Service) publishReadyCheckpoint(stream *ActiveStream) error {
 	}
 	stream.PendingCheckpoint = nil
 	state := pending.State
-	completion := clonePendingTurnCompletion(pending.Completion)
-	published := pending.Published
+	terminal := pending.Terminal
 	stream.UpdatedAt = time.Now().UTC()
 	stream.mu.Unlock()
 	clearStreamTimer(stream, providerTimerKey(streamTimerCheckpointBlobs, ""))
-	if !published {
-		if err := service.broker.Publish(stream.RequestID, StreamEvent{Message: buildCheckpointMessage(state)}); err != nil {
-			if completion != nil {
-				log.Printf("forwarder checkpoint publish skipped before successful terminal request_id=%s err=%v", stream.RequestID, err)
-				return service.finishSuccessfulTurnAfterCheckpoint(stream, *completion)
-			}
-			return err
+	if err := service.broker.Publish(stream.RequestID, StreamEvent{Message: buildCheckpointMessage(state)}); err != nil {
+		if terminal.Kind != checkpointTerminalActionNone {
+			log.Printf("forwarder checkpoint publish skipped before terminal request_id=%s err=%v", stream.RequestID, err)
+			return service.finishCheckpointTerminalAction(stream, terminal)
 		}
+		return err
 	}
-	if completion != nil {
-		return service.finishSuccessfulTurnAfterCheckpoint(stream, *completion)
-	}
-	return nil
+	return service.finishCheckpointTerminalAction(stream, terminal)
 }
 
 func (service *Service) handleCheckpointBlobTimeout(stream *ActiveStream) error {
@@ -251,10 +229,21 @@ func (service *Service) finishAfterCheckpointSyncFailure(stream *ActiveStream, c
 	if cause != nil {
 		log.Printf("forwarder checkpoint blob sync skipped request_id=%s conversation_id=%s err=%v", stream.RequestID, stream.ConversationID, cause)
 	}
-	if pending != nil && pending.Completion != nil {
-		return service.finishSuccessfulTurnAfterCheckpoint(stream, *pending.Completion)
+	if pending != nil {
+		return service.finishCheckpointTerminalAction(stream, pending.Terminal)
 	}
 	return nil
+}
+
+func (service *Service) finishCheckpointTerminalAction(stream *ActiveStream, terminal checkpointTerminalAction) error {
+	switch terminal.Kind {
+	case checkpointTerminalActionComplete:
+		return service.finishSuccessfulTurnAfterCheckpoint(stream, terminal.Completion)
+	case checkpointTerminalActionFail:
+		return service.finishFailedTurnAfterCheckpoint(stream, terminal.ErrorCode, terminal.ErrorMessage)
+	default:
+		return nil
+	}
 }
 
 func (service *Service) discardPendingCheckpoint(stream *ActiveStream, reason string) {

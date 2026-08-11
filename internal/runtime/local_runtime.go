@@ -141,8 +141,8 @@ func NormalizeModelAdapterConfigs(input []ModelAdapterConfig) ([]ModelAdapterCon
 			return nil, errors.New("模型适配器 tooltipData 不能为空")
 		case next.ModelID == "":
 			return nil, errors.New("模型适配器 modelID 不能为空")
-		case next.Type == "openai" && next.ReasoningEffort == "":
-			return nil, errors.New("模型适配器 reasoningEffort 仅支持 low、medium、high、xhigh、max")
+		case next.Type == "openai" && !isSupportedReasoningEffort(next.ReasoningEffort):
+			return nil, errors.New("模型适配器 reasoningEffort 仅支持空值、low、medium、high、xhigh、max")
 		case next.Type == "openai" && next.OpenAIEndpoint == "":
 			return nil, errors.New("模型适配器 openAIEndpoint 仅支持 /v1/responses 或 /v1/chat/completions")
 		case next.Type == "openai" && next.OpenAIExtraParamsEnabled:
@@ -224,13 +224,15 @@ func validateHeadersJSON(value string) error {
 }
 
 func normalizeReasoningEffort(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "medium":
-		return "medium"
-	case "low", "high", "xhigh", "max":
-		return strings.ToLower(strings.TrimSpace(value))
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func isSupportedReasoningEffort(value string) bool {
+	switch value {
+	case "", "low", "medium", "high", "xhigh", "max":
+		return true
 	default:
-		return ""
+		return false
 	}
 }
 

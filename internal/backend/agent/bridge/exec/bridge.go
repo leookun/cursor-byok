@@ -2,8 +2,15 @@
 package execbridge
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -31,8 +38,16 @@ type ExecApplyResult struct {
 	ToolResultPayload string
 	// ToolCall 保存可用于发 ToolCallCompletedUpdate 的工具调用对象；当前仅对支持 ToolCall 的执行型工具可用。
 	ToolCall *agentv1.ToolCall
+	// ContentBlobs 保存需要在提交 history 前写入内容寻址存储的二进制内容。
+	ContentBlobs []ContentBlob
 	// ExecuteHookResponse 保存 execute hook 的结构化响应。
 	ExecuteHookResponse *agentv1.ExecuteHookResponse
+}
+
+// ContentBlob 表示由内容哈希稳定寻址的执行结果二进制数据。
+type ContentBlob struct {
+	ID   []byte
+	Data []byte
 }
 
 // OpenExecContext 表示执行桥打开请求时需要的最小上下文。
@@ -145,6 +160,9 @@ func (bridge *Bridge) ApplyExecClientMessage(msg *agentv1.ExecClientMessage, pen
 		readResult := normalizeReadResultForModel(msg.GetReadResult())
 		result.ToolResultPayload = summarizeReadResult(readResult)
 		result.ToolCall = buildReadCompletedToolCall(pending.ToolCallID, pending.ArgsJSON, readResult)
+		if contentBlob, ok := readImageContentBlob(readResult); ok {
+			result.ContentBlobs = []ContentBlob{contentBlob}
+		}
 		result.IsTerminal = true
 		return result, nil
 	case "write":
@@ -2285,6 +2303,64 @@ func buildReadMcpResourceCompletedToolCall(argsJSON []byte, result *agentv1.Read
 	}
 }
 
+func supportedReadImageMIMEType(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	detected := strings.ToLower(strings.TrimSpace(http.DetectContentType(data)))
+	configuration, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || configuration.Width <= 0 || configuration.Height <= 0 {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "png":
+		if detected == "image/png" {
+			return detected
+		}
+	case "jpeg":
+		if detected == "image/jpeg" {
+			return detected
+		}
+	case "gif":
+		if detected == "image/gif" {
+			return detected
+		}
+	}
+	return ""
+}
+
+func readImageContentBlob(result *agentv1.ReadResult) (ContentBlob, bool) {
+	success := result.GetSuccess()
+	if success == nil {
+		return ContentBlob{}, false
+	}
+	data := success.GetData()
+	if supportedReadImageMIMEType(data) == "" {
+		return ContentBlob{}, false
+	}
+	digest := sha256.Sum256(data)
+	return ContentBlob{
+		ID:   append([]byte(nil), digest[:]...),
+		Data: append([]byte(nil), data...),
+	}, true
+}
+
+func readImageBlobID(data []byte) ([]byte, bool) {
+	if supportedReadImageMIMEType(data) == "" {
+		return nil, false
+	}
+	digest := sha256.Sum256(data)
+	return append([]byte(nil), digest[:]...), true
+}
+
+func readImageDataBlobOutput(data []byte) *agentv1.ReadToolSuccess_DataBlobId {
+	blobID, ok := readImageBlobID(data)
+	if !ok {
+		return nil
+	}
+	return &agentv1.ReadToolSuccess_DataBlobId{DataBlobId: blobID}
+}
+
 // convertReadResultToReadToolResult 把 `ReadResult` 映射为 `ReadToolResult`。
 func convertReadResultToReadToolResult(result *agentv1.ReadResult) *agentv1.ReadToolResult {
 	if result == nil {
@@ -2318,7 +2394,9 @@ func convertReadResultToReadToolResult(result *agentv1.ReadResult) *agentv1.Read
 		if content != "" {
 			toolSuccess.Output = &agentv1.ReadToolSuccess_Content{Content: content}
 		} else if len(data) > 0 {
-			if len(data) > readReplayBinaryLimit {
+			if imageOutput := readImageDataBlobOutput(data); imageOutput != nil {
+				toolSuccess.Output = imageOutput
+			} else if len(data) > readReplayBinaryLimit {
 				toolSuccess.ExceededLimit = true
 				toolSuccess.Output = &agentv1.ReadToolSuccess_Content{
 					Content: replayTruncationNotice("Read binary data", readReplayBinaryLimit, 0, len(data)),

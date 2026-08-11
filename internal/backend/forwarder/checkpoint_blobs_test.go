@@ -8,22 +8,43 @@ import (
 	"cursor/gen/agentv1"
 )
 
-func TestCheckpointBlobSyncPublishesNonTerminalCheckpointBeforeAcknowledgements(t *testing.T) {
+func TestCheckpointBlobSyncWaitsForAcknowledgementsBeforePublishingNonTerminalCheckpoint(t *testing.T) {
 	service, stream, projection := testCheckpointBlobProjection(t)
 	if err := service.queueCheckpointProjection(stream, projection, nil); err != nil {
 		t.Fatalf("queueCheckpointProjection() error = %v", err)
 	}
 	events := readCheckpointTestEvents(t, service, stream)
-	if len(events) != len(projection.Blobs)+1 {
-		t.Fatalf("events before ACK = %d, want %d Blob writes and one checkpoint", len(events), len(projection.Blobs))
+	if len(events) != len(projection.Blobs) {
+		t.Fatalf("events before ACK = %d, want %d Blob writes", len(events), len(projection.Blobs))
 	}
-	for _, event := range events[:len(projection.Blobs)] {
+	for _, event := range events {
 		if event.Message.GetKvServerMessage().GetSetBlobArgs() == nil {
 			t.Fatalf("event before ACK = %#v, want set_blob_args", event.Message)
 		}
 	}
-	if checkpoint := events[len(events)-1].Message.GetConversationCheckpointUpdate(); checkpoint == nil || len(checkpoint.GetTurns()) != 1 {
-		t.Fatalf("last event before ACK = %#v, want one Blob-backed turn", events[len(events)-1].Message)
+
+	stream.mu.Lock()
+	var firstRequestID uint32
+	for requestID := range stream.PendingCheckpointBlobWrites {
+		firstRequestID = requestID
+		break
+	}
+	stream.mu.Unlock()
+	if firstRequestID == 0 {
+		t.Fatal("checkpoint projection has no pending Blob writes")
+	}
+	if err := service.handleCheckpointBlobResult(stream, &agentv1.KvClientMessage{
+		Id: firstRequestID,
+		Message: &agentv1.KvClientMessage_SetBlobResult{
+			SetBlobResult: &agentv1.SetBlobResult{},
+		},
+	}); err != nil {
+		t.Fatalf("first Blob ACK error = %v", err)
+	}
+	for _, event := range readCheckpointTestEvents(t, service, stream) {
+		if event.Message.GetConversationCheckpointUpdate() != nil {
+			t.Fatal("checkpoint published after only a partial Blob acknowledgement")
+		}
 	}
 
 	acknowledgeCheckpointBlobs(t, service, stream)
@@ -98,7 +119,123 @@ func TestCheckpointBlobTimeoutDoesNotFailSuccessfulTurn(t *testing.T) {
 	}
 }
 
-func TestCancellationKeepsPublishedCheckpointAndIgnoresLateAcknowledgements(t *testing.T) {
+func TestCheckpointBlobSyncPublishesCheckpointBeforeFailedTerminal(t *testing.T) {
+	service, stream, _ := testCheckpointBlobProjection(t)
+	if err := service.failActiveStream(
+		stream,
+		stream.ConversationID,
+		stream.RequestID,
+		"model-call-1",
+		"provider_error",
+		"provider failed",
+	); err != nil {
+		t.Fatalf("failActiveStream() error = %v", err)
+	}
+
+	for _, event := range readCheckpointTestEvents(t, service, stream) {
+		if event.Message.GetConversationCheckpointUpdate() != nil || event.End {
+			t.Fatalf("event before ACK = %#v, want only Blob writes", event)
+		}
+	}
+	stream.mu.Lock()
+	phaseBeforeACK := stream.Phase
+	statusBeforeACK := stream.Status
+	stream.mu.Unlock()
+	if phaseBeforeACK != TurnPhaseCheckpointing || isTerminalStreamStatus(statusBeforeACK) {
+		t.Fatalf("before ACK phase=%s status=%s, want checkpointing and non-terminal", phaseBeforeACK, statusBeforeACK)
+	}
+
+	acknowledgeCheckpointBlobs(t, service, stream)
+	events := readCheckpointTestEvents(t, service, stream)
+	checkpointIndex, endIndex := -1, -1
+	for index, event := range events {
+		switch {
+		case event.Message.GetConversationCheckpointUpdate() != nil:
+			checkpointIndex = index
+		case event.End:
+			endIndex = index
+			if event.TerminalErrorCode != "provider_error" || event.TerminalErrorMessage != "provider failed" {
+				t.Fatalf("terminal event = %#v, want provider error", event)
+			}
+		}
+	}
+	if checkpointIndex < 0 || endIndex <= checkpointIndex {
+		t.Fatalf("terminal order checkpoint=%d end=%d", checkpointIndex, endIndex)
+	}
+	stream.mu.Lock()
+	phaseAfterACK := stream.Phase
+	statusAfterACK := stream.Status
+	stream.mu.Unlock()
+	if phaseAfterACK != TurnPhaseFailed || statusAfterACK != StreamStatusFailed {
+		t.Fatalf("after ACK phase=%s status=%s, want failed", phaseAfterACK, statusAfterACK)
+	}
+}
+
+func TestCheckpointBlobTimeoutStillPublishesFailedTerminal(t *testing.T) {
+	service, stream, _ := testCheckpointBlobProjection(t)
+	if err := service.failActiveStream(
+		stream,
+		stream.ConversationID,
+		stream.RequestID,
+		"model-call-1",
+		"provider_error",
+		"provider failed",
+	); err != nil {
+		t.Fatalf("failActiveStream() error = %v", err)
+	}
+	if err := service.handleCheckpointBlobTimeout(stream); err != nil {
+		t.Fatalf("handleCheckpointBlobTimeout() error = %v", err)
+	}
+
+	events := readCheckpointTestEvents(t, service, stream)
+	var checkpoint, failedEnd bool
+	for _, event := range events {
+		checkpoint = checkpoint || event.Message.GetConversationCheckpointUpdate() != nil
+		failedEnd = failedEnd || event.End && event.TerminalErrorCode == "provider_error" && event.TerminalErrorMessage == "provider failed"
+	}
+	if checkpoint || !failedEnd {
+		t.Fatalf("timeout events checkpoint=%v failed_end=%v", checkpoint, failedEnd)
+	}
+}
+
+func TestManualCompactionNoopWaitsForCheckpointBeforeTerminal(t *testing.T) {
+	service, stream, _ := testCheckpointBlobProjection(t)
+	conversation, _, _, err := service.snapshotCheckpointConversation(stream)
+	if err != nil {
+		t.Fatalf("snapshotCheckpointConversation() error = %v", err)
+	}
+	if _, err := service.store.SaveConversationWithEntries(stream.ConversationID, conversation, conversation.Entries); err != nil {
+		t.Fatalf("SaveConversationWithEntries() error = %v", err)
+	}
+	if err := service.finishManualCompactionNoop(stream); err != nil {
+		t.Fatalf("finishManualCompactionNoop() error = %v", err)
+	}
+
+	for _, event := range readCheckpointTestEvents(t, service, stream) {
+		if event.Message.GetInteractionUpdate().GetTurnEnded() != nil || event.End {
+			t.Fatalf("terminal event before checkpoint Blob ACK = %#v", event)
+		}
+	}
+	acknowledgeCheckpointBlobs(t, service, stream)
+
+	events := readCheckpointTestEvents(t, service, stream)
+	checkpointIndex, turnEndedIndex, endIndex := -1, -1, -1
+	for index, event := range events {
+		switch {
+		case event.Message.GetConversationCheckpointUpdate() != nil:
+			checkpointIndex = index
+		case event.Message.GetInteractionUpdate().GetTurnEnded() != nil:
+			turnEndedIndex = index
+		case event.End:
+			endIndex = index
+		}
+	}
+	if checkpointIndex < 0 || turnEndedIndex <= checkpointIndex || endIndex <= turnEndedIndex {
+		t.Fatalf("terminal order checkpoint=%d turn_ended=%d end=%d", checkpointIndex, turnEndedIndex, endIndex)
+	}
+}
+
+func TestCancellationDiscardsUnpublishedCheckpointAndIgnoresLateAcknowledgements(t *testing.T) {
 	service, stream, projection := testCheckpointBlobProjection(t)
 	if err := service.queueCheckpointProjection(stream, projection, nil); err != nil {
 		t.Fatalf("queueCheckpointProjection() error = %v", err)
@@ -110,8 +247,8 @@ func TestCancellationKeepsPublishedCheckpointAndIgnoresLateAcknowledgements(t *t
 			checkpointBeforeCancel++
 		}
 	}
-	if checkpointBeforeCancel != 1 {
-		t.Fatalf("checkpoints before cancel = %d, want 1", checkpointBeforeCancel)
+	if checkpointBeforeCancel != 0 {
+		t.Fatalf("checkpoints before cancel = %d, want 0", checkpointBeforeCancel)
 	}
 	stream.mu.Lock()
 	requestIDs := make([]uint32, 0, len(stream.PendingCheckpointBlobWrites))
@@ -149,7 +286,7 @@ func TestCancellationKeepsPublishedCheckpointAndIgnoresLateAcknowledgements(t *t
 	stream.mu.Lock()
 	pending := stream.PendingCheckpoint
 	stream.mu.Unlock()
-	if checkpointCount != 1 || !canceledEnd || pending != nil {
+	if checkpointCount != 0 || !canceledEnd || pending != nil {
 		t.Fatalf("cancel events checkpoints=%d canceled_end=%v pending=%v", checkpointCount, canceledEnd, pending != nil)
 	}
 }

@@ -19,6 +19,7 @@ const modelTypeOptions = [
 ];
 
 const reasoningEffortOptions = [
+  { label: "不设置", value: "", icon: "icon-[mdi--minus-circle-outline]" },
   { label: "低", value: "low", icon: "icon-[mdi--head-outline]" },
   { label: "中", value: "medium", icon: "icon-[mdi--head-lightbulb-outline]" },
   { label: "高", value: "high", icon: "icon-[mdi--brain]" },

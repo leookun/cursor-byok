@@ -50,7 +50,7 @@ func (service *Service) bootstrapRuntimeConversation(intent InboundIntent) (*Con
 	}
 	importedEntries := []HistoryEntry(nil)
 	if len(conversation.Entries) == 0 && intent.ConversationState != nil {
-		importedEntries, err = service.importConversationState(conversation, intent.ConversationState)
+		importedEntries, err = service.importConversationState(conversation, intent.ConversationState, intent.PreFetchedBlobs)
 		if err != nil {
 			return nil, agentv1.AgentMode_AGENT_MODE_AGENT, 0, nil, err
 		}
@@ -138,6 +138,7 @@ func (service *Service) syncConversationRecord(conversationID string, conversati
 		item.AutoCompactionReserveTokens = conversation.AutoCompactionReserveTokens
 		item.AutoCompactionTriggeredAt = conversation.AutoCompactionTriggeredAt
 		item.AutoCompactionSourceModelCallID = conversation.AutoCompactionSourceModelCallID
+		item.ImportedTurnIDs = cloneByteSlices(conversation.ImportedTurnIDs)
 		item.LatestRequestPrefix = cloneConversationRequestPrefix(conversation.LatestRequestPrefix)
 		item.LastProviderCall = cloneConversationProviderCall(conversation.LastProviderCall)
 		item.CreatedAt = conversation.CreatedAt

@@ -58,3 +58,25 @@ func TestNormalizeModelAdapterConfigsUsesStableExplicitSort(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeModelAdapterConfigsAllowsBlankReasoningEffort(t *testing.T) {
+	adapter := testModelAdapter("non-reasoning-model", 1)
+	adapter.ReasoningEffort = ""
+
+	adapters, err := NormalizeModelAdapterConfigs([]ModelAdapterConfig{adapter})
+	if err != nil {
+		t.Fatalf("NormalizeModelAdapterConfigs returned error: %v", err)
+	}
+	if got := adapters[0].ReasoningEffort; got != "" {
+		t.Fatalf("ReasoningEffort = %q, want blank", got)
+	}
+}
+
+func TestNormalizeModelAdapterConfigsRejectsUnknownReasoningEffort(t *testing.T) {
+	adapter := testModelAdapter("invalid-reasoning-effort", 1)
+	adapter.ReasoningEffort = "unsupported"
+
+	if _, err := NormalizeModelAdapterConfigs([]ModelAdapterConfig{adapter}); err == nil {
+		t.Fatal("NormalizeModelAdapterConfigs should reject an unknown reasoning effort")
+	}
+}

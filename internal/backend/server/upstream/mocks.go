@@ -145,7 +145,7 @@ var bootstrapStatsigTemplate = statsigBootstrapTemplate{
 		bootstrapStatsigGlassCustomThemeSupport:          buildEnabledStatsigGate(bootstrapStatsigGlassCustomThemeSupport),
 		bootstrapStatsigGlassAutomationsUI:               buildEnabledStatsigGate(bootstrapStatsigGlassAutomationsUI),
 		bootstrapStatsigTerminalUI2:                      buildEnabledStatsigGate(bootstrapStatsigTerminalUI2),
-		bootstrapStatsigDisableTerminalOutputUIStreaming: buildEnabledStatsigGate(bootstrapStatsigDisableTerminalOutputUIStreaming),
+		bootstrapStatsigDisableTerminalOutputUIStreaming: buildDisabledStatsigGate(bootstrapStatsigDisableTerminalOutputUIStreaming),
 		bootstrapStatsigBrowserCanvas:                    buildEnabledStatsigGate(bootstrapStatsigBrowserCanvas),
 		bootstrapStatsigEnableMultitaskMode:              buildEnabledStatsigGate(bootstrapStatsigEnableMultitaskMode),
 		bootstrapStatsigDecomposeAlwaysLocalExtHostGate:  buildDisabledStatsigGate(bootstrapStatsigDecomposeAlwaysLocalExtHostGate),
@@ -728,8 +728,10 @@ func buildCLIModelDetails(adapters []legacyruntime.ModelAdapterConfig) []map[str
 			continue
 		}
 		models = append(models, map[string]any{
-			"modelId":        channelID,
-			"displayModelId": channelID,
+			"modelId":          channelID,
+			"displayModelId":   channelID,
+			"displayName":      strings.TrimSpace(adapter.DisplayName),
+			"displayNameShort": strings.TrimSpace(adapter.DisplayName),
 			"apiKeyCredentials": map[string]any{
 				"apiKey":  strings.TrimSpace(adapter.APIKey),
 				"baseUrl": strings.TrimSpace(adapter.BaseURL),
@@ -833,7 +835,7 @@ func defaultThinkingEffortForAdapter(adapter legacyruntime.ModelAdapterConfig) s
 	if strings.EqualFold(strings.TrimSpace(adapter.Type), "anthropic") {
 		return normalizeAvailableModelThinkingEffort(adapter.AnthropicThinkingEffort, true, "xhigh")
 	}
-	return normalizeAvailableModelThinkingEffort(adapter.ReasoningEffort, true, "medium")
+	return normalizeAvailableModelThinkingEffort(adapter.ReasoningEffort, true, "disabled")
 }
 
 func normalizeAvailableModelThinkingEffort(raw string, allowMax bool, fallback string) string {

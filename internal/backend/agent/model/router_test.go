@@ -1,9 +1,63 @@
 package modeladapter
 
 import (
+	"context"
 	"reflect"
 	"testing"
+	"time"
+
+	legacyruntime "cursor/internal/runtime"
 )
+
+type recordingModelAdapter struct {
+	request StreamRequest
+}
+
+func (adapter *recordingModelAdapter) Stream(_ context.Context, req StreamRequest, _ func(ModelEvent) error) error {
+	adapter.request = req
+	return nil
+}
+
+type staticChannelResolver struct {
+	channel *legacyruntime.ResolvedChannel
+}
+
+func (resolver staticChannelResolver) SelectChannelForModel(context.Context, string) (*legacyruntime.ResolvedChannel, error) {
+	return resolver.channel, nil
+}
+
+func (staticChannelResolver) ProviderStreamIdleTimeout(context.Context) time.Duration {
+	return time.Second
+}
+
+func TestRouterRuntimeDisabledClearsReasoningEffort(t *testing.T) {
+	openAI := &recordingModelAdapter{}
+	router := &Router{
+		openai: openAI,
+		resolver: staticChannelResolver{channel: &legacyruntime.ResolvedChannel{
+			ID:              "channel-a",
+			Provider:        "openai",
+			Model:           "grok-composer-2.5-fast",
+			ReasoningEffort: "medium",
+		}},
+	}
+	requestKnobs := map[string]any{"reasoning_effort": "medium"}
+
+	err := router.Stream(context.Background(), StreamRequest{
+		ModelID:        "channel-a",
+		ThinkingEffort: "disabled",
+		RequestKnobs:   requestKnobs,
+	}, func(ModelEvent) error { return nil })
+	if err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+	if got := openAI.request.ReasoningEffort; got != "" {
+		t.Fatalf("ReasoningEffort = %q, want blank", got)
+	}
+	if _, exists := openAI.request.RequestKnobs["reasoning_effort"]; exists {
+		t.Fatalf("reasoning_effort knob should be removed: %#v", openAI.request.RequestKnobs)
+	}
+}
 
 func TestSanitizeProviderMessagesMergesLegacyAssistantTextAndToolCallTurnsIdempotently(t *testing.T) {
 	input := []Message{
