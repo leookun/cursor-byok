@@ -9,6 +9,10 @@ import (
 	runtimecore "cursor/internal/backend/agent/core"
 )
 
+func int64Pointer(value int64) *int64 {
+	return &value
+}
+
 func TestAwaitShellSnapshotReturnsOnlyUnreadOutput(t *testing.T) {
 	service, stream, _ := testShellRecoveryFixture(t, "opened")
 	stream.mu.Lock()
@@ -21,7 +25,7 @@ func TestAwaitShellSnapshotReturnsOnlyUnreadOutput(t *testing.T) {
 	}
 	stream.mu.Unlock()
 
-	first := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: "42"})
+	first := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: "42", BlockUntilMS: int64Pointer(0)})
 	if first.Stdout != "first stdout\n" || first.Stderr != "first stderr\n" {
 		t.Fatalf("first AwaitShell output = stdout %q stderr %q", first.Stdout, first.Stderr)
 	}
@@ -32,7 +36,7 @@ func TestAwaitShellSnapshotReturnsOnlyUnreadOutput(t *testing.T) {
 	state.StderrBuffer += "second stderr\n"
 	stream.mu.Unlock()
 
-	second := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: "42"})
+	second := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: "42", BlockUntilMS: int64Pointer(0)})
 	if second.Stdout != "second stdout\n" || second.Stderr != "second stderr\n" {
 		t.Fatalf("second AwaitShell output = stdout %q stderr %q, want only new output", second.Stdout, second.Stderr)
 	}
@@ -40,20 +44,21 @@ func TestAwaitShellSnapshotReturnsOnlyUnreadOutput(t *testing.T) {
 
 func TestAwaitShellSnapshotHandlesPatternsAndStates(t *testing.T) {
 	testCases := []struct {
-		name        string
-		shellID     string
-		status      string
-		pattern     string
-		stdout      string
-		wantStatus  string
-		wantMatched bool
-		wantTimeout bool
-		wantError   string
+		name         string
+		shellID      string
+		status       string
+		pattern      string
+		stdout       string
+		wantStatus   string
+		wantMatched  bool
+		wantTimeout  bool
+		wantError    string
+		blockUntilMS int64
 	}{
 		{name: "regex match", shellID: "match", status: backgroundShellStatusRunning, pattern: `ready\s+now`, stdout: "ready now", wantStatus: backgroundShellStatusRunning, wantMatched: true},
-		{name: "invalid regex", shellID: "invalid", status: backgroundShellStatusRunning, pattern: `[`, wantStatus: backgroundShellStatusRunning, wantTimeout: true, wantError: "invalid AwaitShell pattern"},
+		{name: "invalid regex", shellID: "invalid", status: backgroundShellStatusRunning, pattern: `[`, wantStatus: backgroundShellStatusRunning, wantTimeout: true, wantError: "invalid AwaitShell pattern", blockUntilMS: 1},
 		{name: "unknown shell", shellID: "missing", wantStatus: backgroundShellStatusUnknown},
-		{name: "backgrounded shell", shellID: "backgrounded", status: backgroundShellStatusBackgrounded, wantStatus: backgroundShellStatusBackgrounded, wantTimeout: true},
+		{name: "backgrounded shell", shellID: "backgrounded", status: backgroundShellStatusBackgrounded, wantStatus: backgroundShellStatusBackgrounded, wantTimeout: true, blockUntilMS: 1},
 		{name: "completed shell", shellID: "completed", status: backgroundShellStatusCompleted, wantStatus: backgroundShellStatusCompleted},
 		{name: "rejected shell", shellID: "rejected", status: backgroundShellStatusRejected, wantStatus: backgroundShellStatusRejected},
 		{name: "permission denied shell", shellID: "permission", status: backgroundShellStatusPermissionDenied, wantStatus: backgroundShellStatusPermissionDenied},
@@ -73,7 +78,7 @@ func TestAwaitShellSnapshotHandlesPatternsAndStates(t *testing.T) {
 				stream.mu.Unlock()
 			}
 
-			result := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: testCase.shellID, Pattern: testCase.pattern})
+			result := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: testCase.shellID, Pattern: testCase.pattern, BlockUntilMS: int64Pointer(testCase.blockUntilMS)})
 			if result.Status != testCase.wantStatus || result.Matched != testCase.wantMatched || result.TimedOut != testCase.wantTimeout {
 				t.Fatalf("AwaitShell result = %#v, want status=%q matched=%t timed_out=%t", result, testCase.wantStatus, testCase.wantMatched, testCase.wantTimeout)
 			}
@@ -81,6 +86,27 @@ func TestAwaitShellSnapshotHandlesPatternsAndStates(t *testing.T) {
 				t.Fatalf("AwaitShell message = %q, want %q", result.Message, testCase.wantError)
 			}
 		})
+	}
+}
+
+func TestAwaitShellSnapshotUsesActualTimeout(t *testing.T) {
+	service, stream, _ := testShellRecoveryFixture(t, "opened")
+	stream.mu.Lock()
+	stream.BackgroundShells["slow"] = &BackgroundShellState{
+		ShellID:   "slow",
+		Status:    backgroundShellStatusRunning,
+		CreatedAt: time.Now().UTC().Add(-time.Second),
+	}
+	stream.mu.Unlock()
+
+	started := time.Now()
+	result := service.awaitShellSnapshot(stream, awaitShellArgs{ShellID: "slow", BlockUntilMS: int64Pointer(10)})
+	elapsed := time.Since(started)
+	if !result.TimedOut {
+		t.Fatalf("AwaitShell timed_out = false, want true")
+	}
+	if elapsed < 10*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("AwaitShell elapsed = %s, want approximately 10ms", elapsed)
 	}
 }
 
