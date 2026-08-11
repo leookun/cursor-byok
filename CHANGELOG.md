@@ -14,6 +14,12 @@ The forwarder now provides improved conversation recovery, transcript replay, an
 
 The MCP tool registry is normalized by server identifier and tool name, and can resolve aliases from server names for compatibility with descriptors provided by Cursor.
 
+### Fixed: AwaitShell waited duration and timeout handling
+
+`AwaitShell` now polls the shell state every 50ms until the shell completes, the requested pattern matches, or `block_until_ms` expires. Previously it returned a single snapshot immediately while reporting the requested wait duration, which could make a 1–3 second shell appear to have waited for repeated 30-second or 2-minute intervals.
+
+The default wait timeout remains 30 seconds per `AwaitShell` call. A completed shell returns immediately, while `block_until_ms: 0` performs an immediate snapshot. Foreground shell recovery keeps the existing 1.5-second grace period after the configured wait deadline.
+
 ### Regression coverage
 
 - Added tests for checkpoint blobs, append-only compaction, imported history, and the state database.
