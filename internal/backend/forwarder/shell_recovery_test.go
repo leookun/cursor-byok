@@ -358,7 +358,11 @@ func testShellRecoveryFixture(t *testing.T, state string) (*Service, *ActiveStre
 		projector:  NewHistoryProjector(),
 		execBridge: execbridge.NewBridge(),
 	}
-	if err := service.replaceCheckpointConversation(stream, testConversation(nil)); err != nil {
+	if err := service.replaceCheckpointConversation(stream, &ConversationFile{
+		ConversationID:     stream.ConversationID,
+		RootConversationID: stream.ConversationID,
+		Mode:               "agent",
+	}); err != nil {
 		t.Fatalf("replaceCheckpointConversation() error = %v", err)
 	}
 	pending := initializePendingExecForTracking(runtimecore.PendingExec{
