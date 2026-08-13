@@ -4,6 +4,7 @@ package promptengine
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -442,7 +443,7 @@ func buildRequestContextRulesSection(requestContext *agentv1.RequestContext) str
 		if content == "" {
 			continue
 		}
-		ruleLines = append(ruleLines, "<user_rule>"+content+"</user_rule>")
+		ruleLines = append(ruleLines, "<user_rule>"+neutralizePromptBody(content)+"</user_rule>")
 	}
 	ruleLines = append(ruleLines, "</user_rules>", "</rules>")
 	return strings.Join(ruleLines, "\n")
@@ -526,7 +527,7 @@ func buildRequestContextUserIntentSummarySection(requestContext *agentv1.Request
 	if summary == "" {
 		return ""
 	}
-	return "<user_intent_summary>\n" + summary + "\n</user_intent_summary>"
+	return "<user_intent_summary>\n" + neutralizePromptBody(summary) + "\n</user_intent_summary>"
 }
 
 func buildRequestContextHooksAdditionalContextSection(requestContext *agentv1.RequestContext) string {
@@ -537,7 +538,7 @@ func buildRequestContextHooksAdditionalContextSection(requestContext *agentv1.Re
 	if hooks == "" {
 		return ""
 	}
-	return "<hooks_additional_context>\n" + hooks + "\n</hooks_additional_context>"
+	return "<hooks_additional_context>\n" + neutralizePromptBody(hooks) + "\n</hooks_additional_context>"
 }
 
 func buildRequestContextCurrentFileContentsSection(requestContext *agentv1.RequestContext) string {
@@ -563,7 +564,7 @@ func buildRequestContextCurrentFileContentsSection(requestContext *agentv1.Reque
 	sort.Strings(paths)
 	entries := make([]string, 0, len(paths))
 	for _, path := range paths {
-		entries = append(entries, fmt.Sprintf("<file path=%q>\n%s\n</file>", escapePromptXML(path), contentsByPath[path]))
+		entries = append(entries, fmt.Sprintf("<file path=%q>\n%s\n</file>", escapePromptXML(path), neutralizePromptBody(contentsByPath[path])))
 	}
 	return "<current_file_contents>\n" + strings.Join(entries, "\n\n") + "\n</current_file_contents>"
 }
@@ -576,7 +577,7 @@ func buildRequestContextCommitAttributionSection(requestContext *agentv1.Request
 	if message == "" {
 		return ""
 	}
-	return "<commit_attribution_message>\n" + message + "\n</commit_attribution_message>"
+	return "<commit_attribution_message>\n" + neutralizePromptBody(message) + "\n</commit_attribution_message>"
 }
 
 func buildRequestContextPRAttributionSection(requestContext *agentv1.RequestContext) string {
@@ -587,7 +588,7 @@ func buildRequestContextPRAttributionSection(requestContext *agentv1.RequestCont
 	if message == "" {
 		return ""
 	}
-	return "<pr_attribution_message>\n" + message + "\n</pr_attribution_message>"
+	return "<pr_attribution_message>\n" + neutralizePromptBody(message) + "\n</pr_attribution_message>"
 }
 
 func buildEmbeddedMCPDescriptorSection(descriptor *agentv1.McpDescriptor, serverID string, folderPath string) string {
@@ -641,6 +642,9 @@ func buildEmbeddedMCPDescriptorSection(descriptor *agentv1.McpDescriptor, server
 }
 
 // escapePromptXML 对 prompt 片段做最小 XML 转义。
+//
+// 仅适用于标签属性值与短文本。正文（文件内容、终端输出等）请改用
+// neutralizePromptBody，避免破坏代码中的 < > & 字符。
 func escapePromptXML(value string) string {
 	replacer := strings.NewReplacer(
 		"&", "&amp;",
@@ -649,6 +653,46 @@ func escapePromptXML(value string) string {
 		">", "&gt;",
 	)
 	return replacer.Replace(strings.TrimSpace(value))
+}
+
+// promptStructuralTags 列出 prompt 中用于界定语义边界的结构标签。
+//
+// 只收录“结构性”标签：不可信正文一旦能闭合它们，就可以逃逸出数据区并伪造指令。
+// 刻意不收录 div、path、server、description 等通用名，避免误伤 HTML / 代码正文。
+var promptStructuralTags = []string{
+	"agent_skill", "agent_skills", "agent_transcripts", "attached_files",
+	"available_skills", "commit_attribution_message", "conversation_summary",
+	"current_file_contents", "current_plan", "delegation", "file",
+	"hooks_additional_context", "linter_errors", "making_code_changes",
+	"mcp_embedded_descriptors", "mcp_file_system", "mcp_file_system_server",
+	"mcp_file_system_servers", "mcp_server_descriptor", "mcp_tool",
+	"pr_attribution_message", "previous_tool_call", "recently_viewed_files",
+	"rules", "selected_files", "server_use_instructions", "system_reminder",
+	"terminal_files_information", "thinking", "todo_list", "tool_call",
+	"tool_result", "user_info", "user_intent_summary", "user_query",
+	"user_rule", "user_rules", "visible_files",
+}
+
+// promptStructuralClosingTagPattern 匹配结构标签的闭合序列，容忍大小写与多余空白，
+// 例如 </file>、</ FILE >、</user_query　>。
+var promptStructuralClosingTagPattern = regexp.MustCompile(
+	`(?i)<\s*/\s*(` + strings.Join(promptStructuralTags, "|") + `)\s*>`,
+)
+
+// neutralizePromptBody 中和不可信正文中的结构标签闭合序列，防止提示词注入。
+//
+// 与 escapePromptXML 的整体转义不同，这里只把结构标签的闭合尖括号替换为实体，
+// 因此源码里的泛型、比较运算符、HTML 片段都能原样保留，模型可读性不受影响。
+//
+// 攻击者若想逃逸出 <file>…</file> 之类的数据区，必须先闭合当前标签；
+// 闭合序列被中和后，注入内容只能停留在数据区内部，模型会继续将其视为数据。
+func neutralizePromptBody(content string) string {
+	if content == "" {
+		return content
+	}
+	return promptStructuralClosingTagPattern.ReplaceAllStringFunc(content, func(match string) string {
+		return "&lt;" + strings.TrimPrefix(match, "<")
+	})
 }
 
 func compactProtoJSON(message proto.Message) string {

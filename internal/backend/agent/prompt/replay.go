@@ -28,7 +28,7 @@ func buildUserReplayMessage(text string, selectedContext *agentv1.SelectedContex
 	images := buildSelectedImageContentParts(selectedContext)
 	sections := make([]string, 0, 4)
 	if text != "" {
-		sections = append(sections, formatMessageText(fmt.Sprintf("<user_query>\n%s\n</user_query>", text)))
+		sections = append(sections, formatMessageText(fmt.Sprintf("<user_query>\n%s\n</user_query>", neutralizePromptBody(text))))
 	}
 	if ideState := buildSelectedIDEStatePromptSection(selectedContext); ideState != "" {
 		sections = append(sections, ideState)
@@ -172,7 +172,7 @@ func buildSelectedFilesPromptSection(selectedContext *agentv1.SelectedContext) s
 		if len(attrs) == 0 {
 			continue
 		}
-		entries = append(entries, "<file "+strings.Join(attrs, " ")+">\n"+file.GetContent()+"\n</file>")
+		entries = append(entries, "<file "+strings.Join(attrs, " ")+">\n"+neutralizePromptBody(file.GetContent())+"\n</file>")
 	}
 	if len(entries) == 0 {
 		return ""
