@@ -210,6 +210,14 @@ type PendingAssistantOutput struct {
 	TextPreview string
 }
 
+// ShellApprovalState describes the confirmation state separating from the stream state.
+type ShellApprovalState string
+
+const (
+	ShellApprovalStateAwaiting ShellApprovalState = "awaiting_shell_approval"
+	ShellApprovalStateRunning  ShellApprovalState = "running"
+)
+
 // PendingExec 表示一条尚未收口的执行桥记录。
 type PendingExec struct {
 	// MessageID 是打开该执行桥时下发给客户端的桥消息编号。
@@ -234,6 +242,8 @@ type PendingExec struct {
 	ExecKind string
 	// StreamState 描述当前流式执行桥的阶段。
 	StreamState string
+	// ShellApprovalState 描述 shell 是否已获得用户确认并开始执行。
+	ShellApprovalState ShellApprovalState
 	// OpenedAt 表示执行桥请求发出的时间。
 	OpenedAt time.Time
 	// FirstChunkAt 表示 shellStream 首个输出块时间。
