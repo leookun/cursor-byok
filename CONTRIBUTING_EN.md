@@ -29,6 +29,32 @@ task dev
 task build
 ```
 
+### Release signing
+
+Default builds do not require a certificate and are for local testing only. Before public distribution, configure the following variables in CI or on a controlled release machine. Never commit certificate passwords, private keys, or Apple credentials:
+
+```bash
+# Windows: SHA-1 thumbprint of a code-signing certificate in the current-user store
+WINDOWS_SIGN_CERT_SHA1=0123456789ABCDEF... \
+WINDOWS_SIGN_TIMESTAMP_URL=https://timestamp.digicert.com \
+task build:windows:amd64
+
+# macOS: Developer ID identity and a preconfigured notarytool Keychain profile
+MACOS_SIGN_IDENTITY='Developer ID Application: Example, Inc. (TEAMID)' \
+MACOS_NOTARY_PROFILE='notary-profile' \
+task build:darwin:arm64
+```
+
+On Windows PowerShell, use:
+
+```powershell
+$env:WINDOWS_SIGN_CERT_SHA1 = '0123456789ABCDEF...'
+$env:WINDOWS_SIGN_TIMESTAMP_URL = 'https://timestamp.digicert.com'
+task build:windows:amd64
+```
+
+Windows defaults to NSIS. `FORMAT=msix` is available only when the installed Wails CLI supports `wails3 tool msix`; the MSIX Publisher must exactly match the signing certificate Subject.
+
 ## Project Structure
 
 ```

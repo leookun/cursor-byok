@@ -23,6 +23,10 @@ vars:
   CURRENT_DARWIN_NAME: '{{if eq ARCH "arm64"}}macos-arm64{{else}}macos-intel{{end}}'
   CURRENT_LINUX_ARCH: "amd64"
   CURRENT_LINUX_NAME: "linux-amd64"
+  WINDOWS_SIGN_CERT_SHA1: '{{.WINDOWS_SIGN_CERT_SHA1 | default ""}}'
+  WINDOWS_SIGN_TIMESTAMP_URL: '{{.WINDOWS_SIGN_TIMESTAMP_URL | default "https://timestamp.digicert.com"}}'
+  MACOS_SIGN_IDENTITY: '{{.MACOS_SIGN_IDENTITY | default ""}}'
+  MACOS_NOTARY_PROFILE: '{{.MACOS_NOTARY_PROFILE | default ""}}'
 
 tasks:
   build:

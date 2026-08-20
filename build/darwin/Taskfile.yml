@@ -199,18 +199,27 @@ tasks:
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/Resources"
       - cp "{{.BINARY_PATH}}" "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/MacOS/{{.EXECUTABLE_NAME}}"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents"
-      - task: codesign:adhoc
+      - /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString {{.APP_VERSION}}" "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/Info.plist"
+      - /usr/libexec/PlistBuddy -c "Set :CFBundleVersion {{.APP_VERSION}}" "{{.BIN_DIR}}/{{.APP_BUNDLE}}/Contents/Info.plist"
+      - task: codesign:app
         vars:
           APP_BUNDLE:
             ref: .APP_BUNDLE
 
-  codesign:adhoc:
-    summary: 使用临时签名（开发测试）
+  codesign:app:
+    summary: 使用 Developer ID 签名 macOS 应用；未配置时仅使用 ad-hoc 签名
     internal: true
     vars:
       APP_BUNDLE: '{{.APP_BUNDLE | default (printf "%s.app" .APP_NAME)}}'
     cmds:
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
+      - |
+        {{if .MACOS_SIGN_IDENTITY}}
+        codesign --force --deep --options runtime --sign "{{.MACOS_SIGN_IDENTITY}}" "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
+        {{else}}
+        echo "未设置 MACOS_SIGN_IDENTITY，使用 ad-hoc 签名，仅可用于本地测试。"
+        codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
+        {{end}}
+      - codesign --verify --deep --strict --verbose=2 "{{.BIN_DIR}}/{{.APP_BUNDLE}}"
 
   create:dmg:
     summary: 生成 macOS DMG 包（优先使用 create-dmg，不存在时回退 hdiutil）
@@ -236,6 +245,32 @@ tasks:
           hdiutil create -volname "{{.APP_NAME}}" -srcfolder "{{.STAGING_DIR}}" -ov -format UDZO "{{.BIN_DIR}}/{{.DMG_NAME}}"
         fi
       - rm -rf "{{.STAGING_DIR}}"
+      - task: sign:notarize:dmg
+        vars:
+          DMG_NAME:
+            ref: .DMG_NAME
+
+  sign:notarize:dmg:
+    summary: 对 DMG 签名并在配置 notary profile 时提交公证
+    internal: true
+    vars:
+      DMG_NAME: '{{.DMG_NAME | default (printf "%s.dmg" .APP_NAME)}}'
+    cmds:
+      - |
+        {{if .MACOS_SIGN_IDENTITY}}
+        codesign --force --sign "{{.MACOS_SIGN_IDENTITY}}" "{{.BIN_DIR}}/{{.DMG_NAME}}"
+        codesign --verify --verbose=2 "{{.BIN_DIR}}/{{.DMG_NAME}}"
+        {{else}}
+        echo "未设置 MACOS_SIGN_IDENTITY，跳过 DMG 签名和公证。"
+        {{end}}
+      - |
+        {{if .MACOS_NOTARY_PROFILE}}
+        xcrun notarytool submit "{{.BIN_DIR}}/{{.DMG_NAME}}" --keychain-profile "{{.MACOS_NOTARY_PROFILE}}" --wait
+        xcrun stapler staple "{{.BIN_DIR}}/{{.DMG_NAME}}"
+        xcrun stapler validate "{{.BIN_DIR}}/{{.DMG_NAME}}"
+        {{else}}
+        echo "未设置 MACOS_NOTARY_PROFILE，跳过 macOS 公证。"
+        {{end}}
 
   create:archive:
     summary: 生成 macOS updater tar.gz 归档
