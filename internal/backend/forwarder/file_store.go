@@ -25,7 +25,7 @@ const (
 	conversationSchemaVersion          = 1
 	conversationLockStaleAfter         = 30 * time.Minute
 	legacyConversationLockStaleAfter   = 30 * time.Second
-	conversationLockAcquireTimeout     = 30 * time.Second
+	conversationLockAcquireTimeout     = 5 * time.Second
 	staleConversationLockRemoveTimeout = 30 * time.Second
 	conversationLockRetryInterval      = 10 * time.Millisecond
 )

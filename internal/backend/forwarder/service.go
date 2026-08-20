@@ -2406,9 +2406,15 @@ func (service *Service) failStream(stream *ActiveStream, terminalCode string, ca
 	if stream == nil {
 		return nil
 	}
-	errorText := "unknown error"
-	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
-		errorText = strings.TrimSpace(cause.Error())
+	errorText := strings.TrimSpace(terminalCode)
+	if errorText == "" || errorText == "unknown" {
+		errorText = "unknown error"
+	}
+	if cause != nil {
+		causeText := strings.TrimSpace(cause.Error())
+		if causeText != "" && !strings.EqualFold(errorText, causeText) {
+			errorText += ": " + causeText
+		}
 	}
 	resolvedTerminalCode := resolveTerminalCode(terminalCode, cause)
 	metadataType := "failed"
