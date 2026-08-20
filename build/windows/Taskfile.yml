@@ -43,6 +43,10 @@ tasks:
           ARCH:
             ref: .ARCH
       - go build {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"
+      - task: sign:authenticode
+        vars:
+          TARGET:
+            ref: .OUTPUT
       - cmd: powershell Remove-item *.syso
         platforms: [windows]
       - cmd: rm -f *.syso
@@ -89,13 +93,19 @@ tasks:
         {{else}}
         makensis -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
         {{end}}
+      - task: sign:authenticode
+        vars:
+          TARGET: '{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-{{.ARCH}}-installer.exe'
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
       ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
 
   create:msix:package:
-    summary: 生成 MSIX 安装包
+    summary: 生成 MSIX 安装包（需要包含 msix 工具的 Wails CLI）
     internal: true
+    preconditions:
+      - sh: 'wails3 tool --help 2>&1 | grep -Eq "^[[:space:]]*msix([[:space:]]|$)"'
+        msg: "当前 Wails CLI 不支持 'wails3 tool msix'。请使用 NSIS（默认格式），或升级到包含 MSIX 工具的 Wails CLI 后再执行 FORMAT=msix。"
     deps:
       - task: build
         vars:
@@ -117,6 +127,25 @@ tasks:
       CERT_PATH: '{{.CERT_PATH | default ""}}'
       PUBLISHER: '{{.PUBLISHER | default ""}}'
       USE_MSIX_TOOL: '{{.USE_MSIX_TOOL | default "false"}}'
+
+  sign:authenticode:
+    summary: 使用证书存储中的 SHA-1 指纹签名 Windows PE 产物
+    internal: true
+    vars:
+      TARGET: '{{.TARGET}}'
+    preconditions:
+      - sh: 'test -n "{{.TARGET}}"'
+        msg: "Windows 签名目标不能为空。"
+      - sh: 'test -z "{{.WINDOWS_SIGN_CERT_SHA1}}" || command -v signtool >/dev/null 2>&1'
+        msg: "配置 WINDOWS_SIGN_CERT_SHA1 后必须安装 signtool。"
+    cmds:
+      - |
+        {{if .WINDOWS_SIGN_CERT_SHA1}}
+        signtool sign /sha1 "{{.WINDOWS_SIGN_CERT_SHA1}}" /fd SHA256 /tr "{{.WINDOWS_SIGN_TIMESTAMP_URL}}" /td SHA256 "{{.TARGET}}"
+        signtool verify /pa /v "{{.TARGET}}"
+        {{else}}
+        echo "未设置 WINDOWS_SIGN_CERT_SHA1，跳过 Windows 签名：{{.TARGET}}"
+        {{end}}
 
   create:zip:
     summary: 生成 Windows ZIP 包（包含 exe 与 certs）

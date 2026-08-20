@@ -29,6 +29,32 @@ task dev
 task build
 ```
 
+### 发布签名
+
+默认构建不需要证书，产物仅用于本地测试。公开发布前必须在 CI 或受控发布机中配置下列变量，切勿把证书密码、私钥或 Apple 凭据提交到仓库：
+
+```bash
+# Windows：当前用户证书存储中的代码签名证书 SHA-1 指纹
+WINDOWS_SIGN_CERT_SHA1=0123456789ABCDEF... \
+WINDOWS_SIGN_TIMESTAMP_URL=https://timestamp.digicert.com \
+task build:windows:amd64
+
+# macOS：Developer ID 证书名称和预先创建的 notarytool Keychain profile
+MACOS_SIGN_IDENTITY='Developer ID Application: Example, Inc. (TEAMID)' \
+MACOS_NOTARY_PROFILE='notary-profile' \
+task build:darwin:arm64
+```
+
+Windows PowerShell 可使用：
+
+```powershell
+$env:WINDOWS_SIGN_CERT_SHA1 = '0123456789ABCDEF...'
+$env:WINDOWS_SIGN_TIMESTAMP_URL = 'https://timestamp.digicert.com'
+task build:windows:amd64
+```
+
+Windows 默认使用 NSIS。`FORMAT=msix` 仅在所安装的 Wails CLI 支持 `wails3 tool msix` 时可用；MSIX 的 Publisher 必须与签名证书 Subject 完全一致。
+
 ## 项目结构
 
 ```
