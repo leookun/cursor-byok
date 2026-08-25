@@ -82,7 +82,7 @@ export function CursorModelEditor({ draft, providers, editing, modelOptions, dis
         ? <Combobox value={draft.model.model_id} options={modelOptions} placeholder="例如：gpt-4.1" append={<button type="button" className={controls.secondary} disabled={discovering || !canDiscover} onClick={onDiscover}>{discovering ? t("获取中…") : t("获取模型")}</button>} onChange={(model_id) => setModel({ model_id, display_name: draft.model.display_name || model_id })} />
         : <MultiCombobox value={draft.modelIds} options={modelOptions} placeholder="例如：gpt-4.1" append={<button type="button" className={controls.secondary} disabled={discovering || !canDiscover} onClick={onDiscover}>{discovering ? t("获取中…") : t("获取模型")}</button>} onChange={setModelIds} />
       }</FormField>
-      <FormField label={t("自定义上下文")} hint={t("输入 token 数后，将作为额外选项添加到 Cursor 模型的 Context 列表；只有在 Cursor 中选中该选项时才会生效。")}>
+      <FormField label={t("自定义上下文")} hint={t("自定义模型上下文长度，配置后优先使用自定义项")}>
         <TextInput type="number" min={1} step={1} aria-label={t("自定义上下文 tokens")} placeholder={t("例如：272000")} value={draft.model.context_window_tokens ?? ""} onChange={(event) => setModel({ context_window_tokens: event.target.value === "" ? null : Math.trunc(Number(event.target.value)) })} />
       </FormField>
       <div className={styles.fullWidth}><Checkbox label={t("自定义请求完整地址")} checked={draft.customRequestUrl} onChange={(customRequestUrl) => onChange({ ...draft, customRequestUrl, model: { ...draft.model, request_url: customRequestUrl ? draft.model.request_url : "" } })} /></div>

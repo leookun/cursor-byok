@@ -199,7 +199,9 @@ export const appStore = {
     update({ cursorBusy: true, error: null });
     try {
       const updated = await api.updateModel(hash, model);
-      await appStore.refresh();
+      update({
+        models: snapshot.models.map((current) => current.model_hash === hash ? updated : current),
+      });
       return updated;
     } catch (cause) {
       update({ error: cause instanceof Error ? cause.message : String(cause) });

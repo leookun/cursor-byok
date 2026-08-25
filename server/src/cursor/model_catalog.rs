@@ -44,6 +44,10 @@ struct AvailableModel {
     supports_images: Option<bool>,
     #[prost(bool, optional, tag = "14")]
     supports_max_mode: Option<bool>,
+    #[prost(int32, optional, tag = "15")]
+    context_token_limit: Option<i32>,
+    #[prost(int32, optional, tag = "16")]
+    context_token_limit_for_max_mode: Option<i32>,
     #[prost(string, optional, tag = "17")]
     client_display_name: Option<String>,
     #[prost(string, optional, tag = "18")]
@@ -205,20 +209,32 @@ const EFFORTS: [(&str, &str); 5] = [
 ];
 const DEFAULT_CONTEXT: &str = "200k";
 
-fn context_options(model: &ProviderModel) -> Vec<(String, String)> {
-    let mut contexts = CONTEXTS
+fn configured_context(model: &ProviderModel) -> Option<(String, String)> {
+    let tokens = model.context_window_tokens?;
+    CONTEXTS
         .into_iter()
+        .find(|(value, _)| parse_token_count(value) == Some(tokens))
         .map(|(value, display_name)| (value.to_owned(), display_name.to_owned()))
-        .collect::<Vec<_>>();
-    if let Some(tokens) = model.context_window_tokens {
-        let value = tokens.to_string();
-        let duplicate = contexts
-            .iter()
-            .any(|(existing, _)| parse_token_count(existing) == Some(tokens));
-        if !duplicate {
-            contexts.push((value, format!("{} (Custom)", format_token_count(tokens))));
-        }
+        .or_else(|| Some((tokens.to_string(), format_token_count(tokens))))
+}
+
+fn context_options(model: &ProviderModel) -> Vec<(String, String)> {
+    let configured = configured_context(model);
+    let mut contexts =
+        Vec::with_capacity(CONTEXTS.len() + if configured.is_some() { 1 } else { 0 });
+    if let Some(context) = configured.as_ref() {
+        contexts.push(context.clone());
     }
+    contexts.extend(
+        CONTEXTS
+            .into_iter()
+            .filter(|(value, _)| {
+                configured.as_ref().map_or(true, |(configured_value, _)| {
+                    configured_value.as_str() != *value
+                })
+            })
+            .map(|(value, display_name)| (value.to_owned(), display_name.to_owned())),
+    );
     contexts
 }
 
@@ -342,12 +358,18 @@ fn unary_payload(body: &Bytes) -> Result<(bool, &[u8])> {
 
 fn available_model(model: &ProviderModel, provider_name: &str) -> AvailableModel {
     let contexts = context_options(model);
+    let default_context_name = configured_context(model)
+        .map(|(_, display_name)| display_name)
+        .unwrap_or_else(|| "200K".into());
+    let context_token_limit = model
+        .context_window_tokens
+        .map(|tokens| tokens.min(i32::MAX as u64) as i32);
     let variants = model_variants(model, &contexts);
     let legacy_slugs = variants
         .iter()
         .filter_map(|variant| variant.legacy_slug.clone())
         .collect();
-    let tooltip = model_tooltip(model, "200K", "high", false);
+    let tooltip = model_tooltip(model, &default_context_name, "high", false);
     AvailableModel {
         name: model.model_hash.clone(),
         default_on: true,
@@ -357,6 +379,8 @@ fn available_model(model: &ProviderModel, provider_name: &str) -> AvailableModel
         supports_thinking: Some(true),
         supports_images: Some(true),
         supports_max_mode: Some(true),
+        context_token_limit,
+        context_token_limit_for_max_mode: context_token_limit,
         client_display_name: Some(model.display_name.clone()),
         server_model_name: Some(model.model_hash.clone()),
         supports_non_max_mode: Some(true),
@@ -448,6 +472,9 @@ fn model_parameters(contexts: &[(String, String)]) -> Vec<ModelParameterDefiniti
 }
 
 fn model_variants(model: &ProviderModel, contexts: &[(String, String)]) -> Vec<ModelVariant> {
+    let default_context = configured_context(model)
+        .map(|(value, _)| value)
+        .unwrap_or_else(|| DEFAULT_CONTEXT.to_owned());
     let mut variants = Vec::with_capacity(contexts.len() * EFFORTS.len() * 2);
     for (context, context_name) in contexts {
         for (effort, effort_name) in EFFORTS {
@@ -456,6 +483,7 @@ fn model_variants(model: &ProviderModel, contexts: &[(String, String)]) -> Vec<M
                     model,
                     context,
                     context_name,
+                    &default_context,
                     effort,
                     effort_name,
                     fast,
@@ -470,6 +498,7 @@ fn model_variant(
     model: &ProviderModel,
     context: &str,
     context_name: &str,
+    default_context: &str,
     effort: &str,
     effort_name: &str,
     fast: bool,
@@ -487,7 +516,7 @@ fn model_variant(
         "{} <span style=\"color: var(--cursor-text-tertiary);\">{suffix}</span>",
         model.display_name
     );
-    let is_default = context == DEFAULT_CONTEXT && effort == "high" && !fast;
+    let is_default = context == default_context && effort == "high" && !fast;
     ModelVariant {
         parameter_values: vec![
             ModelParameterValue {
@@ -581,6 +610,8 @@ mod tests {
         assert_eq!(mapped.supports_thinking, Some(true));
         assert_eq!(mapped.supports_images, Some(true));
         assert_eq!(mapped.supports_max_mode, Some(true));
+        assert_eq!(mapped.context_token_limit, Some(272_000));
+        assert_eq!(mapped.context_token_limit_for_max_mode, Some(272_000));
         assert_eq!(mapped.supports_non_max_mode, Some(true));
         assert_eq!(mapped.supports_plan_mode, Some(true));
         assert_eq!(mapped.supports_sandboxing, Some(true));
@@ -609,7 +640,7 @@ mod tests {
             .iter()
             .map(|value| value.value.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(context_values, ["200k", "356k", "800k", "1m", "272000"]);
+        assert_eq!(context_values, ["272000", "200k", "356k", "800k", "1m"]);
         let custom_context = context
             .parameter_type
             .as_ref()
@@ -621,10 +652,7 @@ mod tests {
             .iter()
             .find(|value| value.value == "272000")
             .unwrap();
-        assert_eq!(
-            custom_context.display_name.as_deref(),
-            Some("272K (Custom)")
-        );
+        assert_eq!(custom_context.display_name.as_deref(), Some("272K"));
         let effort = mapped
             .parameter_definitions
             .iter()
@@ -652,7 +680,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             default.variant_string_representation.as_deref(),
-            Some("33ceed20[context=200k,effort=high,fast=false]")
+            Some("33ceed20[context=272000,effort=high,fast=false]")
         );
         assert_eq!(mapped.vendor.unwrap().display_name, "Cursor");
         assert!(usable_model(&model).thinking_details.is_some());
