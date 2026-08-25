@@ -79,6 +79,10 @@ fn router_with_proxy(registry: CursorSessionRegistry, proxy: CursorProxy) -> Rou
             post(rules::remove),
         )
         .route(
+            "/aiserver.v1.AiService/FetchRelevantKnowledgeForConversation",
+            post(rules::relevant),
+        )
+        .route(
             analytics::BOOTSTRAP_STATSIG_PATH,
             post(analytics::bootstrap_statsig),
         )

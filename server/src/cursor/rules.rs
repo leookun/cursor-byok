@@ -18,6 +18,10 @@ struct KnowledgeBaseAddRequest {
     knowledge: String,
     #[prost(string, tag = "2")]
     title: String,
+    #[prost(string, tag = "3")]
+    _git_origin: String,
+    #[prost(string, optional, tag = "4")]
+    _composer_id: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -32,6 +36,8 @@ struct KnowledgeBaseAddResponse {
 struct KnowledgeBaseListRequest {
     #[prost(int32, optional, tag = "1")]
     limit: Option<i32>,
+    #[prost(string, optional, tag = "2")]
+    _git_origin: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -82,6 +88,38 @@ struct KnowledgeBaseRemoveRequest {
 struct KnowledgeBaseRemoveResponse {
     #[prost(bool, tag = "1")]
     success: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FetchRelevantKnowledgeForConversationRequest {
+    #[prost(string, tag = "1")]
+    _request_id: String,
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    _conversation: Vec<Vec<u8>>,
+    #[prost(string, optional, tag = "3")]
+    _git_origin: Option<String>,
+    #[prost(int32, optional, tag = "4")]
+    limit: Option<i32>,
+    #[prost(string, repeated, tag = "5")]
+    _tagged_filenames: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FetchRelevantKnowledgeForConversationResponse {
+    #[prost(message, repeated, tag = "1")]
+    knowledge_items: Vec<RelevantKnowledgeItem>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct RelevantKnowledgeItem {
+    #[prost(string, tag = "1")]
+    title: String,
+    #[prost(string, tag = "2")]
+    knowledge: String,
+    #[prost(string, tag = "3")]
+    knowledge_id: String,
+    #[prost(bool, tag = "4")]
+    is_generated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,6 +184,35 @@ pub async fn list(request: Request<Body>) -> Result<Response<Body>> {
             })
             .collect(),
     })
+}
+
+pub async fn relevant(request: Request<Body>) -> Result<Response<Body>> {
+    let request = decode::<FetchRelevantKnowledgeForConversationRequest>(request).await?;
+    let store = RuleStore::open(config::global_rules_dir()?)?;
+    let rules = store.list()?;
+    proto(&FetchRelevantKnowledgeForConversationResponse {
+        knowledge_items: relevant_knowledge_items(rules, request.limit),
+    })
+}
+
+fn relevant_knowledge_items(rules: Vec<Rule>, limit: Option<i32>) -> Vec<RelevantKnowledgeItem> {
+    let limit = limit
+        .filter(|limit| *limit >= 0)
+        .map(|limit| limit as usize);
+    rules
+        .into_iter()
+        .take(limit.unwrap_or(usize::MAX))
+        .map(relevant_knowledge_item)
+        .collect()
+}
+
+fn relevant_knowledge_item(rule: Rule) -> RelevantKnowledgeItem {
+    RelevantKnowledgeItem {
+        title: rule.id.clone(),
+        knowledge: rule.knowledge,
+        knowledge_id: rule.id,
+        is_generated: false,
+    }
 }
 
 pub async fn update(request: Request<Body>) -> Result<Response<Body>> {
@@ -304,6 +371,45 @@ fn valid_id(id: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relevant_knowledge_is_global_across_git_origins() {
+        let rules = vec![
+            Rule {
+                id: "first-rule".into(),
+                knowledge: "always write tests".into(),
+                created_at: "2026-08-25T00:00:00Z".into(),
+            },
+            Rule {
+                id: "second-rule".into(),
+                knowledge: "keep modules small".into(),
+                created_at: "2026-08-25T00:01:00Z".into(),
+            },
+        ];
+
+        let project_a = relevant_knowledge_items(rules.clone(), Some(10));
+        let project_b = relevant_knowledge_items(rules, Some(10));
+
+        assert_eq!(project_a, project_b);
+        assert_eq!(
+            project_b
+                .into_iter()
+                .map(|item| item.knowledge_id)
+                .collect::<Vec<_>>(),
+            vec!["first-rule", "second-rule"]
+        );
+    }
+
+    #[test]
+    fn relevant_knowledge_honors_a_non_negative_limit() {
+        let rules = vec![Rule {
+            id: "rule-id".into(),
+            knowledge: "always write tests".into(),
+            created_at: "2026-08-25T00:00:00Z".into(),
+        }];
+
+        assert!(relevant_knowledge_items(rules, Some(0)).is_empty());
+    }
 
     #[tokio::test]
     async fn rule_response_uses_raw_protobuf_like_the_cursor_connect_handler() {
