@@ -19,6 +19,7 @@ pub mod prompting;
 pub mod proto;
 pub mod proxy;
 pub mod request;
+mod rules;
 pub mod run_sse;
 pub mod session;
 pub mod sessions;

@@ -13,7 +13,7 @@ use crate::{
         observability::CursorTraceRecorder,
         proto::{agent::v1 as agent, aiserver::v1 as ai},
         proxy::{self, CursorProxy},
-        run_sse, tab,
+        rules, run_sse, tab,
     },
     cursor::{CursorParent, CursorSessionRegistry},
     Result,
@@ -64,6 +64,19 @@ fn router_with_proxy(registry: CursorSessionRegistry, proxy: CursorProxy) -> Rou
         .route(
             "/aiserver.v1.DashboardService/GetUsageLimitStatusAndActiveGrants",
             post(account::usage_limit_status),
+        )
+        .route("/aiserver.v1.AiService/KnowledgeBaseAdd", post(rules::add))
+        .route(
+            "/aiserver.v1.AiService/KnowledgeBaseList",
+            post(rules::list),
+        )
+        .route(
+            "/aiserver.v1.AiService/KnowledgeBaseUpdate",
+            post(rules::update),
+        )
+        .route(
+            "/aiserver.v1.AiService/KnowledgeBaseRemove",
+            post(rules::remove),
         )
         .route(
             analytics::BOOTSTRAP_STATSIG_PATH,
