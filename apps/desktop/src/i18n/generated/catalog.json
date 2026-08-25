@@ -998,6 +998,18 @@
         }
       ]
     },
+    "312051befbdeb20e": {
+      "source": "自定义模型上下文长度，配置后优先使用自定义项",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/cursor/CursorModelEditor.tsx",
+          "line": 85,
+          "column": 44
+        }
+      ]
+    },
     "36f33adaf0942634": {
       "source": "确认",
       "kind": "text",
@@ -3911,18 +3923,6 @@
           "file": "pages/SettingsPage.tsx",
           "line": 61,
           "column": 17
-        }
-      ]
-    },
-    "e671f8c7598139ef": {
-      "source": "输入 token 数后，将作为额外选项添加到 Cursor 模型的 Context 列表；只有在 Cursor 中选中该选项时才会生效。",
-      "kind": "text",
-      "placeholders": [],
-      "refs": [
-        {
-          "file": "components/cursor/CursorModelEditor.tsx",
-          "line": 85,
-          "column": 44
         }
       ]
     },

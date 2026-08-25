@@ -120,6 +120,7 @@ pub struct ProviderModel {
 impl ProviderModel {
     pub fn configure(&self, model: &mut super::ModelSpec) {
         model.display_name = Some(self.display_name.clone());
+        model.context_window_tokens = self.context_window_tokens.or(model.context_window_tokens);
         model.supports_image_generation = self.supports_image_generation;
         model.reasoning.enabled |= self.reasoning_enabled;
     }
@@ -311,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn requested_runtime_limits_are_not_overridden_by_provider_config() {
+    fn configured_context_window_has_priority_over_cursor_selection() {
         let provider = ProviderModel {
             model_hash: "12345678".into(),
             provider_id: 1,
@@ -332,10 +333,10 @@ mod tests {
         let mut selected = super::super::ModelSpec::new("12345678");
         selected.context_window_tokens = Some(800_000);
         provider.configure(&mut selected);
-        assert_eq!(selected.context_window_tokens, Some(800_000));
+        assert_eq!(selected.context_window_tokens, Some(200_000));
 
         let mut defaulted = super::super::ModelSpec::new("12345678");
         provider.configure(&mut defaulted);
-        assert_eq!(defaulted.context_window_tokens, None);
+        assert_eq!(defaulted.context_window_tokens, Some(200_000));
     }
 }
