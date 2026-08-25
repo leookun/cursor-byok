@@ -7,10 +7,19 @@ use crate::{Error, Result};
 
 const DATA_DIR_NAME: &str = ".cursor-byok-v3";
 const DATABASE_FILE_NAME: &str = "cursor-byok.db";
+const RULES_DIR_NAME: &str = "rules";
 
 pub fn managed_data_dir() -> Result<PathBuf> {
     let home_dir = dirs::home_dir()
         .ok_or_else(|| Error::Config("cannot resolve user home directory".into()))?;
+    managed_data_dir_in(&home_dir)
+}
+
+pub fn global_rules_dir() -> Result<PathBuf> {
+    Ok(managed_data_dir()?.join(RULES_DIR_NAME).join("global"))
+}
+
+fn managed_data_dir_in(home_dir: &std::path::Path) -> Result<PathBuf> {
     let data_dir = home_dir.join(DATA_DIR_NAME);
     fs::create_dir_all(&data_dir)?;
     #[cfg(unix)]

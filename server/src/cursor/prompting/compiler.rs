@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use crate::{
+    cursor::rules,
     model::{ModelSpec, PromptSpec, ToolDefinition},
     Error, Result,
 };
@@ -10,11 +12,22 @@ use super::{assets::runtime_expression, Mode, PromptAssets};
 #[derive(Clone)]
 pub struct PromptCompiler {
     assets: PromptAssets,
+    global_rules_dir: Option<PathBuf>,
 }
 
 impl PromptCompiler {
     pub fn new(assets: PromptAssets) -> Self {
-        Self { assets }
+        Self {
+            assets,
+            global_rules_dir: None,
+        }
+    }
+
+    pub fn with_global_rules_dir(assets: PromptAssets, directory: impl Into<PathBuf>) -> Self {
+        Self {
+            assets,
+            global_rules_dir: Some(directory.into()),
+        }
     }
 
     pub fn runtime_message(&self, mode: Mode, values: &BTreeMap<&str, String>) -> Result<String> {
@@ -39,14 +52,27 @@ impl PromptCompiler {
             .display_name
             .as_deref()
             .unwrap_or(model.model_id.as_str());
+        let instructions = self
+            .assets
+            .mode(mode)
+            .prompt
+            .replace("{{FAKE_MODEL_NAME}}", fake_model_name);
         Ok(PromptSpec {
-            instructions: self
-                .assets
-                .mode(mode)
-                .prompt
-                .replace("{{FAKE_MODEL_NAME}}", fake_model_name),
+            instructions: self.append_global_rules(instructions)?,
             tools,
         })
+    }
+
+    fn append_global_rules(&self, mut instructions: String) -> Result<String> {
+        let Some(directory) = &self.global_rules_dir else {
+            return Ok(instructions);
+        };
+        let rules = rules::system_prompt_section(directory.clone())?;
+        if !rules.is_empty() {
+            instructions.push_str("\n\n");
+            instructions.push_str(&rules);
+        }
+        Ok(instructions)
     }
 
     fn tools(&self, mode: Mode, suppress_subagent_progress: bool) -> Vec<ToolDefinition> {
