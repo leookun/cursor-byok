@@ -103,6 +103,16 @@
   flex: 0 0 auto;
 }
 
+.reserveControl {
+  width: 180px;
+  flex: 0 0 auto;
+}
+
+.settingValue {
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
 .portSettings {
   display: grid;
   gap: 14px;

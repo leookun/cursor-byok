@@ -15,7 +15,6 @@ use crate::{
 
 use super::{consume_model_cycle, ModelCycleFailure, RunFailure, RunOutcome};
 
-const COMPACTION_RESERVE_TOKENS: u64 = 10_000;
 const COMPACTION_OUTPUT_TOKENS: u64 = 4_096;
 const COMPACTION_FALLBACK_CHARS: usize = 12_000;
 const COMPACTION_INSTRUCTIONS: &str = "Summarize the conversation for the next model turn. Preserve goals, constraints, decisions, files, commands, errors, results, and unfinished work. Do not call tools. Return only the concise durable summary.";
@@ -166,6 +165,11 @@ impl RunEngine {
             };
         }
 
+        let compaction_reserve_tokens = match self.store.compaction_settings().await {
+            Ok(settings) => settings.reserve_tokens,
+            Err(error) => return (RunOutcome::Failed(error.into()), usage),
+        };
+
         let mut auto_compacted = prepared.action == RunAction::Compact;
         'model: loop {
             if cancellation.is_cancelled() {
@@ -190,7 +194,14 @@ impl RunEngine {
             } else {
                 None
             };
-            if !auto_compacted && should_auto_compact(prepared, &messages, context_anchor) {
+            if !auto_compacted
+                && should_auto_compact(
+                    prepared,
+                    &messages,
+                    context_anchor,
+                    compaction_reserve_tokens,
+                )
+            {
                 auto_compacted = true;
                 match self
                     .auto_compact(prepared, revision, &messages, client, cancellation)
@@ -622,6 +633,7 @@ fn should_auto_compact(
     prepared: &PreparedRun,
     messages: &[CanonicalMessage],
     anchor: Option<ContextUsageAnchor>,
+    reserve_tokens: u64,
 ) -> bool {
     if prepared.action != RunAction::Start {
         return false;
@@ -629,9 +641,7 @@ fn should_auto_compact(
     let Some(context_window) = prepared.model.context_window_tokens else {
         return false;
     };
-    if context_window <= COMPACTION_RESERVE_TOKENS
-        || messages.len() <= prepared.initial_messages.len()
-    {
+    if context_window <= reserve_tokens || messages.len() <= prepared.initial_messages.len() {
         return false;
     }
     let estimated_input = anchor
@@ -645,7 +655,7 @@ fn should_auto_compact(
                 .saturating_add(estimate_message_tokens(&messages[anchor.message_count..]))
         })
         .unwrap_or_else(|| estimate_context_tokens(&prepared.prompt, messages));
-    estimated_input > context_window.saturating_sub(COMPACTION_RESERVE_TOKENS)
+    estimated_input > context_window.saturating_sub(reserve_tokens)
 }
 
 fn estimate_context_tokens(
@@ -875,7 +885,12 @@ mod tests {
             estimate_context_tokens(&prepared.prompt, &messages),
             190_813
         );
-        assert!(!should_auto_compact(&prepared, &messages, Some(anchor)));
+        assert!(!should_auto_compact(
+            &prepared,
+            &messages,
+            Some(anchor),
+            10_000
+        ));
     }
 
     #[test]
@@ -912,7 +927,60 @@ mod tests {
             tool_count: 0,
         };
 
-        assert!(should_auto_compact(&prepared, &messages, Some(anchor)));
+        assert!(should_auto_compact(
+            &prepared,
+            &messages,
+            Some(anchor),
+            10_000
+        ));
+    }
+
+    #[test]
+    fn configured_compaction_reserve_changes_the_trigger_threshold() {
+        let old_history =
+            CanonicalMessage::text("old-history", Role::User, Origin::User, "old history");
+        let current_runtime = CanonicalMessage::text(
+            "runtime:current",
+            Role::User,
+            Origin::Runtime,
+            "current request",
+        );
+        let messages = vec![old_history, current_runtime.clone()];
+        let prepared = PreparedRun {
+            run_id: RunId::new("run"),
+            cursor_request_id: None,
+            conversation_id: ConversationId::new("conversation"),
+            kind: RunKind::Root,
+            model: ModelSpec {
+                context_window_tokens: Some(800_000),
+                ..ModelSpec::new("model")
+            },
+            prompt: PromptSpec {
+                instructions: "system".into(),
+                tools: Vec::new(),
+            },
+            initial_messages: vec![current_runtime],
+            action: RunAction::Start,
+            base_revision_id: RevisionId(1),
+        };
+        let anchor = ContextUsageAnchor {
+            input_tokens: 675_000,
+            message_count: 1,
+            tool_count: 0,
+        };
+
+        assert!(!should_auto_compact(
+            &prepared,
+            &messages,
+            Some(anchor),
+            50_000
+        ));
+        assert!(should_auto_compact(
+            &prepared,
+            &messages,
+            Some(anchor),
+            150_000
+        ));
     }
 
     #[test]
