@@ -11,6 +11,7 @@ mod run;
 mod runtime_tag;
 mod token_count;
 mod tool;
+mod truncation;
 mod usage;
 
 pub use configuration::*;
@@ -26,4 +27,5 @@ pub use run::*;
 pub use runtime_tag::*;
 pub(crate) use token_count::*;
 pub use tool::*;
+pub(crate) use truncation::*;
 pub use usage::*;

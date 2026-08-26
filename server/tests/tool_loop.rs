@@ -20,7 +20,10 @@ use cursor_server::{
         },
     },
     cursor::{CursorCommand, CursorSessionRegistry},
-    model::{MessageContent, ToolCall},
+    model::{
+        MessageContent, ModelConfigInput, ModelType, ProjectedContent, ToolCall,
+        OPENAI_CHAT_ENDPOINT,
+    },
     provider::{FinishReason, ModelEvent},
 };
 use prost::Message;
@@ -989,7 +992,251 @@ async fn provider_tool_use_waits_for_client_result_then_calls_provider_again() {
     assert_eq!(tool_calls[0].call_id, "call-1");
 }
 
+#[tokio::test]
+async fn one_run_can_auto_compact_again_after_more_tool_output() {
+    let (directory, store) = fixtures::temp_store().await;
+    let model = store
+        .create_model(&ModelConfigInput {
+            sort_order: 0,
+            display_name: "Repeated compaction".into(),
+            model_type: ModelType::OpenAi,
+            base_url: "https://example.com/v1/chat/completions".into(),
+            use_full_url: true,
+            api_key: "test-key".into(),
+            tooltip_data: "Repeated compaction".into(),
+            model_id: "repeated-compaction-model".into(),
+            reasoning_effort: None,
+            openai_endpoint: OPENAI_CHAT_ENDPOINT.into(),
+            openai_extra_params_enabled: false,
+            openai_extra_params: json!({}),
+            custom_headers_enabled: false,
+            custom_headers: json!({}),
+            anthropic_extra_params_enabled: false,
+            anthropic_extra_params: json!({}),
+            context_window_tokens: Some(200_000),
+            max_completion_tokens: None,
+            anthropic_max_tokens: None,
+            anthropic_thinking_effort: None,
+            thinking_budget_tokens: None,
+        })
+        .await
+        .unwrap();
+    let provider = fake_provider::FakeProvider::default();
+    provider.push(tool_call_response("call-1"));
+    provider.push(text_events("first summary"));
+    provider.push(tool_call_response("call-2"));
+    provider.push(text_events("second summary"));
+    provider.push(text_events("done"));
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let registry = CursorSessionRegistry::new(
+        store.clone(),
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+        Default::default(),
+    );
+    let handle = registry
+        .get_or_create("repeated-compaction-request")
+        .await
+        .unwrap();
+    let mut output = handle.subscribe();
+    handle
+        .command(CursorCommand::Append {
+            seqno: 0,
+            message: Box::new(client_run_for_model(
+                "repeated-compaction-conversation",
+                "repeated-compaction-request",
+                &model.model_hash,
+                Some("200k"),
+            )),
+        })
+        .await
+        .unwrap();
+    let mut seqno = 1;
+    let oversized = format!("HEAD{}TAIL", "x".repeat(4 * 1024 * 1024));
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), output.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let (flags, payload) = connect::decode_frames(&frame).unwrap().pop().unwrap();
+        if flags & connect::END_STREAM_FLAG != 0 {
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&payload).unwrap(),
+                json!({})
+            );
+            break;
+        }
+        let server = pb::AgentServerMessage::decode(payload).unwrap();
+        match server.message {
+            Some(pb::agent_server_message::Message::KvServerMessage(kv)) => {
+                handle
+                    .command(CursorCommand::Append {
+                        seqno,
+                        message: Box::new(kv_ack(kv.id)),
+                    })
+                    .await
+                    .unwrap();
+                seqno += 1;
+            }
+            Some(pb::agent_server_message::Message::ExecServerMessage(exec)) => {
+                let exec_id = exec.id;
+                handle
+                    .command(CursorCommand::Append {
+                        seqno,
+                        message: Box::new(pb::AgentClientMessage {
+                            message: Some(pb::agent_client_message::Message::ExecClientMessage(
+                                pb::ExecClientMessage {
+                                    id: exec_id,
+                                    message: Some(pb::exec_client_message::Message::ReadResult(
+                                        pb::ReadResult {
+                                            result: Some(pb::read_result::Result::Success(
+                                                pb::ReadSuccess {
+                                                    path: "/tmp/large.txt".into(),
+                                                    total_lines: 1,
+                                                    file_size: oversized.len() as i64,
+                                                    output: Some(
+                                                        pb::read_success::Output::Content(
+                                                            oversized.clone(),
+                                                        ),
+                                                    ),
+                                                    ..Default::default()
+                                                },
+                                            )),
+                                        },
+                                    )),
+                                    ..Default::default()
+                                },
+                            )),
+                        }),
+                    })
+                    .await
+                    .unwrap();
+                seqno += 1;
+                handle
+                    .command(CursorCommand::Append {
+                        seqno,
+                        message: Box::new(pb::AgentClientMessage {
+                            message: Some(
+                                pb::agent_client_message::Message::ExecClientControlMessage(
+                                    pb::ExecClientControlMessage {
+                                        message: Some(
+                                            pb::exec_client_control_message::Message::StreamClose(
+                                                pb::ExecClientStreamClose { id: exec_id },
+                                            ),
+                                        ),
+                                    },
+                                ),
+                            ),
+                        }),
+                    })
+                    .await
+                    .unwrap();
+                seqno += 1;
+            }
+            _ => {}
+        }
+    }
+
+    let requests = provider.requests();
+    let shapes = requests
+        .iter()
+        .map(|request| {
+            (
+                request.model.context_window_tokens,
+                request.prompt.tools.len(),
+                request.history.len(),
+                request
+                    .history
+                    .iter()
+                    .filter_map(|message| match &message.content {
+                        ProjectedContent::ToolResult(result) => Some(result.content.len()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(requests.len(), 5, "provider requests: {shapes:?}");
+    assert!(!requests[0].prompt.tools.is_empty());
+    assert!(requests[1].prompt.tools.is_empty());
+    assert!(!requests[2].prompt.tools.is_empty());
+    assert!(requests[3].prompt.tools.is_empty());
+    assert!(!requests[4].prompt.tools.is_empty());
+    for request in [&requests[1], &requests[3]] {
+        let result = request
+            .history
+            .iter()
+            .find_map(|message| match &message.content {
+                ProjectedContent::ToolResult(result) => Some(result),
+                _ => None,
+            })
+            .expect("compaction request must contain a projected tool result");
+        assert!(result.content.len() <= 64 * 1024);
+        assert!(result.content.contains("omitted middle"));
+    }
+    let database = sqlx::SqlitePool::connect(&format!(
+        "sqlite://{}",
+        directory.path().join("test.db").display()
+    ))
+    .await
+    .unwrap();
+    let full_result_lengths =
+        sqlx::query_scalar::<_, i64>("SELECT length(result_content) FROM tool_round_calls")
+            .fetch_all(&database)
+            .await
+            .unwrap();
+    assert_eq!(full_result_lengths.len(), 2);
+    assert!(full_result_lengths
+        .iter()
+        .all(|length| *length > 4 * 1024 * 1024));
+}
+
+fn tool_call_response(call_id: &str) -> Vec<ModelEvent> {
+    vec![
+        ModelEvent::Start {
+            model_call_id: format!("model-{call_id}"),
+        },
+        ModelEvent::ToolCallStart {
+            index: 0,
+            call_id: call_id.into(),
+            name: "Read".into(),
+        },
+        ModelEvent::ToolCallArgumentsDelta {
+            index: 0,
+            delta: "{\"path\":\"/tmp/large.txt\"}".into(),
+        },
+        ModelEvent::ToolCallEnd { index: 0 },
+        ModelEvent::Done(FinishReason::ToolUse),
+    ]
+}
+
+fn text_events(text: &str) -> Vec<ModelEvent> {
+    vec![
+        ModelEvent::Start {
+            model_call_id: format!("model-{text}"),
+        },
+        ModelEvent::TextStart,
+        ModelEvent::TextDelta(text.into()),
+        ModelEvent::TextEnd,
+        ModelEvent::Done(FinishReason::Stop),
+    ]
+}
+
 fn client_run() -> pb::AgentClientMessage {
+    client_run_for_model("tool-conversation", "tool-request", "test-model", None)
+}
+
+fn client_run_for_model(
+    conversation_id: &str,
+    run_id: &str,
+    model_id: &str,
+    context: Option<&str>,
+) -> pb::AgentClientMessage {
     let user = pb::UserMessage {
         text: "read it".into(),
         message_id: "user".into(),
@@ -1008,10 +1255,17 @@ fn client_run() -> pb::AgentClientMessage {
                     )),
                     ..Default::default()
                 }),
-                conversation_id: Some("tool-conversation".into()),
-                run_id: Some("tool-request".into()),
+                conversation_id: Some(conversation_id.into()),
+                run_id: Some(run_id.into()),
                 requested_model: Some(pb::RequestedModel {
-                    model_id: "test-model".into(),
+                    model_id: model_id.into(),
+                    parameters: context
+                        .into_iter()
+                        .map(|value| pb::requested_model::ModelParameterValue {
+                            id: "context".into(),
+                            value: value.into(),
+                        })
+                        .collect(),
                     ..Default::default()
                 }),
                 ..Default::default()

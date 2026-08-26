@@ -166,7 +166,7 @@ impl RunEngine {
             };
         }
 
-        let mut auto_compacted = prepared.action == RunAction::Compact;
+        let mut last_auto_compaction_revision = None;
         'model: loop {
             if cancellation.is_cancelled() {
                 return (RunOutcome::Cancelled, usage);
@@ -175,7 +175,9 @@ impl RunEngine {
                 Ok(messages) => messages,
                 Err(error) => return (RunOutcome::Failed(error.into()), usage),
             };
-            let context_anchor = if !auto_compacted && prepared.action == RunAction::Start {
+            let auto_compaction_allowed =
+                auto_compaction_allowed(&prepared.action, revision, last_auto_compaction_revision);
+            let context_anchor = if auto_compaction_allowed {
                 match self
                     .store
                     .latest_llm_call_usage_anchor(
@@ -190,14 +192,14 @@ impl RunEngine {
             } else {
                 None
             };
-            if !auto_compacted && should_auto_compact(prepared, &messages, context_anchor) {
-                auto_compacted = true;
+            if auto_compaction_allowed && should_auto_compact(prepared, &messages, context_anchor) {
                 match self
                     .auto_compact(prepared, revision, &messages, client, cancellation)
                     .await
                 {
                     Ok((next_revision, compaction_usage)) => {
                         revision = next_revision;
+                        last_auto_compaction_revision = Some(revision);
                         if let Some(compaction_usage) = compaction_usage {
                             accumulate_usage(&mut usage, compaction_usage);
                         }
@@ -533,7 +535,7 @@ impl RunEngine {
                 (fallback_summary(&compactable), failure.usage)
             }
         };
-        let event_id = format!("summary:auto:{}", prepared.run_id);
+        let event_id = format!("summary:auto:{}:{provider_call_index}", prepared.run_id);
         let summary_message = CanonicalMessage {
             message_id: format!("runtime:{event_id}"),
             role: Role::User,
@@ -646,6 +648,14 @@ fn should_auto_compact(
         })
         .unwrap_or_else(|| estimate_context_tokens(&prepared.prompt, messages));
     estimated_input > context_window.saturating_sub(COMPACTION_RESERVE_TOKENS)
+}
+
+fn auto_compaction_allowed(
+    action: &RunAction,
+    revision: crate::model::RevisionId,
+    last_auto_compaction_revision: Option<crate::model::RevisionId>,
+) -> bool {
+    matches!(action, RunAction::Start) && last_auto_compaction_revision != Some(revision)
 }
 
 fn estimate_context_tokens(
@@ -801,8 +811,8 @@ fn failure_message(failure: &RunFailure) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        auto_compaction_partition, estimate_context_tokens, hydrate_tool_images,
-        should_auto_compact, ContextUsageAnchor,
+        auto_compaction_allowed, auto_compaction_partition, estimate_context_tokens,
+        hydrate_tool_images, should_auto_compact, ContextUsageAnchor,
     };
     use crate::{
         model::{
@@ -913,6 +923,29 @@ mod tests {
         };
 
         assert!(should_auto_compact(&prepared, &messages, Some(anchor)));
+    }
+
+    #[test]
+    fn automatic_compaction_can_run_again_after_the_revision_advances() {
+        let first = RevisionId(1);
+        let after_more_tool_results = RevisionId(2);
+
+        assert!(auto_compaction_allowed(&RunAction::Start, first, None));
+        assert!(!auto_compaction_allowed(
+            &RunAction::Start,
+            first,
+            Some(first)
+        ));
+        assert!(auto_compaction_allowed(
+            &RunAction::Start,
+            after_more_tool_results,
+            Some(first)
+        ));
+        assert!(!auto_compaction_allowed(
+            &RunAction::Compact,
+            after_more_tool_results,
+            None
+        ));
     }
 
     #[test]
