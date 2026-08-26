@@ -312,5 +312,10 @@
   "fec45092945f8790": "User guide",
   "ff509c9ba052a21c": "Saving…",
   "ff66b1c7e010bbc2": "Paste the authorization command into the terminal and enter your password, then click the button below",
-  "ff673195f05fb056": "Service port"
+  "ff673195f05fb056": "Service port",
+  "07221b6f22670f62": "Add upstream from preset",
+  "ea4bf042d1bc5eb8": "Models",
+  "e0835538d5122de3": "model_id must match the vendor; extra models are auto-discovered from the vendor API on save",
+  "4587cc06a981e3cd": "Display name",
+  "6135d4159e892541": "Remove"
 }

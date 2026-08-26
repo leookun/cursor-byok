@@ -1,0 +1,103 @@
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--oa-card-radius, 9px);
+  border: 1px solid var(--vscode-editorWidget-border, rgba(255, 255, 255, 0.06));
+  background: var(--vscode-editorWidget-background, #1f1f1f);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+
+  &:hover {
+    border-color: var(--vscode-focusBorder, #49b0ff);
+    background: var(--vscode-editorHoverWidget-background, #202020);
+  }
+
+  &[data-added] {
+    opacity: 0.72;
+  }
+}
+
+.iconWrap {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.typeBadge,
+.addedBadge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.7));
+  white-space: nowrap;
+}
+
+.addedBadge {
+  border-color: rgba(73, 176, 255, 0.55);
+  color: var(--vscode-focusBorder, #49b0ff);
+}
+
+.description {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.7));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.modelChip {
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--vscode-textCodeBlock-background, #2a2a2a);
+  color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.7));
+  white-space: nowrap;
+}
