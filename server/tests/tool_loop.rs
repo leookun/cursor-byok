@@ -1013,7 +1013,7 @@ async fn one_run_can_auto_compact_again_after_more_tool_output() {
             custom_headers: json!({}),
             anthropic_extra_params_enabled: false,
             anthropic_extra_params: json!({}),
-            context_window_tokens: Some(200_000),
+            context_window_tokens: Some(40_000),
             max_completion_tokens: None,
             anthropic_max_tokens: None,
             anthropic_thinking_effort: None,
@@ -1051,7 +1051,7 @@ async fn one_run_can_auto_compact_again_after_more_tool_output() {
                 "repeated-compaction-conversation",
                 "repeated-compaction-request",
                 &model.model_hash,
-                Some("200k"),
+                Some("40k"),
             )),
         })
         .await

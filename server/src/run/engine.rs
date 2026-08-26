@@ -6,8 +6,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     client::{ClientEvent, ClientPort, CommitBarrier, CommitCause, StateCommitted},
     model::{
-        CanonicalMessage, MessageContent, Origin, PreparedRun, Role, RunAction, ToolRoundAssistant,
-        ToolRoundId, Usage,
+        CanonicalMessage, MessageContent, Origin, PreparedRun, ProjectedMessage, Role, RunAction,
+        ToolRoundAssistant, ToolRoundId, Usage,
     },
     provider::Provider,
     store::{RunStatus, Store},
@@ -175,6 +175,10 @@ impl RunEngine {
                 Ok(messages) => messages,
                 Err(error) => return (RunOutcome::Failed(error.into()), usage),
             };
+            let projected_history = match crate::model::project_messages(&messages) {
+                Ok(history) => history,
+                Err(error) => return (RunOutcome::Failed(error.into()), usage),
+            };
             let auto_compaction_allowed =
                 auto_compaction_allowed(&prepared.action, revision, last_auto_compaction_revision);
             let context_anchor = if auto_compaction_allowed {
@@ -192,7 +196,9 @@ impl RunEngine {
             } else {
                 None
             };
-            if auto_compaction_allowed && should_auto_compact(prepared, &messages, context_anchor) {
+            if auto_compaction_allowed
+                && should_auto_compact(prepared, &messages, &projected_history, context_anchor)
+            {
                 match self
                     .auto_compact(prepared, revision, &messages, client, cancellation)
                     .await
@@ -217,10 +223,7 @@ impl RunEngine {
                 revision_id = revision.0,
                 "starting model call"
             );
-            let mut history = match crate::model::project_messages(&messages) {
-                Ok(history) => history,
-                Err(error) => return (RunOutcome::Failed(error.into()), usage),
-            };
+            let mut history = projected_history;
             if let Err(error) = hydrate_tool_images(&self.store, &mut history).await {
                 return (RunOutcome::Failed(error.into()), usage);
             }
@@ -622,7 +625,8 @@ impl ContextUsageAnchor {
 
 fn should_auto_compact(
     prepared: &PreparedRun,
-    messages: &[CanonicalMessage],
+    canonical_messages: &[CanonicalMessage],
+    projected_history: &[ProjectedMessage],
     anchor: Option<ContextUsageAnchor>,
 ) -> bool {
     if prepared.action != RunAction::Start {
@@ -632,21 +636,21 @@ fn should_auto_compact(
         return false;
     };
     if context_window <= COMPACTION_RESERVE_TOKENS
-        || messages.len() <= prepared.initial_messages.len()
+        || canonical_messages.len() <= prepared.initial_messages.len()
     {
         return false;
     }
     let estimated_input = anchor
         .filter(|anchor| {
-            anchor.message_count <= messages.len()
+            anchor.message_count <= projected_history.len()
                 && anchor.tool_count == prepared.prompt.tools.len()
         })
         .map(|anchor| {
-            anchor
-                .input_tokens
-                .saturating_add(estimate_message_tokens(&messages[anchor.message_count..]))
+            anchor.input_tokens.saturating_add(estimate_message_tokens(
+                &projected_history[anchor.message_count..],
+            ))
         })
-        .unwrap_or_else(|| estimate_context_tokens(&prepared.prompt, messages));
+        .unwrap_or_else(|| estimate_context_tokens(&prepared.prompt, projected_history));
     estimated_input > context_window.saturating_sub(COMPACTION_RESERVE_TOKENS)
 }
 
@@ -660,13 +664,13 @@ fn auto_compaction_allowed(
 
 fn estimate_context_tokens(
     prompt: &crate::model::PromptSpec,
-    messages: &[CanonicalMessage],
+    messages: &[ProjectedMessage],
 ) -> u64 {
     let serialized = serde_json::to_string(&(prompt, messages)).unwrap_or_default();
     estimate_serialized_tokens(&serialized)
 }
 
-fn estimate_message_tokens(messages: &[CanonicalMessage]) -> u64 {
+fn estimate_message_tokens(messages: &[ProjectedMessage]) -> u64 {
     let serialized = serde_json::to_string(messages).unwrap_or_default();
     estimate_serialized_tokens(&serialized)
 }
@@ -812,13 +816,13 @@ fn failure_message(failure: &RunFailure) -> String {
 mod tests {
     use super::{
         auto_compaction_allowed, auto_compaction_partition, estimate_context_tokens,
-        hydrate_tool_images, should_auto_compact, ContextUsageAnchor,
+        estimate_serialized_tokens, hydrate_tool_images, should_auto_compact, ContextUsageAnchor,
     };
     use crate::{
         model::{
-            CanonicalMessage, ContentPart, ConversationId, ModelSpec, Origin, PreparedRun,
-            ProjectedContent, ProjectedMessage, PromptSpec, RevisionId, Role, RunAction, RunId,
-            RunKind, ToolImageReference, ToolResultContent,
+            project_messages, CanonicalMessage, ContentPart, ConversationId, MessageContent,
+            ModelSpec, Origin, PreparedRun, ProjectedContent, ProjectedMessage, PromptSpec,
+            RevisionId, Role, RunAction, RunId, RunKind, ToolImageReference, ToolResultContent,
         },
         store::Store,
     };
@@ -842,6 +846,8 @@ mod tests {
             Origin::User,
             "x".repeat(100_000),
         )];
+        let short = project_messages(&short).unwrap();
+        let long = project_messages(&long).unwrap();
 
         assert!(estimate_context_tokens(&prompt, &long) > 25_000);
         assert!(estimate_context_tokens(&prompt, &long) > estimate_context_tokens(&prompt, &short));
@@ -880,12 +886,15 @@ mod tests {
             message_count: 1,
             tool_count: 0,
         };
+        let projected = project_messages(&messages).unwrap();
 
-        assert_eq!(
-            estimate_context_tokens(&prepared.prompt, &messages),
-            190_813
-        );
-        assert!(!should_auto_compact(&prepared, &messages, Some(anchor)));
+        assert!(estimate_context_tokens(&prepared.prompt, &projected) > 180_000);
+        assert!(!should_auto_compact(
+            &prepared,
+            &messages,
+            &projected,
+            Some(anchor)
+        ));
     }
 
     #[test]
@@ -921,8 +930,65 @@ mod tests {
             message_count: 1,
             tool_count: 0,
         };
+        let projected = project_messages(&messages).unwrap();
 
-        assert!(should_auto_compact(&prepared, &messages, Some(anchor)));
+        assert!(should_auto_compact(
+            &prepared,
+            &messages,
+            &projected,
+            Some(anchor)
+        ));
+    }
+
+    #[test]
+    fn stored_full_tool_result_does_not_cause_early_compaction_after_projection() {
+        let current_runtime = CanonicalMessage::text(
+            "runtime:current",
+            Role::User,
+            Origin::Runtime,
+            "current request",
+        );
+        let messages = vec![
+            CanonicalMessage::text("history", Role::User, Origin::User, "old context"),
+            CanonicalMessage {
+                message_id: "large-result".into(),
+                role: Role::Tool,
+                origin: Origin::Tool,
+                content: MessageContent::ToolResult(ToolResultContent {
+                    call_id: "call".into(),
+                    name: "Glob".into(),
+                    content: "x".repeat(4 * 1024 * 1024),
+                    is_error: false,
+                    image: None,
+                    provider_parts: Vec::new(),
+                }),
+                runtime_event_id: None,
+            },
+            current_runtime.clone(),
+        ];
+        let prepared = PreparedRun {
+            run_id: RunId::new("run"),
+            cursor_request_id: None,
+            conversation_id: ConversationId::new("conversation"),
+            kind: RunKind::Root,
+            model: ModelSpec {
+                context_window_tokens: Some(800_000),
+                ..ModelSpec::new("model")
+            },
+            prompt: PromptSpec {
+                instructions: "system".into(),
+                tools: Vec::new(),
+            },
+            initial_messages: vec![current_runtime],
+            action: RunAction::Start,
+            base_revision_id: RevisionId(1),
+        };
+        let projected = project_messages(&messages).unwrap();
+        let stored = serde_json::to_string(&(&prepared.prompt, &messages)).unwrap();
+
+        assert!(estimate_serialized_tokens(&stored) > 790_000);
+        assert!(estimate_context_tokens(&prepared.prompt, &projected) < 790_000);
+        assert!(!should_auto_compact(&prepared, &messages, &projected, None));
     }
 
     #[test]
