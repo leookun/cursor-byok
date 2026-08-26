@@ -145,6 +145,10 @@ export interface DesktopSettings {
   silent_start: boolean;
 }
 
+export interface CompactionSettings {
+  reserve_tokens: number;
+}
+
 export interface OverviewMetrics {
   llm_calls: number;
   successful_calls: number;
@@ -335,4 +339,6 @@ export const api = {
   setTabSettings: (settings: TabSettings) => request<TabSettings>("/settings/tab", { method: "PUT", body: JSON.stringify(settings) }),
   desktopSettings: () => request<DesktopSettings>("/settings/desktop"),
   setDesktopSettings: (settings: DesktopSettings) => request<DesktopSettings>("/settings/desktop", { method: "PUT", body: JSON.stringify(settings) }),
+  compactionSettings: () => request<CompactionSettings>("/settings/compaction"),
+  setCompactionSettings: (settings: CompactionSettings) => request<CompactionSettings>("/settings/compaction", { method: "PUT", body: JSON.stringify(settings) }),
 };

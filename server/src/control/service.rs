@@ -22,8 +22,8 @@ use crate::{
     },
     provider::{ModelEvent, Provider},
     store::{
-        DesktopSettings, PortSettings, ProxySettings, ProxySettingsInput, StatisticsStorage, Store,
-        TabSettings,
+        CompactionSettings, DesktopSettings, PortSettings, ProxySettings, ProxySettingsInput,
+        StatisticsStorage, Store, TabSettings,
     },
     Error, Result,
 };
@@ -541,6 +541,17 @@ impl ControlService {
 
     pub async fn set_desktop_settings(&self, settings: DesktopSettings) -> Result<()> {
         self.store.set_desktop_settings(settings).await
+    }
+
+    pub async fn compaction_settings(&self) -> Result<CompactionSettings> {
+        self.store.compaction_settings().await
+    }
+
+    pub async fn set_compaction_settings(
+        &self,
+        settings: CompactionSettings,
+    ) -> Result<CompactionSettings> {
+        self.store.set_compaction_settings(settings).await
     }
 }
 

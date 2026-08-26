@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type ProxySettings, type ProxySettingsInput, type StatisticsStorage, type TabSettings } from "../api";
+import { api, type CompactionSettings, type ProxySettings, type ProxySettingsInput, type StatisticsStorage, type TabSettings } from "../api";
 import { PageContent } from "../components/layout/PageContent";
 import { LegacyModelImport } from "../components/models/LegacyModelImport";
 import { AppLifecycleSettingsCard } from "../components/settings/AppLifecycleSettingsCard";
@@ -36,13 +36,19 @@ export function SettingsPage() {
   const [tabDraft, setTabDraft] = useState<TabSettings>({ mode: "public", address: "" });
   const [editingTab, setEditingTab] = useState(false);
   const [savingTab, setSavingTab] = useState(false);
+  const [compactionSettings, setCompactionSettings] = useState<CompactionSettings | null>(null);
+  const [compactionReserveDraft, setCompactionReserveDraft] = useState("100000");
+  const [editingCompaction, setEditingCompaction] = useState(false);
+  const [savingCompaction, setSavingCompaction] = useState(false);
   useEffect(() => {
-    void Promise.all([api.statisticsStorage(), api.proxySettings(), api.tabSettings()]).then(([nextStorage, nextProxy, nextTab]) => {
+    void Promise.all([api.statisticsStorage(), api.proxySettings(), api.tabSettings(), api.compactionSettings()]).then(([nextStorage, nextProxy, nextTab, nextCompaction]) => {
       setStorage(nextStorage);
       setOutboundProxy(nextProxy);
       setProxyDraft({ mode: nextProxy.mode, address: nextProxy.address, auth_enabled: nextProxy.auth_enabled, username: nextProxy.username, password: "" });
       setTabSettings(nextTab);
       setTabDraft(nextTab);
+      setCompactionSettings(nextCompaction);
+      setCompactionReserveDraft(String(nextCompaction.reserve_tokens));
     }).catch((cause) => message(cause instanceof Error ? cause.message : String(cause)));
   }, [message]);
   useEffect(() => {
@@ -146,6 +152,35 @@ export function SettingsPage() {
       setSavingTab(false);
     }
   };
+  const editCompaction = () => {
+    if (!compactionSettings) return;
+    setCompactionReserveDraft(String(compactionSettings.reserve_tokens));
+    setEditingCompaction(true);
+  };
+  const cancelCompactionEdit = () => {
+    if (compactionSettings) {
+      setCompactionReserveDraft(String(compactionSettings.reserve_tokens));
+    }
+    setEditingCompaction(false);
+  };
+  const saveCompaction = async () => {
+    try {
+      const reserveTokens = Number(compactionReserveDraft);
+      if (!Number.isSafeInteger(reserveTokens) || reserveTokens < 50_000 || reserveTokens > 150_000) {
+        throw new Error(t("压缩预留 tokens 必须是 50000–150000 之间的整数"));
+      }
+      setSavingCompaction(true);
+      const saved = await api.setCompactionSettings({ reserve_tokens: reserveTokens });
+      setCompactionSettings(saved);
+      setCompactionReserveDraft(String(saved.reserve_tokens));
+      setEditingCompaction(false);
+      message(t("压缩预留设置已保存"));
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSavingCompaction(false);
+    }
+  };
   const formatBytes = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     const units = ["KB", "MB", "GB", "TB"];
@@ -169,6 +204,36 @@ export function SettingsPage() {
             checked={detailed}
             onChange={(checked) => void appStore.updateDetailed(checked)}
           />
+        </div>
+      </TitledCard>
+      <TitledCard title={t("上下文压缩")} action={editingCompaction ? (
+        <div className={styles.cardActions}>
+          <Button size="small" disabled={savingCompaction} onClick={cancelCompactionEdit}>{t("取消")}</Button>
+          <Button variant="primary" size="small" disabled={savingCompaction} onClick={() => void saveCompaction()}>{savingCompaction ? t("保存中…") : t("保存")}</Button>
+        </div>
+      ) : (
+        <button type="button" className={styles.textButton} disabled={!compactionSettings} onClick={editCompaction}>{t("编辑")}</button>
+      )}>
+        <div className={styles.settingRow}>
+          <div>
+            <strong>{t("压缩预留 tokens")}</strong>
+            <small>{t("在所选上下文上限前预留空间并提前压缩；可设置 50000–150000，默认 100000。")}</small>
+          </div>
+          {editingCompaction ? (
+            <div className={styles.reserveControl}>
+              <TextInput
+                aria-label={t("压缩预留 tokens")}
+                type="number"
+                min={50_000}
+                max={150_000}
+                step={1_000}
+                value={compactionReserveDraft}
+                onChange={(event) => setCompactionReserveDraft(event.target.value)}
+              />
+            </div>
+          ) : (
+            <span className={styles.settingValue}>{compactionSettings ? compactionSettings.reserve_tokens.toLocaleString() : t("加载中…")}</span>
+          )}
         </div>
       </TitledCard>
       <TitledCard title={t("端口设置")} action={editingPorts ? (
