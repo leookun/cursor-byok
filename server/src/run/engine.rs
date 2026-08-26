@@ -541,6 +541,9 @@ impl RunEngine {
         model.max_output_tokens = Some(COMPACTION_OUTPUT_TOKENS);
         model.reasoning.enabled = false;
         model.reasoning.effort = None;
+        let instructions = crate::config::compaction_prompt_override()
+            .map_err(|error| RunOutcome::Failed(error.into()))?
+            .unwrap_or_else(|| COMPACTION_INSTRUCTIONS.into());
         let invocation = crate::model::ModelInvocation {
             call_id: format!("{}:{provider_call_index}", prepared.run_id),
             run_id: prepared.run_id.to_string(),
@@ -548,7 +551,7 @@ impl RunEngine {
             provider_call_index,
             request: crate::model::ModelRequest {
                 prompt: crate::model::PromptSpec {
-                    instructions: COMPACTION_INSTRUCTIONS.into(),
+                    instructions,
                     tools: Vec::new(),
                 },
                 model,

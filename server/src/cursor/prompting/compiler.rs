@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
     model::{ModelSpec, PromptSpec, ToolDefinition},
@@ -10,11 +10,22 @@ use super::{assets::runtime_expression, Mode, PromptAssets};
 #[derive(Clone)]
 pub struct PromptCompiler {
     assets: PromptAssets,
+    compaction_prompt_path: Option<PathBuf>,
 }
 
 impl PromptCompiler {
     pub fn new(assets: PromptAssets) -> Self {
-        Self { assets }
+        Self {
+            assets,
+            compaction_prompt_path: None,
+        }
+    }
+
+    pub fn with_compaction_prompt_path(assets: PromptAssets, path: PathBuf) -> Self {
+        Self {
+            assets,
+            compaction_prompt_path: Some(path),
+        }
     }
 
     pub fn runtime_message(&self, mode: Mode, values: &BTreeMap<&str, String>) -> Result<String> {
@@ -39,12 +50,13 @@ impl PromptCompiler {
             .display_name
             .as_deref()
             .unwrap_or(model.model_id.as_str());
+        let prompt = match (mode, &self.compaction_prompt_path) {
+            (Mode::Compaction, Some(path)) => crate::config::compaction_prompt_override_at(path)?
+                .unwrap_or_else(|| self.assets.mode(mode).prompt.clone()),
+            _ => self.assets.mode(mode).prompt.clone(),
+        };
         Ok(PromptSpec {
-            instructions: self
-                .assets
-                .mode(mode)
-                .prompt
-                .replace("{{FAKE_MODEL_NAME}}", fake_model_name),
+            instructions: prompt.replace("{{FAKE_MODEL_NAME}}", fake_model_name),
             tools,
         })
     }

@@ -9,6 +9,7 @@ const DATA_DIR_NAME: &str = ".cursor-byok-v3";
 const DATABASE_FILE_NAME: &str = "cursor-byok.db";
 const V0049_DATA_DIR_NAME: &str = ".cursor-local-assistant-v2";
 const V0049_CONFIG_FILE_NAME: &str = "config.yaml";
+const COMPACTION_PROMPT_PATH: &str = "prompts/compaction.md";
 
 pub fn managed_data_dir() -> Result<PathBuf> {
     let home_dir = dirs::home_dir()
@@ -26,6 +27,26 @@ pub fn v0049_config_path() -> Result<PathBuf> {
     Ok(home_dir
         .join(V0049_DATA_DIR_NAME)
         .join(V0049_CONFIG_FILE_NAME))
+}
+
+pub fn compaction_prompt_path() -> Result<PathBuf> {
+    Ok(managed_data_dir()?.join(COMPACTION_PROMPT_PATH))
+}
+
+pub fn compaction_prompt_override() -> Result<Option<String>> {
+    compaction_prompt_override_at(&compaction_prompt_path()?)
+}
+
+pub(crate) fn compaction_prompt_override_at(path: &std::path::Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(prompt) if prompt.trim().is_empty() => Ok(None),
+        Ok(prompt) => Ok(Some(prompt)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(Error::Config(format!(
+            "cannot read compaction prompt at {}: {error}",
+            path.display()
+        ))),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,6 +176,21 @@ fn database_url_for_dir(data_dir: &std::path::Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compaction_prompt_override_is_optional_and_reloaded() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("compaction.md");
+
+        assert_eq!(compaction_prompt_override_at(&path).unwrap(), None);
+        fs::write(&path, "  \n").unwrap();
+        assert_eq!(compaction_prompt_override_at(&path).unwrap(), None);
+        fs::write(&path, "custom prompt").unwrap();
+        assert_eq!(
+            compaction_prompt_override_at(&path).unwrap().as_deref(),
+            Some("custom prompt")
+        );
+    }
 
     #[tokio::test]
     async fn managed_database_supports_home_paths_with_spaces() {
