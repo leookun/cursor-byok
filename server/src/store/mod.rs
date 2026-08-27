@@ -12,6 +12,7 @@ mod runs;
 mod settings;
 mod sqlite;
 mod storage;
+mod subscription_accounts;
 mod tool_rounds;
 mod writer;
 
@@ -23,4 +24,5 @@ pub use settings::*;
 pub(crate) use sqlite::now_ms;
 pub use sqlite::Store;
 pub use storage::*;
+pub use subscription_accounts::{SubscriptionAccount, SubscriptionUsageUpdate};
 pub use tool_rounds::*;

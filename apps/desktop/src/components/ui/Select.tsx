@@ -1,5 +1,5 @@
 import { autoUpdate, computePosition, flip, offset, shift, size } from "@floating-ui/dom";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { VirtualList } from "../virtual/VirtualList";
 import type { VirtualListApi } from "../virtual/virtualTypes";
@@ -9,50 +9,79 @@ import styles from "./Select.module.scss";
 
 export type SelectOption = { value: string; label: string; icon?: IconProps["icon"] };
 
-export function Select({ value, options, disabled, ariaLabel, onChange }: { value: string; options: SelectOption[]; disabled?: boolean; ariaLabel: string; onChange: (value: string) => void }) {
+const MENU_MAX_HEIGHT = 240;
+const MENU_ITEM_HEIGHT = 30;
+const MENU_SEARCH_HEIGHT = 36;
+
+export function Select({ value, options, disabled, ariaLabel, searchable, onChange }: {
+  value: string;
+  options: SelectOption[];
+  disabled?: boolean;
+  ariaLabel: string;
+  searchable?: boolean;
+  onChange: (value: string) => void;
+}) {
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
   const listApi = useRef<VirtualListApi | null>(null);
   const menuId = useId();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 });
+  const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: MENU_MAX_HEIGHT });
   const selected = options.find((option) => option.value === value);
+  const showSearch = Boolean(searchable) && options.length > 6;
+  const filtered = useMemo(() => {
+    if (!showSearch) return options;
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return options;
+    return options.filter((option) => option.label.toLocaleLowerCase().includes(normalized) || option.value.toLocaleLowerCase().includes(normalized));
+  }, [options, query, showSearch]);
 
   useLayoutEffect(() => {
     if (!open || !button.current || !menu.current) return;
     return autoUpdate(button.current, menu.current, () => void computePosition(button.current!, menu.current!, {
       placement: "bottom-start",
-      middleware: [offset(5), flip({ padding: 10 }), shift({ padding: 10 }), size({ padding: 10, apply: ({ rects, availableHeight }) => setPosition((current) => ({ ...current, width: rects.reference.width, maxHeight: Math.max(120, availableHeight) })) })],
+      middleware: [offset(5), flip({ padding: 10 }), shift({ padding: 10 }), size({ padding: 10, apply: ({ rects, availableHeight }) => setPosition((current) => ({ ...current, width: rects.reference.width, maxHeight: Math.min(MENU_MAX_HEIGHT, Math.max(120, availableHeight)) })) })],
     }).then(({ x, y }) => setPosition((current) => ({ ...current, left: x, top: y }))));
-  }, [open]);
+  }, [open, filtered.length, showSearch]);
   useEffect(() => {
     if (open && active >= 0) listApi.current?.scrollToIndex(active);
-  }, [active, open]);
+  }, [active, open, filtered.length]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!button.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node)) setOpen(false); };
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
+  useEffect(() => {
+    if (open && showSearch) search.current?.focus();
+  }, [open, showSearch]);
 
   const move = (step: number) => {
-    if (!options.length) return;
+    if (!filtered.length) return;
     setOpen(true);
-    setActive((index) => (index + step + options.length) % options.length);
+    setActive((index) => (index + step + filtered.length) % filtered.length);
   };
-  const choose = (option: SelectOption) => { onChange(option.value); setOpen(false); button.current?.focus(); };
+  const choose = (option: SelectOption) => { onChange(option.value); setOpen(false); setQuery(""); button.current?.focus(); };
+  const listHeight = Math.min(filtered.length * MENU_ITEM_HEIGHT, Math.max(MENU_ITEM_HEIGHT, position.maxHeight - 8 - (showSearch ? MENU_SEARCH_HEIGHT : 0)));
+  const onListKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); move(1); }
+    if (event.key === "ArrowUp") { event.preventDefault(); move(-1); }
+    if (event.key === "Enter" && open && filtered[active]) { event.preventDefault(); choose(filtered[active]); }
+    if (event.key === "Escape") { event.preventDefault(); setOpen(false); button.current?.focus(); }
+  };
   return <>
-    <button ref={button} type="button" className={styles.trigger} aria-label={ariaLabel} aria-haspopup="listbox" aria-controls={open ? menuId : undefined} aria-expanded={open} disabled={disabled} onClick={() => { const nextOpen = !open; setOpen(nextOpen); if (nextOpen) setActive(Math.max(0, options.findIndex((option) => option.value === value))); }} onKeyDown={(event) => {
-      if (event.key === "ArrowDown") { event.preventDefault(); move(1); }
-      if (event.key === "ArrowUp") { event.preventDefault(); move(-1); }
-      if (event.key === "Enter" && open) { event.preventDefault(); choose(options[active]); }
-      if (event.key === "Escape") setOpen(false);
+    <button ref={button} type="button" className={styles.trigger} aria-label={ariaLabel} aria-haspopup="listbox" aria-controls={open ? menuId : undefined} aria-expanded={open} disabled={disabled} onClick={() => { const nextOpen = !open; setOpen(nextOpen); if (nextOpen) { setQuery(""); setActive(Math.max(0, options.findIndex((option) => option.value === value))); } }} onKeyDown={(event) => {
+      if (showSearch && open) return;
+      onListKeyDown(event);
     }}><span className={styles.optionContent}>{selected?.icon && <Icon icon={selected.icon} />}<span>{selected?.label ?? value}</span></span><Icon icon={chevronDownIcon} size="1.1em" className={[styles.dropdownIcon, open && styles.dropdownIconOpen].filter(Boolean).join(" ")} /></button>
-    {open && createPortal(<div id={menuId} ref={menu} className={styles.menu} role="listbox" style={{ left: position.left, top: position.top, width: position.width }}>
-      <VirtualList items={options} itemKey="value" estimatedItemHeight={30} onReady={(api) => { listApi.current = api; api.scrollToIndex(active); }} style={{ height: Math.min(options.length * 30, Math.max(30, position.maxHeight - 8)) }}>
+    {open && createPortal(<div id={menuId} ref={menu} className={styles.menu} role="listbox" style={{ left: position.left, top: position.top, width: position.width }} onPointerDown={(event) => event.stopPropagation()}>
+      {showSearch && <input ref={search} className={styles.search} value={query} placeholder={t("搜索账号")} aria-label={t("搜索账号")} onChange={(event) => { setQuery(event.target.value); setActive(0); }} onKeyDown={onListKeyDown} />}
+      {filtered.length ? <VirtualList items={filtered} itemKey="value" estimatedItemHeight={MENU_ITEM_HEIGHT} onReady={(api) => { listApi.current = api; api.scrollToIndex(active); }} style={{ height: listHeight }}>
         {(option, index) => <button type="button" role="option" aria-selected={option.value === value} data-active={index === active || undefined} onMouseEnter={() => setActive(index)} onClick={() => choose(option)}><span className={styles.optionContent}>{option.icon && <Icon icon={option.icon} />}<span>{option.label}</span></span></button>}
-      </VirtualList>
+      </VirtualList> : <div className={styles.empty}>{t("无匹配项")}</div>}
     </div>, document.body)}
   </>;
 }

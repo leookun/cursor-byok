@@ -226,6 +226,15 @@
   flex-direction: column;
   gap: 7px;
 }
+.apiKeyField {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.authButton {
+  align-self: flex-start;
+}
 .switches {
   display: flex;
   flex-direction: column;

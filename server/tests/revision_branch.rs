@@ -91,6 +91,42 @@ async fn selecting_an_old_revision_creates_a_branch_without_old_suffixes() {
 }
 
 #[tokio::test]
+async fn retrying_the_same_prefix_from_the_same_base_reuses_the_revision() {
+    let (_directory, store) = fixtures::temp_store().await;
+    let conversation_id = ConversationId::new("retried-conversation");
+    let root = store.ensure_conversation(&conversation_id).await.unwrap();
+    let first = prepared("run-1", &conversation_id, root);
+    store.claim_run(&first).await.unwrap();
+    let user = fixtures::user("hello", "你好");
+    let first_revision = store
+        .append_revision(
+            &conversation_id,
+            &first.run_id,
+            root,
+            std::slice::from_ref(&user),
+        )
+        .await
+        .unwrap();
+
+    let second = prepared("run-2", &conversation_id, root);
+    store.claim_run(&second).await.unwrap();
+    let reused = store
+        .append_revision(
+            &conversation_id,
+            &second.run_id,
+            root,
+            std::slice::from_ref(&user),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reused, first_revision);
+    assert_eq!(
+        store.load_revision_messages(reused).await.unwrap(),
+        vec![user]
+    );
+}
+
+#[tokio::test]
 async fn reused_cursor_request_id_maps_to_the_current_distinct_execution() {
     let (_directory, store) = fixtures::temp_store().await;
     let conversation_id = ConversationId::new("queued-conversation");

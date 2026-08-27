@@ -10,6 +10,7 @@ pub mod network;
 pub mod provider;
 pub mod run;
 pub mod store;
+pub mod subscription;
 pub mod web;
 
 pub use app::App;

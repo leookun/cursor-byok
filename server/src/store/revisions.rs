@@ -271,7 +271,7 @@ impl Store {
         digest: [u8; 32],
     ) -> Result<RevisionId> {
         Self::require_active_head_tx(tx, conversation_id, run_id, expected).await?;
-        if sqlx::query_scalar::<_, i64>(
+        if let Some(existing) = sqlx::query_scalar::<_, i64>(
             "SELECT revision_id FROM conversation_revisions
              WHERE conversation_id = ? AND state_digest = ?",
         )
@@ -279,14 +279,29 @@ impl Store {
         .bind(digest.as_slice())
         .fetch_optional(&mut **tx)
         .await?
-        .is_some()
         {
-            return Err(Error::Store(
-                "active append would reuse an existing revision instead of creating a child".into(),
-            ));
+            // A retried turn can rebuild the same prefix from the same base.
+            // Reuse that revision instead of treating identical state as a conflict.
+            Self::advance_active_head_tx(tx, conversation_id, run_id, expected, RevisionId(existing))
+                .await?;
+            return Ok(RevisionId(existing));
         }
         let revision =
             Self::insert_revision_tx(tx, conversation_id, expected, additions, digest).await?;
+        Self::advance_active_head_tx(tx, conversation_id, run_id, expected, revision).await?;
+        Ok(revision)
+    }
+
+    async fn advance_active_head_tx(
+        tx: &mut Transaction<'_, Sqlite>,
+        conversation_id: &ConversationId,
+        run_id: &RunId,
+        expected: RevisionId,
+        revision: RevisionId,
+    ) -> Result<()> {
+        if revision == expected {
+            return Ok(());
+        }
         let updated = sqlx::query(
             "UPDATE conversations SET current_revision_id = ?, updated_at_ms = ?
              WHERE conversation_id = ? AND current_revision_id = ? AND active_run_id = ?",
@@ -310,7 +325,7 @@ impl Store {
             .bind(run_id.as_str())
             .execute(&mut **tx)
             .await?;
-        Ok(revision)
+        Ok(())
     }
 
     async fn insert_revision_tx(

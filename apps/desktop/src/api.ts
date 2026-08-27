@@ -62,6 +62,11 @@ export interface ModelDiscoveryInput {
   custom_headers: Record<string, string>;
 }
 
+export interface DiscoveredModel {
+  id: string;
+  context_window_tokens: number | null;
+}
+
 export interface LegacyModelImportPreviewItem {
   model_hash: string;
   display_name: string;
@@ -91,6 +96,73 @@ export interface ModelConnectivityResult {
   tokens_per_second: number;
   tokens_estimated: boolean;
   output: string;
+}
+
+export interface GrokDeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string | null;
+  expires_in: number;
+  interval: number;
+}
+
+export interface GrokTokenPollResponse {
+  status: "success" | "pending" | "slow_down" | "expired" | "access_denied" | "error";
+  access_token: string | null;
+  refresh_token: string | null;
+  token_type: string | null;
+  expires_in: number | null;
+  error_message: string | null;
+}
+
+export interface CodexDeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string | null;
+  expires_in: number;
+  interval: number;
+}
+
+export interface CodexTokenPollResponse {
+  status: "success" | "pending" | "slow_down" | "expired" | "access_denied" | "error";
+  access_token: string | null;
+  refresh_token: string | null;
+  token_type: string | null;
+  expires_in: number | null;
+  error_message: string | null;
+}
+
+export interface SubscriptionUsage {
+  plan_label: string | null;
+  remaining_percent: number | null;
+  used_percent: number | null;
+  reset_at_ms: number | null;
+  limit_reached: boolean;
+  session_remaining_percent: number | null;
+  session_reset_at_ms: number | null;
+}
+
+export interface SubscriptionAccount {
+  account_id: string;
+  provider: string;
+  display_name: string;
+  plan_label: string | null;
+  remaining_percent: number | null;
+  used_percent: number | null;
+  reset_at_ms: number | null;
+  session_remaining_percent: number | null;
+  session_reset_at_ms: number | null;
+  limit_reached: boolean;
+  active: boolean;
+}
+
+export interface SubscriptionImportResult {
+  imported: number;
+  skipped: number;
+  imported_names: string[];
+  errors: Array<{ name: string; message: string }>;
 }
 
 export type CaState = "missing" | "untrusted" | "ready" | "invalid";
@@ -286,13 +358,28 @@ export const api = {
   models: () => request<Model[]>("/models"),
   createModels: (models: ModelInput[]) => request<Model[]>("/models", { method: "POST", body: JSON.stringify({ models }) }),
   reorderModels: (modelHashes: string[]) => request<Model[]>("/models/order", { method: "PUT", body: JSON.stringify({ model_hashes: modelHashes }) }),
-  discoverModels: (input: ModelDiscoveryInput) => request<{ models: string[] }>("/models/discover", { method: "POST", body: JSON.stringify(input) }),
+  discoverModels: (input: ModelDiscoveryInput) => request<{ models: DiscoveredModel[] }>("/models/discover", { method: "POST", body: JSON.stringify(input) }),
   previewV0049Models: () => request<LegacyModelImportPreview>("/models/import-v0049"),
   importV0049Models: () => request<LegacyModelImportResult>("/models/import-v0049", { method: "POST" }),
   updateModel: (hash: string, model: ModelInput) => request<Model>(`/models/${hash}`, { method: "PUT", body: JSON.stringify(model) }),
   deleteModel: (hash: string) => request<void>(`/models/${hash}`, { method: "DELETE" }),
   testModel: (hash: string, testId: string, signal?: AbortSignal) => request<ModelConnectivityResult>(`/models/${hash}/test/${encodeURIComponent(testId)}`, { method: "POST", signal }),
   cancelModelTest: (hash: string, testId: string) => request<void>(`/models/${hash}/test/${encodeURIComponent(testId)}`, { method: "DELETE" }),
+  startGrokDeviceAuth: (clientId?: string) => request<GrokDeviceCodeResponse>("/auth/grok/device-code", { method: "POST", body: JSON.stringify({ client_id: clientId }) }),
+  pollGrokDeviceAuth: (deviceCode: string, clientId?: string) => request<GrokTokenPollResponse>("/auth/grok/poll", { method: "POST", body: JSON.stringify({ device_code: deviceCode, client_id: clientId }) }),
+  startCodexDeviceAuth: (clientId?: string) => request<CodexDeviceCodeResponse>("/auth/codex/device-code", { method: "POST", body: JSON.stringify({ client_id: clientId }) }),
+  pollCodexDeviceAuth: (deviceCode: string, userCode?: string, clientId?: string) => request<CodexTokenPollResponse>("/auth/codex/poll", { method: "POST", body: JSON.stringify({ device_code: deviceCode, user_code: userCode, client_id: clientId }) }),
+  grokUsage: (apiKey?: string) => request<SubscriptionUsage>("/auth/grok/usage", { method: "POST", body: JSON.stringify({ api_key: apiKey ?? null }) }),
+  codexUsage: (apiKey?: string) => request<SubscriptionUsage>("/auth/codex/usage", { method: "POST", body: JSON.stringify({ api_key: apiKey ?? null }) }),
+  grokAccounts: () => request<SubscriptionAccount[]>("/auth/grok/accounts"),
+  saveGrokAccount: (accessToken: string, refreshToken?: string | null) => request<SubscriptionAccount>("/auth/grok/accounts", { method: "POST", body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken ?? null }) }),
+  activateGrokAccount: (accountId: string) => request<SubscriptionAccount>(`/auth/grok/accounts/${encodeURIComponent(accountId)}`, { method: "PUT" }),
+  deleteGrokAccount: (accountId: string) => request<SubscriptionAccount[]>(`/auth/grok/accounts/${encodeURIComponent(accountId)}`, { method: "DELETE" }),
+  codexAccounts: () => request<SubscriptionAccount[]>("/auth/codex/accounts"),
+  saveCodexAccount: (accessToken: string, refreshToken?: string | null) => request<SubscriptionAccount>("/auth/codex/accounts", { method: "POST", body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken ?? null }) }),
+  activateCodexAccount: (accountId: string) => request<SubscriptionAccount>(`/auth/codex/accounts/${encodeURIComponent(accountId)}`, { method: "PUT" }),
+  deleteCodexAccount: (accountId: string) => request<SubscriptionAccount[]>(`/auth/codex/accounts/${encodeURIComponent(accountId)}`, { method: "DELETE" }),
+  importAccounts: (provider: "grok" | "codex", files: Array<{ name: string; content: unknown }>) => request<SubscriptionImportResult>("/auth/accounts/import", { method: "POST", body: JSON.stringify({ provider, files }) }),
   overview: (filter?: { startMs: number; endMs: number; modelHashes?: string[] }) => {
     const params = new URLSearchParams();
     if (filter) {

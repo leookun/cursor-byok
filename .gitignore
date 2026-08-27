@@ -33,3 +33,8 @@ cursor-tab-server/cursor-tab-server-linux-amd64.tar
 /scripts/cursor-proto/proto/*
 !/scripts/cursor-proto/proto/agent_v1.proto
 !/scripts/cursor-proto/proto/aiserver_v1.proto
+/xai-*.json
+/codex-*.json
+/chatgpt-*.json
+/openai-*.json
+/grok-*.json

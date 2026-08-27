@@ -25,12 +25,24 @@ pub fn fail(handle: &CursorSessionHandle, error: &Error) -> Result<()> {
         Error::Decode(_) | Error::Json(_) => plain_error(ConnectCode::InvalidArgument, error),
         Error::RunNotFound(_) => plain_error(ConnectCode::NotFound, error),
         Error::Cancelled => plain_error(ConnectCode::Canceled, error),
+        Error::Store(_) => detailed_error(
+            ConnectCode::InvalidArgument,
+            ai::error_details::Error::CustomMessage,
+            "Conversation Error",
+            error,
+            true,
+        ),
         Error::Config(_)
-        | Error::Store(_)
         | Error::Database(_)
         | Error::Migration(_)
         | Error::Encode(_)
-        | Error::Io(_) => plain_error(ConnectCode::Internal, error),
+        | Error::Io(_) => detailed_error(
+            ConnectCode::Internal,
+            ai::error_details::Error::Internal,
+            "Internal Error",
+            error,
+            true,
+        ),
     };
     handle.emit_frame(encode_error_end_stream(&stream_error)?);
     handle.close_output();
@@ -60,21 +72,37 @@ fn plain_message(code: ConnectCode, message: String) -> ConnectStreamError {
 }
 
 fn provider_error(error: &Error) -> ConnectStreamError {
+    detailed_error(
+        ConnectCode::Unavailable,
+        ai::error_details::Error::ProviderError,
+        "Provider Error",
+        error,
+        false,
+    )
+}
+
+fn detailed_error(
+    code: ConnectCode,
+    kind: ai::error_details::Error,
+    title: &str,
+    error: &Error,
+    should_show_immediate_error: bool,
+) -> ConnectStreamError {
     let detail = ai::ErrorDetails {
-        error: ai::error_details::Error::ProviderError as i32,
+        error: kind as i32,
         details: Some(ai::CustomErrorDetails {
-            title: "Provider Error".into(),
+            title: title.into(),
             detail: error.to_string(),
             allow_command_links_potentially_unsafe_please_only_use_for_handwritten_trusted_markdown:
                 Some(true),
             is_retryable: Some(true),
             show_request_id: Some(true),
-            should_show_immediate_error: Some(false),
+            should_show_immediate_error: Some(should_show_immediate_error),
         }),
         is_expected: Some(true),
     };
     ConnectStreamError {
-        code: ConnectCode::Unavailable,
+        code,
         message: error.to_string(),
         details: vec![ConnectErrorDetail {
             type_name: "aiserver.v1.ErrorDetails".into(),

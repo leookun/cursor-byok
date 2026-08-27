@@ -212,3 +212,64 @@ async fn provider_and_model_rows_upgrade_to_flat_model_configuration() {
         .unwrap()
         .is_empty());
 }
+
+#[tokio::test]
+async fn model_tokens_backfill_subscription_accounts() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("subscription-accounts.db");
+    let pool = sqlx::SqlitePool::connect_with(
+        SqliteConnectOptions::new()
+            .filename(&database)
+            .create_if_missing(true)
+            .foreign_keys(true),
+    )
+    .await
+    .unwrap();
+    let all = sqlx::migrate!("./migrations");
+    let prior = Migrator {
+        migrations: Cow::Owned(
+            all.iter()
+                .filter(|migration| migration.version <= 4)
+                .cloned()
+                .collect(),
+        ),
+        ignore_missing: false,
+        locking: true,
+        no_tx: false,
+    };
+    prior.run(&pool).await.unwrap();
+    sqlx::query(
+        r#"INSERT INTO model_configs(
+            model_hash, sort_order, display_name, model_type, base_url, use_full_url, api_key,
+            tooltip_data, model_id, openai_endpoint, openai_extra_params_enabled,
+            openai_extra_params_json, custom_headers_enabled, custom_headers_json,
+            anthropic_extra_params_enabled, anthropic_extra_params_json, created_at_ms, updated_at_ms
+        ) VALUES
+        ('grokhash', 1, 'grok-4', 'openai', 'https://api.x.ai/v1', 0, 'grok-token',
+         'xAI Grok', 'grok-4', '/v1/chat/completions', 0, '{}', 0, '{}', 0, '{}', 1, 1),
+        ('codexhash', 2, 'gpt-5.4', 'openai', 'https://chatgpt.com/backend-api/codex/responses', 1, 'codex-token',
+         'ChatGPT / OpenAI Codex', 'gpt-5.4', '/v1/responses', 0, '{}', 0, '{}', 0, '{}', 1, 1)"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    drop(pool);
+
+    let store = Store::connect(&format!("sqlite://{}", database.display()))
+        .await
+        .unwrap();
+    let grok = store
+        .subscription_accounts(cursor_server::subscription::SubscriptionKind::Grok)
+        .await
+        .unwrap();
+    let codex = store
+        .subscription_accounts(cursor_server::subscription::SubscriptionKind::Codex)
+        .await
+        .unwrap();
+    assert_eq!(grok.len(), 1);
+    assert_eq!(grok[0].access_token, "grok-token");
+    assert!(grok[0].active);
+    assert_eq!(codex.len(), 1);
+    assert_eq!(codex[0].access_token, "codex-token");
+    assert!(codex[0].active);
+}

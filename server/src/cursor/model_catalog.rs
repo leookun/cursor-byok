@@ -12,7 +12,11 @@ use crate::{
         proxy::{self, CursorProxy},
         CursorSessionRegistry,
     },
-    model::{format_token_count, parse_token_count, ModelConfig, ModelType},
+    model::{
+        context_label, is_gpt56_long_context_model, is_grok_model,
+        parse_token_count, GPT56_DEFAULT_CONTEXT_TOKENS, GPT56_LONG_CONTEXT_TOKENS, ModelConfig,
+        ModelType,
+    },
     Error, Result,
 };
 
@@ -204,20 +208,80 @@ const EFFORTS: [(&str, &str); 5] = [
 const DEFAULT_CONTEXT: &str = "200k";
 
 fn context_options(model: &ModelConfig) -> Vec<(String, String)> {
+    if is_gpt56_long_context_model(&model.model_id) {
+        return vec![
+            context_label(GPT56_DEFAULT_CONTEXT_TOKENS),
+            context_label(GPT56_LONG_CONTEXT_TOKENS),
+        ];
+    }
+    if is_grok_model(&model.model_id, &model.base_url, &model.tooltip_data) {
+        let mut contexts = Vec::new();
+        if let Some(tokens) = model.context_window_tokens {
+            contexts.push(context_label(tokens));
+        }
+        for (value, display_name) in CONTEXTS {
+            let tokens = parse_token_count(value).unwrap_or(0);
+            let allowed = model
+                .context_window_tokens
+                .map_or(true, |max| tokens > 0 && tokens <= max);
+            if allowed
+                && !contexts
+                    .iter()
+                    .any(|(existing, _)| parse_token_count(existing) == Some(tokens))
+            {
+                contexts.push((value.to_owned(), display_name.to_owned()));
+            }
+        }
+        if contexts.is_empty() {
+            contexts.extend(
+                CONTEXTS
+                    .into_iter()
+                    .map(|(value, display_name)| (value.to_owned(), display_name.to_owned())),
+            );
+        }
+        return contexts;
+    }
     let mut contexts = CONTEXTS
         .into_iter()
         .map(|(value, display_name)| (value.to_owned(), display_name.to_owned()))
         .collect::<Vec<_>>();
     if let Some(tokens) = model.context_window_tokens {
-        let value = tokens.to_string();
         let duplicate = contexts
             .iter()
             .any(|(existing, _)| parse_token_count(existing) == Some(tokens));
         if !duplicate {
-            contexts.push((value, format!("{} (Custom)", format_token_count(tokens))));
+            let (value, display) = context_label(tokens);
+            contexts.push((value, format!("{display} (Custom)")));
         }
     }
     contexts
+}
+
+fn default_context_value(model: &ModelConfig, contexts: &[(String, String)]) -> String {
+    if is_gpt56_long_context_model(&model.model_id) {
+        let tokens = model
+            .context_window_tokens
+            .filter(|tokens| *tokens >= GPT56_LONG_CONTEXT_TOKENS)
+            .unwrap_or(GPT56_DEFAULT_CONTEXT_TOKENS);
+        return matching_context_value(contexts, tokens)
+            .unwrap_or_else(|| context_label(GPT56_DEFAULT_CONTEXT_TOKENS).0);
+    }
+    if let Some(tokens) = model.context_window_tokens {
+        if let Some(value) = matching_context_value(contexts, tokens) {
+            return value;
+        }
+    }
+    contexts
+        .first()
+        .map(|(value, _)| value.clone())
+        .unwrap_or_else(|| DEFAULT_CONTEXT.to_owned())
+}
+
+fn matching_context_value(contexts: &[(String, String)], tokens: u64) -> Option<String> {
+    contexts
+        .iter()
+        .find(|(value, _)| parse_token_count(value) == Some(tokens))
+        .map(|(value, _)| value.clone())
 }
 
 pub async fn available_models(
@@ -322,7 +386,8 @@ fn unary_payload(body: &Bytes) -> Result<(bool, &[u8])> {
 
 fn available_model(model: &ModelConfig) -> AvailableModel {
     let contexts = context_options(model);
-    let variants = model_variants(model, &contexts);
+    let default_context = default_context_value(model, &contexts);
+    let variants = model_variants(model, &contexts, &default_context);
     let legacy_slugs = variants
         .iter()
         .filter_map(|variant| variant.legacy_slug.clone())
@@ -430,7 +495,11 @@ fn model_parameters(contexts: &[(String, String)]) -> Vec<ModelParameterDefiniti
     ]
 }
 
-fn model_variants(model: &ModelConfig, contexts: &[(String, String)]) -> Vec<ModelVariant> {
+fn model_variants(
+    model: &ModelConfig,
+    contexts: &[(String, String)],
+    default_context: &str,
+) -> Vec<ModelVariant> {
     let mut variants = Vec::with_capacity(contexts.len() * EFFORTS.len() * 2);
     for (context, context_name) in contexts {
         for (effort, effort_name) in EFFORTS {
@@ -439,6 +508,7 @@ fn model_variants(model: &ModelConfig, contexts: &[(String, String)]) -> Vec<Mod
                     model,
                     context,
                     context_name,
+                    default_context,
                     effort,
                     effort_name,
                     fast,
@@ -453,12 +523,13 @@ fn model_variant(
     model: &ModelConfig,
     context: &str,
     context_name: &str,
+    default_context: &str,
     effort: &str,
     effort_name: &str,
     fast: bool,
 ) -> ModelVariant {
     let mut suffix = Vec::with_capacity(3);
-    if context != DEFAULT_CONTEXT {
+    if context != default_context {
         suffix.push(context_name);
     }
     suffix.push(effort_name);
@@ -470,7 +541,7 @@ fn model_variant(
         "{} <span style=\"color: var(--cursor-text-tertiary);\">{suffix}</span>",
         model.display_name
     );
-    let is_default = context == DEFAULT_CONTEXT && effort == "high" && !fast;
+    let is_default = context == default_context && effort == "high" && !fast;
     ModelVariant {
         parameter_values: vec![
             ModelParameterValue {
@@ -599,7 +670,7 @@ mod tests {
             .iter()
             .map(|value| value.value.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(context_values, ["200k", "356k", "800k", "1m", "272000"]);
+        assert_eq!(context_values, ["200k", "356k", "800k", "1m", "272k"]);
         let custom_context = context
             .parameter_type
             .as_ref()
@@ -609,7 +680,7 @@ mod tests {
             .unwrap()
             .values
             .iter()
-            .find(|value| value.value == "272000")
+            .find(|value| value.value == "272k")
             .unwrap();
         assert_eq!(
             custom_context.display_name.as_deref(),
@@ -642,10 +713,138 @@ mod tests {
             .unwrap();
         assert_eq!(
             default.variant_string_representation.as_deref(),
-            Some("33ceed20[context=200k,effort=high,fast=false]")
+            Some("33ceed20[context=272k,effort=high,fast=false]")
         );
         assert_eq!(mapped.vendor.unwrap().display_name, "Cursor");
         assert!(usable_model(&model).thinking_details.is_some());
+    }
+
+    #[test]
+    fn gpt56_sol_defaults_to_272k_and_can_select_1m() {
+        let model = ModelConfig {
+            model_hash: "solhash".into(),
+            sort_order: 0,
+            display_name: "GPT-5.6 Sol".into(),
+            model_type: ModelType::OpenAi,
+            base_url: "https://chatgpt.com/backend-api/codex/responses".into(),
+            use_full_url: true,
+            api_key: "secret".into(),
+            tooltip_data: "ChatGPT / OpenAI Codex".into(),
+            model_id: "gpt-5.6-sol".into(),
+            reasoning_effort: None,
+            openai_endpoint: "/v1/responses".into(),
+            openai_extra_params_enabled: false,
+            openai_extra_params: serde_json::json!({}),
+            custom_headers_enabled: false,
+            custom_headers: serde_json::json!({}),
+            anthropic_extra_params_enabled: false,
+            anthropic_extra_params: serde_json::json!({}),
+            context_window_tokens: Some(272_000),
+            max_completion_tokens: Some(128_000),
+            anthropic_max_tokens: None,
+            anthropic_thinking_effort: None,
+            thinking_budget_tokens: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+        let mapped = available_model(&model);
+        let context = mapped
+            .parameter_definitions
+            .iter()
+            .find(|parameter| parameter.id == "context")
+            .unwrap();
+        let context_values = context
+            .parameter_type
+            .as_ref()
+            .unwrap()
+            .enum_parameter
+            .as_ref()
+            .unwrap()
+            .values
+            .iter()
+            .map(|value| value.value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(context_values, ["272k", "1m"]);
+        let default = mapped
+            .variants
+            .iter()
+            .find(|variant| variant.is_default_non_max_config == Some(true))
+            .unwrap();
+        assert_eq!(
+            default.variant_string_representation.as_deref(),
+            Some("solhash[context=272k,effort=high,fast=false]")
+        );
+
+        let mut enabled = model.clone();
+        enabled.context_window_tokens = Some(1_000_000);
+        let enabled_default = available_model(&enabled)
+            .variants
+            .into_iter()
+            .find(|variant| variant.is_default_non_max_config == Some(true))
+            .unwrap();
+        assert_eq!(
+            enabled_default.variant_string_representation.as_deref(),
+            Some("solhash[context=1m,effort=high,fast=false]")
+        );
+    }
+
+    #[test]
+    fn grok_catalog_uses_discovered_context_window() {
+        let model = ModelConfig {
+            model_hash: "grokhash".into(),
+            sort_order: 0,
+            display_name: "Grok 4.6".into(),
+            model_type: ModelType::OpenAi,
+            base_url: "https://api.x.ai/v1".into(),
+            use_full_url: false,
+            api_key: "secret".into(),
+            tooltip_data: "xAI Grok".into(),
+            model_id: "grok-4.6".into(),
+            reasoning_effort: None,
+            openai_endpoint: "/v1/chat/completions".into(),
+            openai_extra_params_enabled: false,
+            openai_extra_params: serde_json::json!({}),
+            custom_headers_enabled: false,
+            custom_headers: serde_json::json!({}),
+            anthropic_extra_params_enabled: false,
+            anthropic_extra_params: serde_json::json!({}),
+            context_window_tokens: Some(256_000),
+            max_completion_tokens: Some(16_384),
+            anthropic_max_tokens: None,
+            anthropic_thinking_effort: None,
+            thinking_budget_tokens: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+        let mapped = available_model(&model);
+        let context = mapped
+            .parameter_definitions
+            .iter()
+            .find(|parameter| parameter.id == "context")
+            .unwrap();
+        let context_values = context
+            .parameter_type
+            .as_ref()
+            .unwrap()
+            .enum_parameter
+            .as_ref()
+            .unwrap()
+            .values
+            .iter()
+            .map(|value| value.value.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(context_values[0], "256k");
+        assert!(context_values.contains(&"200k"));
+        assert!(!context_values.contains(&"1m"));
+        let default = mapped
+            .variants
+            .iter()
+            .find(|variant| variant.is_default_non_max_config == Some(true))
+            .unwrap();
+        assert_eq!(
+            default.variant_string_representation.as_deref(),
+            Some("grokhash[context=256k,effort=high,fast=false]")
+        );
     }
 
     #[tokio::test]

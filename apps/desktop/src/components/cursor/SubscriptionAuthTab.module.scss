@@ -1,0 +1,562 @@
+@use "../../styles/typography" as type;
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.boardList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 主页面卡片：极致紧凑、干净 */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:hover {
+    border-color: var(--vscode-focusBorder, rgba(56, 189, 248, 0.4));
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  }
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.providerInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.iconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--vscode-editor-inactiveSelectionBackground, rgba(255, 255, 255, 0.06));
+  flex-shrink: 0;
+  color: var(--vscode-foreground);
+}
+
+.names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  span {
+    font-size: type.$font-size-xs;
+    color: var(--vscode-descriptionForeground);
+  }
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  strong {
+    font-size: type.$font-size-base;
+    color: var(--vscode-foreground);
+    font-weight: 600;
+  }
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: type.$font-size-2xs;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badgeAvailable {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.badgeConnected {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+/* 正在使用的账号单行精炼 Banner */
+.activeRowBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--vscode-sideBar-background, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.05));
+  border-radius: 6px;
+}
+
+.activeMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.activeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+  flex-shrink: 0;
+}
+
+.activePrefix {
+  font-size: type.$font-size-xs;
+  color: var(--vscode-descriptionForeground);
+  flex-shrink: 0;
+}
+
+.activeAccountName {
+  font-size: type.$font-size-xs;
+  color: var(--vscode-foreground);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.miniBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: var(--vscode-foreground);
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.activeMeters {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.compactMeter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.meterName {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.meterTrack {
+  width: 70px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.meterVal {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 28px;
+}
+
+/* 底部状态条与管理入口 */
+.cardBottomBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.poolSummary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: type.$font-size-xs;
+  color: var(--vscode-descriptionForeground);
+  flex-wrap: wrap;
+}
+
+.summaryItem {
+  color: var(--vscode-foreground);
+  font-weight: 500;
+}
+
+.bullet {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.readyText {
+  color: #4ade80;
+}
+
+.cooldownText {
+  color: #fbbf24;
+}
+
+.rotationText {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.unconnectedHint {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ========================================================================= */
+/* 全屏/大视图账号池管理器弹窗 (AccountPoolModal) */
+/* ========================================================================= */
+.modalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modalToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+}
+
+.modalTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--vscode-sideBar-background, rgba(0, 0, 0, 0.2));
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.mTabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: var(--vscode-foreground);
+  }
+}
+
+.mTabActive {
+  color: var(--vscode-foreground) !important;
+  background: var(--vscode-editor-background, #1e1e1e) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.mTabCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--vscode-badge-background, rgba(255, 255, 255, 0.1));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.modalActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.modalSearch {
+  width: 200px;
+
+  input {
+    width: 100%;
+    font-size: type.$font-size-xs;
+    padding: 4px 8px;
+  }
+}
+
+/* 高信息密度表格 */
+.tableContainer {
+  max-height: 460px;
+  overflow-y: auto;
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  background: var(--vscode-editor-background);
+}
+
+.accountTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: type.$font-size-xs;
+  text-align: left;
+
+  thead {
+    position: sticky;
+    top: 0;
+    background: var(--vscode-sideBar-background, #181818);
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.1));
+    z-index: 2;
+
+    th {
+      padding: 8px 12px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      white-space: nowrap;
+    }
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: background 0.12s ease;
+
+    &:hover {
+      background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.04));
+    }
+  }
+
+  td {
+    padding: 8px 12px;
+    vertical-align: middle;
+  }
+}
+
+.activeRow {
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.tagActive {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.tagCooldown {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.tagError {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.tagReady {
+  display: inline-flex;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.cellNameWrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.rowName {
+  font-weight: 500;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.miniCopyBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: var(--vscode-foreground);
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.tableMeter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tableMeterTrack {
+  width: 60px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.tableMeterFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.textDim {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.actionBtn {
+  font-size: 11px;
+  color: var(--vscode-textLink-foreground, #38bdf8);
+  background: transparent;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: #38bdf8;
+  }
+}
+
+.actionDeleteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+}
+
+.emptyTable {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+}
+
+.modalPagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+/* 颜色色阶 */
+.toneSuccess { color: #4ade80; }
+.toneWarn { color: #fbbf24; }
+.toneDanger { color: #f87171; }
+.toneNeutral { color: var(--vscode-descriptionForeground); }
+
+.toneSuccessFill { background: #22c55e; }
+.toneWarnFill { background: #f59e0b; }
+.toneDangerFill { background: #ef4444; }
+.toneNeutralFill { background: #6b7280; }
+
+.modelsSection {
+  margin-top: 8px;
+}

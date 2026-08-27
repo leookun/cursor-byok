@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Model, type ModelInput } from "../api";
+import { api, type DiscoveredModel, type Model, type ModelInput } from "../api";
 import { CursorCaGate, CursorCaProvider, CursorModelGate, CursorModelProvider } from "../components/cursor/CursorGates";
 import { CursorModelCards, cursorModelGroups, type CursorModelGrouping } from "../components/cursor/CursorModelCards";
 import { CursorModelEditor, emptyCursorModelDraft, type CursorModelDraft } from "../components/cursor/CursorModelEditor";
 import { CursorModelTestResult, type CursorModelTestState } from "../components/cursor/CursorModelTestResult";
+import { SubscriptionAuthTab, isSubscriptionModel } from "../components/cursor/SubscriptionAuthTab";
 import styles from "../components/cursor/CursorSettings.module.scss";
 import { PageContent } from "../components/layout/PageContent";
 import { LegacyModelImport } from "../components/models/LegacyModelImport";
@@ -11,6 +12,7 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import controls from "../components/ui/Controls.module.scss";
 import { Icon } from "../components/ui/Icon";
 import { Modal } from "../components/ui/Modal";
+import { Tabs } from "../components/ui/Tabs";
 import { TooltipTrigger } from "../components/ui/TooltipTrigger";
 import { addIcon } from "../components/ui/icons";
 import { useMessage } from "../components/ui/message";
@@ -22,7 +24,7 @@ export function CursorSettingsPage() {
   const message = useMessage();
   const [draft, setDraft] = useState<CursorModelDraft | null>(null);
   const [editing, setEditing] = useState<Model | null>(null);
-  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [caCommand, setCaCommand] = useState<string | null>(null);
   const [waitingForCaRefresh, setWaitingForCaRefresh] = useState(false);
@@ -57,12 +59,12 @@ export function CursorSettingsPage() {
     const next = emptyCursorModelDraft();
     next.model.sort_order = models.length + 1;
     setEditing(null);
-    setModelOptions([]);
+    setDiscoveredModels([]);
     setDraft(next);
   };
   const openEdit = (model: Model) => {
     setEditing(model);
-    setModelOptions([model.model_id]);
+    setDiscoveredModels([{ id: model.model_id, context_window_tokens: model.context_window_tokens }]);
     setDraft({
       model: modelInput(model),
       openAIExtraParamsText: JSON.stringify(model.openai_extra_params, null, 2),
@@ -82,7 +84,7 @@ export function CursorSettingsPage() {
         custom_headers_enabled: draft.model.custom_headers_enabled,
         custom_headers,
       });
-      setModelOptions([...new Set(result.models)]);
+      setDiscoveredModels(result.models);
     } catch (cause) {
       message(errorText(cause));
     } finally {
@@ -206,8 +208,11 @@ export function CursorSettingsPage() {
     }
   }, [message]);
 
-  const list = <CursorModelCards
-    models={models}
+  const customModels = models.filter((m) => !isSubscriptionModel(m));
+  const subscriptionModels = models.filter((m) => isSubscriptionModel(m));
+
+  const customList = <CursorModelCards
+    models={customModels}
     grouping={grouping}
     disabled={cursorBusy}
     testingModelHashes={testingModelHashes}
@@ -219,6 +224,21 @@ export function CursorSettingsPage() {
     onReorder={reorderModels}
   />;
 
+  const subscriptionList = subscriptionModels.length > 0 ? (
+    <CursorModelCards
+      models={subscriptionModels}
+      grouping={grouping}
+      disabled={cursorBusy}
+      testingModelHashes={testingModelHashes}
+      testResults={modelTestResults}
+      onTest={(model) => void testModel(model)}
+      onEdit={openEdit}
+      onDuplicate={(model) => void duplicateModel(model)}
+      onDelete={setDeleting}
+      onReorder={reorderModels}
+    />
+  ) : null;
+
   const refreshCa = async () => {
     await appStore.refresh();
     if (appStore.getSnapshot().cursorHarness?.ca !== "ready") setWaitingForCaRefresh(false);
@@ -228,13 +248,34 @@ export function CursorSettingsPage() {
     setCaCommand(null);
     setWaitingForCaRefresh(true);
   };
-  const content = <CursorCaProvider><CursorCaGate busy={cursorBusy} waitingForRefresh={waitingForCaRefresh} onInitialize={() => void initializeCa()} onRefresh={() => void refreshCa()}>
+
+  const modelsContent = <CursorCaProvider><CursorCaGate busy={cursorBusy} waitingForRefresh={waitingForCaRefresh} onInitialize={() => void initializeCa()} onRefresh={() => void refreshCa()}>
     <div className={styles.page}>
       <LegacyModelImport>{({ busy: importingLegacyModels, previewing, open }) =>
-        <CursorModelProvider><CursorModelGate busy={cursorBusy || importingLegacyModels} previewingImport={previewing} onAdd={openNew} onImport={open}>{list}</CursorModelGate></CursorModelProvider>
+        <CursorModelProvider><CursorModelGate busy={cursorBusy || importingLegacyModels} previewingImport={previewing} onAdd={openNew} onImport={open}>{customList}</CursorModelGate></CursorModelProvider>
       }</LegacyModelImport>
     </div>
   </CursorCaGate></CursorCaProvider>;
+
+  const subscriptionsContent = <SubscriptionAuthTab onSwitchToModels={() => void appStore.refresh()}>
+    {subscriptionList}
+  </SubscriptionAuthTab>;
+
+  const content = <Tabs
+    defaultValue="models"
+    items={[
+      {
+        value: "models",
+        label: t("上游模型"),
+        content: modelsContent,
+      },
+      {
+        value: "subscriptions",
+        label: t("订阅与认证"),
+        content: subscriptionsContent,
+      },
+    ]}
+  />;
 
   const editorTestState = editing ? modelTestResults.get(editing.model_hash) : undefined;
   const editorTesting = Boolean(editing && testingModelHashes.has(editing.model_hash));
@@ -256,7 +297,23 @@ export function CursorSettingsPage() {
     <PageContent title={t("Cursor 配置")} sections={[{ key: "cursor-settings", estimatedHeight: estimatedModelHeight, content }]} />
     <Modal fullHeight open={draft !== null} title={editing ? t("编辑模型") : t("添加模型")} banner={draft && (editorTesting || editorTestState) ? <CursorModelTestResult state={editorTestState} testing={editorTesting} /> : undefined} busy={cursorBusy || savingAndTesting} onClose={() => { if (editing && editorTesting) void cancelModelTest(editing.model_hash); setDraft(null); setEditing(null); }} onSubmit={() => void save()} secondaryAction={<button type="button" className={controls.secondary} disabled={cursorBusy || savingAndTesting} onClick={() => void (editorTesting && editing ? cancelModelTest(editing.model_hash) : saveAndTest())}>{savingAndTesting ? t("处理中…") : editorTesting ? t("取消测试") : t("保存并测试")}</button>}>
       {draft && <>
-        <CursorModelEditor draft={draft} modelOptions={modelOptions} discovering={discovering} onChange={setDraft} onDiscover={() => void discover()} />
+        <CursorModelEditor
+          draft={draft}
+          isEditing={Boolean(editing)}
+          modelOptions={discoveredModels.map((model) => model.id)}
+          contextByModelId={Object.fromEntries(
+            discoveredModels
+              .filter((model) => model.context_window_tokens != null)
+              .map((model) => [model.id, model.context_window_tokens as number]),
+          )}
+          discovering={discovering}
+          onChange={setDraft}
+          onDiscover={() => void discover()}
+          onGrokAuthorized={() => {
+            setDraft(null);
+            setEditing(null);
+          }}
+        />
       </>}
     </Modal>
     <ConfirmDialog open={caCommand !== null} title={t("安装本地 CA")} cancelLabel={t("关闭")} confirmLabel={t("打开终端")} onCancel={() => setCaCommand(null)} onConfirm={openCaTerminal}>

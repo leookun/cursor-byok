@@ -16,8 +16,8 @@ use crate::{
 };
 
 use super::{
-    apply_openai_prompt_cache_key, merge_extra_params, recorder::recorded_headers, CallRecorder,
-    FinishReason, ModelEvent, Provider, ProviderStream,
+    apply_chatgpt_codex_headers, apply_openai_prompt_cache_key, merge_extra_params,
+    recorder::recorded_headers, CallRecorder, FinishReason, ModelEvent, Provider, ProviderStream,
 };
 
 #[derive(Default)]
@@ -77,8 +77,15 @@ impl Provider for OpenAiChatProvider {
             if let Some(recorder) = &recorder {
                 recorder.request(recorded_headers(&config, &[("content-type", "application/json")]), &body).await?;
             }
-            let request = client.post(&config.request_url)
-                .bearer_auth(&config.api_key).headers(config.custom_headers.clone()).json(&body).send();
+            let request = apply_chatgpt_codex_headers(
+                client.post(&config.request_url)
+                    .bearer_auth(&config.api_key)
+                    .headers(config.custom_headers.clone()),
+                &config.request_url,
+                &config.api_key,
+            )
+            .json(&body)
+            .send();
             let response = tokio::select! {
                 _ = cancellation.cancelled() => return,
                 response = request => response,

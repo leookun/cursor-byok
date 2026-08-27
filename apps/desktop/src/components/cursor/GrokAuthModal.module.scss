@@ -1,0 +1,125 @@
+@use "../../styles/typography" as type;
+
+.modalContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--vscode-editor-inactiveSelectionBackground, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--vscode-widget-border, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  font-size: type.$font-size-xs;
+  color: var(--vscode-foreground);
+
+  span {
+    line-height: 1.4;
+  }
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: type.$font-size-xs;
+  color: var(--vscode-descriptionForeground);
+}
+
+.stepItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  .stepNum {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #ffffff);
+    font-size: 11px;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+
+  .stepText {
+    flex: 1;
+    line-height: 22px;
+  }
+}
+
+.codeBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--vscode-input-background, #1e1e1e);
+  border: 1px solid var(--vscode-focusBorder, #007acc);
+  border-radius: 8px;
+  margin: 6px 0;
+}
+
+.userCode {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--vscode-textPreformat-foreground, #4ec9b0);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.statusText {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: type.$font-size-xs;
+  color: var(--vscode-descriptionForeground);
+}
+
+.statusPending {
+  color: var(--vscode-progressBar-background, #0e70c0);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusSuccess {
+  color: var(--vscode-testing-iconPassed, #73c991);
+  font-weight: 500;
+}
+
+.statusError {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

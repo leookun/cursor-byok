@@ -1,8 +1,9 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     sync::{Arc, Mutex},
     time::Instant,
 };
+
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::StreamExt;
@@ -40,9 +41,15 @@ pub struct ControlService {
     model_tests: Arc<Mutex<BTreeMap<String, CancellationToken>>>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DiscoveredModels {
-    pub models: Vec<String>,
+    pub models: Vec<DiscoveredModel>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DiscoveredModel {
+    pub id: String,
+    pub context_window_tokens: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -153,6 +160,10 @@ impl ControlService {
 
     pub fn cursor_harness(&self) -> &CursorHarness {
         &self.cursor_harness
+    }
+
+    pub fn store(&self) -> &Store {
+        &self.store
     }
 
     pub(super) async fn ads(
@@ -692,8 +703,8 @@ async fn discover_models_from_endpoint(
             anthropic_models(client, base_url, api_key, custom_headers).await?
         }
     };
-    models.sort();
-    models.dedup();
+    models.sort_by(|left, right| left.id.cmp(&right.id));
+    models.dedup_by(|left, right| left.id == right.id);
     Ok(DiscoveredModels { models })
 }
 
@@ -739,6 +750,13 @@ fn model_discovery_url(base_url: &str) -> Result<Url> {
 fn model_discovery_urls(base_url: &str) -> Result<Vec<Url>> {
     let mut configured = Url::parse(base_url)
         .map_err(|error| Error::Config(format!("invalid model request URL: {error}")))?;
+    if configured
+        .host_str()
+        .is_some_and(|host| host.eq_ignore_ascii_case("chatgpt.com"))
+    {
+        return Ok(vec![Url::parse("https://chatgpt.com/backend-api/codex/models?client_version=1.0.0")
+            .map_err(|error| Error::Config(format!("invalid Codex models URL: {error}")))?]);
+    }
     let path = configured.path().trim_end_matches('/');
     let tail = path.rsplit('/').next().unwrap_or_default();
     if matches!(tail.to_ascii_lowercase().as_str(), "model" | "models") {
@@ -776,7 +794,7 @@ async fn openai_models(
     base_url: &str,
     api_key: &str,
     custom_headers: &serde_json::Value,
-) -> Result<Vec<String>> {
+) -> Result<Vec<DiscoveredModel>> {
     let mut last_error = None;
     for url in model_discovery_urls(base_url)? {
         match openai_models_at(client, url, api_key, custom_headers).await {
@@ -792,11 +810,12 @@ async fn openai_models_at(
     url: Url,
     api_key: &str,
     custom_headers: &serde_json::Value,
-) -> Result<Vec<String>> {
-    let mut request = client.get(url);
+) -> Result<Vec<DiscoveredModel>> {
+    let mut request = client.get(url.clone());
     if !api_key.is_empty() {
         request = request.bearer_auth(api_key);
     }
+    request = crate::provider::apply_chatgpt_codex_headers(request, url.as_str(), api_key);
     let response = apply_discovery_headers(request, custom_headers)?
         .send()
         .await?;
@@ -807,7 +826,11 @@ async fn openai_models_at(
             "model discovery failed ({status}): {body}"
         )));
     }
-    Ok(model_ids(body.get("data").unwrap_or(&body)))
+    Ok(discovered_models(
+        body.get("data")
+            .or_else(|| body.get("models"))
+            .unwrap_or(&body),
+    ))
 }
 
 async fn anthropic_models(
@@ -815,7 +838,7 @@ async fn anthropic_models(
     base_url: &str,
     api_key: &str,
     custom_headers: &serde_json::Value,
-) -> Result<Vec<String>> {
+) -> Result<Vec<DiscoveredModel>> {
     let mut last_error = None;
     for url in model_discovery_urls(base_url)? {
         match anthropic_models_at(client, url, api_key, custom_headers).await {
@@ -831,9 +854,9 @@ async fn anthropic_models_at(
     url: Url,
     api_key: &str,
     custom_headers: &serde_json::Value,
-) -> Result<Vec<String>> {
+) -> Result<Vec<DiscoveredModel>> {
     let mut after_id = None::<String>;
-    let mut found = BTreeSet::new();
+    let mut found = Vec::new();
     loop {
         let mut request = client
             .get(url.clone())
@@ -855,7 +878,7 @@ async fn anthropic_models_at(
                 "model discovery failed ({status}): {body}"
             )));
         }
-        found.extend(model_ids(body.get("data").unwrap_or(&body)));
+        found.extend(discovered_models(body.get("data").unwrap_or(&body)));
         if body.get("has_more").and_then(serde_json::Value::as_bool) != Some(true) {
             break;
         }
@@ -872,21 +895,62 @@ async fn anthropic_models_at(
     Ok(found.into_iter().collect())
 }
 
-fn model_ids(value: &serde_json::Value) -> Vec<String> {
+fn discovered_models(value: &serde_json::Value) -> Vec<DiscoveredModel> {
     value
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|item| match item {
-            serde_json::Value::String(id) => Some(id.clone()),
-            serde_json::Value::Object(object) => object
-                .get("id")
-                .or_else(|| object.get("name"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned),
+            serde_json::Value::String(id) => {
+                let id = id.trim();
+                (!id.is_empty()).then(|| DiscoveredModel {
+                    id: id.to_string(),
+                    context_window_tokens: None,
+                })
+            }
+            serde_json::Value::Object(object) => {
+                if object
+                    .get("supported_in_api")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(false)
+                {
+                    return None;
+                }
+                if object
+                    .get("visibility")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|visibility| visibility != "list")
+                {
+                    return None;
+                }
+                let id = object
+                    .get("id")
+                    .or_else(|| object.get("name"))
+                    .or_else(|| object.get("slug"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())?;
+                Some(DiscoveredModel {
+                    id: id.to_string(),
+                    context_window_tokens: json_token_count(object.get("context_window"))
+                        .or_else(|| json_token_count(object.get("context_length")))
+                        .or_else(|| json_token_count(object.get("max_prompt_tokens")))
+                        .or_else(|| json_token_count(object.get("input_token_limit"))),
+                })
+            }
             _ => None,
         })
         .collect()
+}
+
+fn json_token_count(value: Option<&serde_json::Value>) -> Option<u64> {
+    let value = value?;
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|tokens| u64::try_from(tokens).ok()))
+        .or_else(|| value.as_f64().and_then(|tokens| (tokens > 0.0).then_some(tokens as u64)))
+        .or_else(|| value.as_str().and_then(crate::model::parse_token_count))
+        .filter(|tokens| *tokens > 0)
 }
 
 fn estimate_output_tokens(output: &str) -> u64 {
@@ -1024,7 +1088,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(models, vec!["model-a"]);
+        assert_eq!(
+            models.into_iter().map(|m| m.id).collect::<Vec<_>>(),
+            vec!["model-a"]
+        );
         server.abort();
     }
 
@@ -1258,7 +1325,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.models, vec!["model-a"]);
+        assert_eq!(result.models[0].id, "model-a");
         let (method, uri, headers, body) = requests.recv().await.unwrap();
         assert_eq!(method, axum::http::Method::GET);
         // /custom/responses 剥掉端点段后是 /custom，发现地址为 /custom/models
@@ -1271,5 +1338,41 @@ mod tests {
             "Bearer secret"
         );
         server.abort();
+    }
+
+    #[test]
+    fn chatgpt_codex_discovery_uses_backend_models_endpoint() {
+        assert_eq!(
+            super::model_discovery_urls("https://chatgpt.com/backend-api/codex")
+                .unwrap()[0]
+                .as_str(),
+            "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0"
+        );
+    }
+
+    #[test]
+    fn model_ids_read_openai_and_codex_listings() {
+        let openai = serde_json::json!([
+            { "id": "grok-4", "context_window": 256000 },
+            { "name": "grok-4.20" }
+        ]);
+        let models = super::discovered_models(&openai);
+        assert_eq!(models[0].id, "grok-4");
+        assert_eq!(models[0].context_window_tokens, Some(256_000));
+        assert_eq!(models[1].id, "grok-4.20");
+        assert_eq!(models[1].context_window_tokens, None);
+
+        let codex = serde_json::json!([
+            { "slug": "gpt-5.4", "supported_in_api": true, "visibility": "list" },
+            { "slug": "hidden-model", "supported_in_api": true, "visibility": "hidden" },
+            { "slug": "internal-model", "supported_in_api": false, "visibility": "list" }
+        ]);
+        assert_eq!(
+            super::discovered_models(&codex)
+                .into_iter()
+                .map(|model| model.id)
+                .collect::<Vec<_>>(),
+            vec!["gpt-5.4"]
+        );
     }
 }
