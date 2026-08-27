@@ -5,9 +5,12 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Result};
 
 use super::{
-    CanonicalMessage, ContentPart, MessageContent, ProviderReplayState, Role, ToolCallContent,
-    ToolResultContent,
+    truncate_edges, CanonicalMessage, ContentPart, MessageContent, ProviderReplayState, Role,
+    ToolCallContent, ToolResultContent,
 };
+
+const KIB: usize = 1024;
+const TOOL_RESULT_CONTENT_LIMIT: usize = 64 * KIB;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum ProjectedContent {
@@ -106,7 +109,10 @@ fn project_tool_round(
                     result.call_id
                 )));
             }
-            results.push((messages[cursor].message_id.clone(), result.clone()));
+            results.push((
+                messages[cursor].message_id.clone(),
+                project_tool_result(result),
+            ));
             cursor += 1;
         }
     }
@@ -159,11 +165,79 @@ fn project_message(message: &CanonicalMessage) -> ProjectedMessage {
             replay_state: replay_state.clone(),
             calls: tool_calls.clone(),
         },
-        MessageContent::ToolResult(result) => ProjectedContent::ToolResult(result.clone()),
+        MessageContent::ToolResult(result) => {
+            ProjectedContent::ToolResult(project_tool_result(result))
+        }
     };
     ProjectedMessage {
         message_id: message.message_id.clone(),
         role: message.role.clone(),
         content,
+    }
+}
+
+fn project_tool_result(result: &ToolResultContent) -> ToolResultContent {
+    let mut projected = result.clone();
+    let label = format!("{} tool", result.name);
+    projected.content = truncate_edges(&label, &projected.content, TOOL_RESULT_CONTENT_LIMIT);
+    for part in &mut projected.provider_parts {
+        if let ContentPart::Text { text } = part {
+            *text = truncate_edges(&label, text, TOOL_RESULT_CONTENT_LIMIT);
+        }
+    }
+    projected
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Origin;
+
+    #[test]
+    fn oversized_tool_results_are_bounded_only_in_provider_projection() {
+        let original = format!("HEAD{}TAIL", "x".repeat(1024 * KIB));
+        let message = CanonicalMessage {
+            message_id: "result".into(),
+            role: Role::Tool,
+            origin: Origin::Tool,
+            content: MessageContent::ToolResult(ToolResultContent {
+                call_id: "call".into(),
+                name: "Read".into(),
+                content: original.clone(),
+                is_error: false,
+                image: None,
+                provider_parts: vec![ContentPart::Text {
+                    text: original.clone(),
+                }],
+            }),
+            runtime_event_id: None,
+        };
+
+        let projected = project_messages(std::slice::from_ref(&message)).unwrap();
+        let ProjectedContent::ToolResult(result) = &projected[0].content else {
+            panic!("expected projected tool result");
+        };
+
+        assert!(result.content.len() <= TOOL_RESULT_CONTENT_LIMIT);
+        assert!(result.content.starts_with("HEAD"));
+        assert!(result.content.ends_with("TAIL"));
+        assert!(result
+            .content
+            .contains("Re-run the tool with narrower scope"));
+        let [ContentPart::Text { text }] = result.provider_parts.as_slice() else {
+            panic!("expected projected text part");
+        };
+        assert!(text.len() <= TOOL_RESULT_CONTENT_LIMIT);
+        assert!(text.starts_with("HEAD"));
+        assert!(text.ends_with("TAIL"));
+
+        let MessageContent::ToolResult(stored) = &message.content else {
+            panic!("expected canonical tool result");
+        };
+        assert_eq!(stored.content, original);
+        assert_eq!(
+            stored.provider_parts[0],
+            ContentPart::Text { text: original }
+        );
     }
 }
