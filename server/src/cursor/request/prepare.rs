@@ -120,6 +120,13 @@ pub(crate) async fn prepare(
             .await;
     }
     let request_context = context::hydrate(request, context_sync).await?;
+    let explicit_resume = matches!(
+        request
+            .action
+            .as_ref()
+            .and_then(|action| action.action.as_ref()),
+        Some(pb::conversation_action::Action::ResumeAction(_))
+    );
     let ActionProjection {
         mode: mode_number,
         mut turn_user,
@@ -130,6 +137,25 @@ pub(crate) async fn prepare(
         compacting,
         background_completion,
     } = action(request)?;
+    let pending_tool_round = if !starts_turn && !compacting {
+        match request
+            .conversation_state
+            .as_ref()
+            .map(|state| state.pending_tool_calls.as_slice())
+            .unwrap_or_default()
+        {
+            [] => None,
+            [pending] => Some(projection::decode_pending(pending)?),
+            pending => {
+                return Err(Error::Protocol(format!(
+                    "Cursor resume contains {} pending assistant messages",
+                    pending.len()
+                )))
+            }
+        }
+    } else {
+        None
+    };
     let checkpoint_mode = if request.subagent_type_name.is_some() {
         Mode::Subagent
     } else {
@@ -290,6 +316,14 @@ pub(crate) async fn prepare(
             }
         }
     };
+    if explicit_resume {
+        initial_messages.extend(runtime::compile_resume_messages(
+            request_id,
+            &request_context,
+            base_messages.as_deref().unwrap_or_default(),
+            pending_tool_round.is_some(),
+        )?);
+    }
     let (base_revision_id, reused) = store
         .match_revision_prefix(&conversation_id, base_revision_id, &initial_messages)
         .await?;
@@ -299,21 +333,6 @@ pub(crate) async fn prepare(
     } else if starts_turn {
         RunAction::Start
     } else {
-        let pending_tool_round = match request
-            .conversation_state
-            .as_ref()
-            .map(|state| state.pending_tool_calls.as_slice())
-            .unwrap_or_default()
-        {
-            [] => None,
-            [pending] => Some(projection::decode_pending(pending)?),
-            pending => {
-                return Err(Error::Protocol(format!(
-                    "Cursor resume contains {} pending assistant messages",
-                    pending.len()
-                )))
-            }
-        };
         RunAction::Resume { pending_tool_round }
     };
     let kind = run_kind(request.subagent_type_name.as_deref(), parent)?;

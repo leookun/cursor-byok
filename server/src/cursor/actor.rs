@@ -348,9 +348,9 @@ impl CursorActor {
                                     // 1. AgentRunRequest.action starts/resumes a Run. request::prepare
                                     //    currently consumes UserMessageAction,
                                     //    BackgroundTaskCompletionAction, SummarizeAction and
-                                    //    ExecutePlanAction. ResumeAction only works indirectly through
-                                    //    the absence of a new runtime event and still needs an explicit
-                                    //    implementation that consumes ResumeAction.request_context.
+                                    //    ExecutePlanAction. ResumeAction is consumed explicitly by
+                                    //    request::prepare, including ResumeAction.request_context and a
+                                    //    hidden continuation prompt when no pending tool result exists.
                                     // 2. AgentClientMessage::ConversationAction arrives while a Bidi Run
                                     //    is already active and needs a runtime dispatcher here. Supporting
                                     //    an Action in request::prepare does not mean this path supports it.

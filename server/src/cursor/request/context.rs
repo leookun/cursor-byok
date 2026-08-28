@@ -157,6 +157,9 @@ pub fn request_context(request: &pb::AgentRunRequest) -> Option<&pb::RequestCont
             pb::conversation_action::Action::ExecutePlanAction(action) => {
                 action.request_context.as_ref()
             }
+            pb::conversation_action::Action::ResumeAction(action) => {
+                action.request_context.as_ref()
+            }
             _ => None,
         })
 }

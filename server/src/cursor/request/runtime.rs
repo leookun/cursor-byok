@@ -16,6 +16,8 @@ use crate::{
 
 use super::{context, images};
 
+const RESUME_PROMPT: &str = "<resume>\nContinue the unfinished task from the current conversation state. Use the latest workspace context, make concrete progress toward the user's request, and do not repeat work that is already complete.\n</resume>";
+
 pub(crate) async fn compile_injection(
     injection: &pb::InjectContextAction,
     mode: i32,
@@ -195,6 +197,27 @@ pub(super) fn compile_request_context(
         text,
     );
     Ok(should_project_request_context(history, &message).then_some(message))
+}
+
+pub(super) fn compile_resume_messages(
+    request_id: &str,
+    request_context: &pb::RequestContext,
+    history: &[CanonicalMessage],
+    has_pending_tool_round: bool,
+) -> Result<Vec<CanonicalMessage>> {
+    let event_id = format!("resume:{request_id}");
+    let mut messages = compile_request_context(&event_id, request_context, history)?
+        .into_iter()
+        .collect::<Vec<_>>();
+    if !has_pending_tool_round {
+        messages.push(CanonicalMessage::text(
+            format!("resume-prompt:{request_id}"),
+            Role::User,
+            Origin::Prompt,
+            RESUME_PROMPT,
+        ));
+    }
+    Ok(messages)
 }
 
 fn should_project_request_context(
