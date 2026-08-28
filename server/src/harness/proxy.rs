@@ -177,10 +177,10 @@ fn is_local_path(path: &str) -> bool {
 }
 
 fn should_route_locally(path: &str, tab_mode: TabMode) -> bool {
-    if is_tab_path(path) || is_identity_path(path) {
-        return tab_mode != TabMode::Direct;
+    if tab_mode == TabMode::Direct {
+        return is_agent_path(path);
     }
-    is_agent_path(path)
+    is_local_path(path) || is_tab_path(path)
 }
 
 #[cfg(test)]
