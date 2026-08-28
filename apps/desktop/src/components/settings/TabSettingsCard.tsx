@@ -49,7 +49,7 @@ export function TabSettingsCard({
         <div className={styles.row}>
           <div className={styles.description}>
             <strong>{t("TAB 选择")}</strong>
-            <small>{t("控制 Cursor TAB 相关接口的连接方式。")}</small>
+            <small>{t("直连会使用 Cursor 原账号访问官方 TAB 服务；公益/自定义则走本地模拟账号。")}</small>
           </div>
           <div className={styles.control}><Select
             value={draft.mode}

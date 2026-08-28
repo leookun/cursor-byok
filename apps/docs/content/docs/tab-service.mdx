@@ -18,6 +18,14 @@ Cursor 的 Tab 补全不走模型通道，而是由单独的 Tab 服务处理。
 
 直接使用你在 Cursor 客户端中登录账号的官方 Tab 服务。适合账号本身有官方额度的用户。
 
+选择直连后，Cursor BYOK 会：
+
+- 把 Cursor 原账号备份下来，并写回 Cursor 登录态
+- 不再拦截邮箱、会员和 Stripe 身份接口，避免一直停在 `cursor@ai.com` 本地模拟账号
+- 把 TAB 补全请求送到官方服务
+
+切到直连或点击 **切换回原账号** 后，请完全退出并重新打开 Cursor。如果没有原账号备份，在 Cursor 里重新登录一次原账号即可。
+
 ### 自定义
 
 自行部署 [cursor-tab-server](https://github.com/leookun/cursor-byok/tree/archive/v0.0.49/cursor-tab-server)，然后在 **TAB 服务地址** 中填入你的服务地址。原接口路径会追加到该地址之后。

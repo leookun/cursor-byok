@@ -18,6 +18,14 @@ Uses the public Tab service hosted by the project author. Works out of the box w
 
 Connects directly to the official Tab service of the account signed in to your Cursor client. Suitable if your account has official quota.
 
+After you choose Direct, Cursor BYOK will:
+
+- Back up the original Cursor account and restore it into Cursor's login state
+- Stop intercepting email, membership, and Stripe identity APIs, so the client is not stuck on the local `cursor@ai.com` mock
+- Send Tab completion requests to the official service
+
+After switching to Direct or clicking **Switch back to original account**, fully quit and reopen Cursor. If no backup exists, sign in to the original account in Cursor again.
+
 ### Custom
 
 Deploy your own [cursor-tab-server](https://github.com/leookun/cursor-byok/tree/archive/v0.0.49/cursor-tab-server), then enter your service URL in **TAB service address**. The original endpoint path is appended to that address.

@@ -147,7 +147,7 @@ pub fn is_cursor_host(host: &str) -> bool {
     matches!(host.as_str(), "api2.cursor.sh" | "api3.cursor.sh") || host.ends_with(".cursor.sh")
 }
 
-fn is_local_path(path: &str) -> bool {
+fn is_agent_path(path: &str) -> bool {
     matches!(
         path,
         "/agent.v1.AgentService/RunSSE"
@@ -155,19 +155,32 @@ fn is_local_path(path: &str) -> bool {
             | "/aiserver.v1.AiService/AvailableModels"
             | "/agent.v1.AgentService/GetUsableModels"
             | "/aiserver.v1.AiService/GetUsableModels"
-            | "/aiserver.v1.AuthService/GetEmail"
+            | "/aiserver.v1.AnalyticsService/BootstrapStatsig"
+    )
+}
+
+fn is_identity_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/aiserver.v1.AuthService/GetEmail"
             | "/aiserver.v1.DashboardService/GetMe"
             | "/aiserver.v1.DashboardService/GetTeams"
             | "/aiserver.v1.DashboardService/GetUserProfile"
             | "/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
             | "/aiserver.v1.DashboardService/GetUsageLimitStatusAndActiveGrants"
-            | "/aiserver.v1.AnalyticsService/BootstrapStatsig"
             | "/auth/full_stripe_profile"
     )
 }
 
+fn is_local_path(path: &str) -> bool {
+    is_agent_path(path) || is_identity_path(path)
+}
+
 fn should_route_locally(path: &str, tab_mode: TabMode) -> bool {
-    is_local_path(path) || (is_tab_path(path) && tab_mode != TabMode::Direct)
+    if is_tab_path(path) || is_identity_path(path) {
+        return tab_mode != TabMode::Direct;
+    }
+    is_agent_path(path)
 }
 
 #[cfg(test)]
@@ -202,6 +215,26 @@ mod tests {
         ));
         assert!(!should_route_locally(
             "/aiserver.v1.AiService/StreamCpp",
+            TabMode::Direct
+        ));
+        assert!(should_route_locally(
+            "/auth/full_stripe_profile",
+            TabMode::Public
+        ));
+        assert!(!should_route_locally(
+            "/auth/full_stripe_profile",
+            TabMode::Direct
+        ));
+        assert!(should_route_locally(
+            "/aiserver.v1.DashboardService/GetMe",
+            TabMode::Public
+        ));
+        assert!(!should_route_locally(
+            "/aiserver.v1.DashboardService/GetMe",
+            TabMode::Direct
+        ));
+        assert!(should_route_locally(
+            "/agent.v1.AgentService/RunSSE",
             TabMode::Direct
         ));
     }

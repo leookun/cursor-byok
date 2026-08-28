@@ -1,7 +1,7 @@
 use axum::{extract::State, Json};
 
 use crate::{
-    harness::{CursorHarnessStatus, SetEnabled},
+    harness::{CursorAccountStatus, CursorHarnessStatus, SetEnabled},
     Result,
 };
 
@@ -23,5 +23,17 @@ pub async fn set_enabled(
 ) -> Result<Json<CursorHarnessStatus>> {
     Ok(Json(
         service.cursor_harness().set_enabled(input.enabled).await?,
+    ))
+}
+
+pub async fn account(State(service): State<ControlService>) -> Result<Json<CursorAccountStatus>> {
+    Ok(Json(service.cursor_harness().cursor_account().await?))
+}
+
+pub async fn restore_account(
+    State(service): State<ControlService>,
+) -> Result<Json<CursorAccountStatus>> {
+    Ok(Json(
+        service.cursor_harness().restore_cursor_account().await?,
     ))
 }

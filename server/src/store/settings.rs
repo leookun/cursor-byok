@@ -7,6 +7,7 @@ use super::{now_ms, Store};
 const PORT_SETTINGS_KEY: &str = "network_ports";
 const PROXY_SETTINGS_KEY: &str = "outbound_proxy";
 const TAB_SETTINGS_KEY: &str = "cursor_tab";
+const ACCOUNT_BACKUP_KEY: &str = "cursor_account_backup";
 const INSTALLATION_ID_KEY: &str = "installation_id";
 const DESKTOP_SETTINGS_KEY: &str = "desktop_lifecycle";
 
@@ -75,6 +76,28 @@ impl TabSettings {
             TabMode::Direct => None,
             TabMode::Custom => Some(&self.address),
         }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct CursorAccountBackup {
+    pub email: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    #[serde(default)]
+    pub sign_up_type: String,
+    #[serde(default)]
+    pub membership_type: String,
+    #[serde(default)]
+    pub subscription_status: String,
+}
+
+impl CursorAccountBackup {
+    pub fn is_original(&self) -> bool {
+        let token = self.access_token.trim();
+        !token.is_empty()
+            && !token.contains("cursor-local-user")
+            && self.email.trim() != "cursor@ai.com"
     }
 }
 
@@ -233,6 +256,39 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(settings)
+    }
+
+    pub async fn cursor_account_backup(&self) -> Result<Option<CursorAccountBackup>> {
+        let value = sqlx::query_scalar::<_, String>(
+            "SELECT value_json FROM service_settings WHERE setting_key = ?",
+        )
+        .bind(ACCOUNT_BACKUP_KEY)
+        .fetch_optional(&self.pool)
+        .await?;
+        value
+            .map(|value| serde_json::from_str::<CursorAccountBackup>(&value).map_err(Into::into))
+            .transpose()
+            .map(|backup| backup.filter(CursorAccountBackup::is_original))
+    }
+
+    pub async fn set_cursor_account_backup(
+        &self,
+        backup: &CursorAccountBackup,
+    ) -> Result<CursorAccountBackup> {
+        if !backup.is_original() {
+            return Err(crate::Error::Config(
+                "refusing to persist a local Cursor account mock as the original backup".into(),
+            ));
+        }
+        let value_json = serde_json::to_string(backup)?;
+        let _write = self.writes.lock().await;
+        sqlx::query("INSERT INTO service_settings(setting_key, value_json, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(setting_key) DO UPDATE SET value_json = excluded.value_json, updated_at_ms = excluded.updated_at_ms")
+            .bind(ACCOUNT_BACKUP_KEY)
+            .bind(value_json)
+            .bind(now_ms())
+            .execute(&self.pool)
+            .await?;
+        Ok(backup.clone())
     }
 
     pub async fn port_settings(&self) -> Result<PortSettings> {
@@ -412,6 +468,39 @@ mod tests {
             .set_tab_settings(TabSettings {
                 mode: TabMode::Custom,
                 address: "file:///tmp/tab".into(),
+            })
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn original_account_backup_round_trips_and_rejects_local_mock() {
+        let store = Store::connect("sqlite::memory:").await.unwrap();
+        assert!(store.cursor_account_backup().await.unwrap().is_none());
+
+        let backup = CursorAccountBackup {
+            email: "user@example.com".into(),
+            access_token: "official-session-token".into(),
+            refresh_token: "official-refresh".into(),
+            sign_up_type: "Google".into(),
+            membership_type: "pro".into(),
+            subscription_status: "active".into(),
+        };
+        assert_eq!(
+            store.set_cursor_account_backup(&backup).await.unwrap(),
+            backup
+        );
+        assert_eq!(
+            store.cursor_account_backup().await.unwrap().as_ref(),
+            Some(&backup)
+        );
+
+        assert!(store
+            .set_cursor_account_backup(&CursorAccountBackup {
+                email: "cursor@ai.com".into(),
+                access_token: "cursor-local-user".into(),
+                refresh_token: "cursor-local-user".into(),
+                ..CursorAccountBackup::default()
             })
             .await
             .is_err());

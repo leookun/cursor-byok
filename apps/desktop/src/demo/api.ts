@@ -1,5 +1,6 @@
 import type {
   CallDetail,
+  CursorAccountStatus,
   CursorHarnessStatus,
   LlmCall,
   Model,
@@ -92,6 +93,12 @@ let proxySettings: ProxySettings = {
   has_password: false,
 };
 let tabSettings: TabSettings = { mode: "public", address: "" };
+let cursorAccount: CursorAccountStatus = {
+  source: "local",
+  email: "cursor@ai.com",
+  has_backup: true,
+  backup_email: "user@example.com",
+};
 let storage: StatisticsStorage = { bytes: 26_004_480, call_count: calls.length, trace_count: calls.length };
 
 export function installDemoApi() {
@@ -126,6 +133,16 @@ export function installDemoApi() {
     if (path.startsWith("/llm-calls/")) return json(createCallDetail(path.slice("/llm-calls/".length)));
     if (path === "/harness/cursor/status") return json(harnessStatus);
     if (path === "/harness/cursor/ca/initialize" || path === "/harness/cursor/enabled") return json(harnessStatus);
+    if (path === "/harness/cursor/account" && method === "GET") return json(cursorAccount);
+    if (path === "/harness/cursor/account") {
+      cursorAccount = {
+        source: "original",
+        email: cursorAccount.backup_email,
+        has_backup: true,
+        backup_email: cursorAccount.backup_email,
+      };
+      return json(cursorAccount);
+    }
     if (path === "/settings/observability" && method === "GET") return json({ detailed });
     if (path === "/settings/observability") {
       detailed = Boolean((body as { detailed?: unknown } | null)?.detailed);

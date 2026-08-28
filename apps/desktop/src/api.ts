@@ -105,6 +105,15 @@ export interface CursorHarnessStatus {
   ca_install_command: string | null;
 }
 
+export type CursorAccountSource = "original" | "local" | "none";
+
+export interface CursorAccountStatus {
+  source: CursorAccountSource;
+  email: string | null;
+  has_backup: boolean;
+  backup_email: string | null;
+}
+
 export interface PortSettings {
   proxy_port: number;
   service_port: number;
@@ -319,6 +328,8 @@ export const api = {
     await writeText(text);
   },
   setCursorEnabled: (enabled: boolean) => request<CursorHarnessStatus>("/harness/cursor/enabled", { method: "PUT", body: JSON.stringify({ enabled }) }),
+  cursorAccount: () => request<CursorAccountStatus>("/harness/cursor/account"),
+  restoreCursorAccount: () => request<CursorAccountStatus>("/harness/cursor/account", { method: "POST" }),
   calls: () => request<LlmCall[]>("/llm-calls?limit=200"),
   call: (id: string) => request<CallDetail>(`/llm-calls/${encodeURIComponent(id)}`),
   openCallDetails: async (id: string) => {

@@ -92,7 +92,7 @@
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 185,
+          "line": 204,
           "column": 82
         }
       ]
@@ -272,7 +272,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 94,
+          "line": 98,
           "column": 38
         }
       ]
@@ -301,7 +301,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 277,
+          "line": 297,
           "column": 26
         }
       ]
@@ -574,8 +574,20 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 281,
+          "line": 301,
           "column": 60
+        }
+      ]
+    },
+    "1bb1e785ad5a8608": {
+      "source": "当前账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 28,
+          "column": 22
         }
       ]
     },
@@ -600,17 +612,17 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 64,
+          "line": 68,
           "column": 42
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 190,
+          "line": 209,
           "column": 22
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 217,
+          "line": 236,
           "column": 58
         }
       ]
@@ -697,8 +709,22 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 255,
+          "line": 275,
           "column": 43
+        }
+      ]
+    },
+    "21c080a22cdbedc2": {
+      "source": "已备份 {email}，可一键切回。切回后请完全退出并重新打开 Cursor。",
+      "kind": "template",
+      "placeholders": [
+        "email"
+      ],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 42,
+          "column": 19
         }
       ]
     },
@@ -709,7 +735,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 119,
+          "line": 123,
           "column": 15
         }
       ]
@@ -733,7 +759,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 304,
+          "line": 324,
           "column": 24
         }
       ]
@@ -883,12 +909,12 @@
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 181,
+          "line": 200,
           "column": 81
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 296,
+          "line": 316,
           "column": 22
         }
       ]
@@ -957,8 +983,8 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 143,
-          "column": 15
+          "line": 151,
+          "column": 11
         }
       ]
     },
@@ -1041,7 +1067,7 @@
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 240,
+          "line": 260,
           "column": 27
         }
       ]
@@ -1114,7 +1140,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 306,
+          "line": 326,
           "column": 42
         }
       ]
@@ -1179,8 +1205,20 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 288,
+          "line": 308,
           "column": 14
+        }
+      ]
+    },
+    "3a44052cf8045984": {
+      "source": "Cursor 原账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 17,
+          "column": 47
         }
       ]
     },
@@ -1203,7 +1241,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 240,
+          "line": 260,
           "column": 39
         }
       ]
@@ -1253,12 +1291,12 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 247,
+          "line": 267,
           "column": 22
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 253,
+          "line": 273,
           "column": 26
         }
       ]
@@ -1318,7 +1356,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 158,
+          "line": 177,
           "column": 66
         }
       ]
@@ -1330,7 +1368,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 272,
+          "line": 292,
           "column": 52
         }
       ]
@@ -1407,6 +1445,18 @@
         }
       ]
     },
+    "4629ede961f19604": {
+      "source": "原账号备份",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 39,
+          "column": 22
+        }
+      ]
+    },
     "470049252e54de6a": {
       "source": "成功占比：{rate}",
       "kind": "template",
@@ -1479,6 +1529,11 @@
       "placeholders": [],
       "refs": [
         {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 16,
+          "column": 26
+        },
+        {
           "file": "components/settings/ProxySettingsCard.tsx",
           "line": 69,
           "column": 135
@@ -1538,6 +1593,18 @@
           "file": "pages/CursorSettingsPage.tsx",
           "line": 257,
           "column": 681
+        }
+      ]
+    },
+    "49e1b809d01b18ff": {
+      "source": "本地 Ultra 模拟账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 18,
+          "column": 44
         }
       ]
     },
@@ -1683,7 +1750,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 179,
+          "line": 198,
           "column": 26
         }
       ]
@@ -1721,6 +1788,18 @@
           "file": "components/ads/FloatingAd.tsx",
           "line": 63,
           "column": 48
+        }
+      ]
+    },
+    "55810fa996d40429": {
+      "source": "原账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 43,
+          "column": 52
         }
       ]
     },
@@ -1765,7 +1844,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 233,
+          "line": 253,
           "column": 78
         }
       ]
@@ -1811,7 +1890,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 237,
+          "line": 257,
           "column": 21
         }
       ]
@@ -2028,7 +2107,7 @@
       "refs": [
         {
           "file": "api.ts",
-          "line": 317,
+          "line": 326,
           "column": 43
         }
       ]
@@ -2071,7 +2150,7 @@
       "refs": [
         {
           "file": "pages/CallsPage.tsx",
-          "line": 9,
+          "line": 33,
           "column": 36
         }
       ]
@@ -2119,6 +2198,18 @@
         }
       ]
     },
+    "67da9972f1f28e53": {
+      "source": "TAB 已直连。已切到 Cursor 原账号时，请完全退出并重新打开 Cursor。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "pages/SettingsPage.tsx",
+          "line": 150,
+          "column": 11
+        }
+      ]
+    },
     "680680288a6d2ad2": {
       "source": "在 Dock 栏显示",
       "kind": "text",
@@ -2143,7 +2234,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 94,
+          "line": 98,
           "column": 55
         }
       ]
@@ -2297,8 +2388,20 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 169,
+          "line": 188,
           "column": 16
+        }
+      ]
+    },
+    "73c431a7e16f57cb": {
+      "source": "还没有原账号备份。请先在 Cursor 中登录原账号，或从旧版助手备份中恢复。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 45,
+          "column": 19
         }
       ]
     },
@@ -2309,7 +2412,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 264,
+          "line": 284,
           "column": 26
         }
       ]
@@ -2333,7 +2436,7 @@
       "refs": [
         {
           "file": "api.ts",
-          "line": 312,
+          "line": 321,
           "column": 43
         }
       ]
@@ -2357,7 +2460,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 297,
+          "line": 317,
           "column": 23
         }
       ]
@@ -2400,7 +2503,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 137,
+          "line": 141,
           "column": 83
         }
       ]
@@ -2448,7 +2551,7 @@
       "refs": [
         {
           "file": "api.ts",
-          "line": 261,
+          "line": 270,
           "column": 21
         }
       ]
@@ -2620,7 +2723,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 236,
+          "line": 256,
           "column": 22
         }
       ]
@@ -2683,18 +2786,6 @@
         }
       ]
     },
-    "8f9b0d6cc477d334": {
-      "source": "控制 Cursor TAB 相关接口的连接方式。",
-      "kind": "text",
-      "placeholders": [],
-      "refs": [
-        {
-          "file": "components/settings/TabSettingsCard.tsx",
-          "line": 52,
-          "column": 21
-        }
-      ]
-    },
     "90800c48a1dd0655": {
       "source": "{label} 必须是 JSON 对象",
       "kind": "template",
@@ -2740,7 +2831,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 161,
+          "line": 180,
           "column": 7
         }
       ]
@@ -2788,6 +2879,18 @@
           "file": "components/settings/TabSettingsCard.tsx",
           "line": 80,
           "column": 20
+        }
+      ]
+    },
+    "97d646d0debe57da": {
+      "source": "Cursor 账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 24,
+          "column": 24
         }
       ]
     },
@@ -2887,7 +2990,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 244,
+          "line": 264,
           "column": 26
         }
       ]
@@ -2923,7 +3026,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 57,
+          "line": 61,
           "column": 34
         }
       ]
@@ -2993,7 +3096,7 @@
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 182,
+          "line": 201,
           "column": 133
         }
       ]
@@ -3392,7 +3495,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 158,
+          "line": 177,
           "column": 45
         }
       ]
@@ -3418,7 +3521,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 280,
+          "line": 300,
           "column": 22
         }
       ]
@@ -3432,6 +3535,18 @@
           "file": "components/cursor/CursorModelTestResult.tsx",
           "line": 27,
           "column": 50
+        }
+      ]
+    },
+    "b87f56603287dcde": {
+      "source": "恢复中…",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 49,
+          "column": 26
         }
       ]
     },
@@ -3544,7 +3659,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 272,
+          "line": 292,
           "column": 40
         }
       ]
@@ -3570,6 +3685,18 @@
           "file": "components/overview/OverviewTimeRangeFilter.tsx",
           "line": 70,
           "column": 51
+        }
+      ]
+    },
+    "bf6c3209d93cdd35": {
+      "source": "直连会使用 Cursor 原账号访问官方 TAB 服务；公益/自定义则走本地模拟账号。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/TabSettingsCard.tsx",
+          "line": 52,
+          "column": 21
         }
       ]
     },
@@ -3601,6 +3728,18 @@
         }
       ]
     },
+    "c1f65837307903eb": {
+      "source": "未登录",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 19,
+          "column": 12
+        }
+      ]
+    },
     "c3760858cdb6d9f4": {
       "source": "请求体",
       "kind": "text",
@@ -3615,6 +3754,18 @@
           "file": "components/CallDetails.tsx",
           "line": 57,
           "column": 51
+        }
+      ]
+    },
+    "c72529e36a44f3af": {
+      "source": "切换回原账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 49,
+          "column": 38
         }
       ]
     },
@@ -3743,12 +3894,12 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 167,
+          "line": 186,
           "column": 22
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 173,
+          "line": 192,
           "column": 20
         }
       ]
@@ -3760,7 +3911,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 204,
+          "line": 223,
           "column": 21
         }
       ]
@@ -3796,7 +3947,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 160,
+          "line": 179,
           "column": 7
         }
       ]
@@ -4042,7 +4193,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 316,
+          "line": 336,
           "column": 30
         }
       ]
@@ -4073,6 +4224,18 @@
           "file": "components/settings/ProxySettingsCard.tsx",
           "line": 72,
           "column": 121
+        }
+      ]
+    },
+    "dfbed0d457d8dd0d": {
+      "source": "已恢复 Cursor 原账号。请完全退出并重新打开 Cursor。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "pages/SettingsPage.tsx",
+          "line": 162,
+          "column": 15
         }
       ]
     },
@@ -4248,7 +4411,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 70,
+          "line": 74,
           "column": 17
         }
       ]
@@ -4318,7 +4481,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 164,
+          "line": 183,
           "column": 26
         }
       ]
@@ -4407,7 +4570,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 223,
+          "line": 242,
           "column": 16
         }
       ]
@@ -4496,7 +4659,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 248,
+          "line": 268,
           "column": 21
         }
       ]
@@ -4563,6 +4726,18 @@
         }
       ]
     },
+    "f9badc7040c83f9f": {
+      "source": "TAB 直连会使用这个 Cursor 登录态访问官方补全服务。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 29,
+          "column": 21
+        }
+      ]
+    },
     "fa5b4b8a751c7d1b": {
       "source": "Cursor 使用的本地代理端口；填写 0 时启动时随机选择。",
       "kind": "text",
@@ -4570,8 +4745,20 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 191,
+          "line": 210,
           "column": 21
+        }
+      ]
+    },
+    "fadd22ebbb094969": {
+      "source": "账号来源",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "components/settings/CursorAccountCard.tsx",
+          "line": 34,
+          "column": 20
         }
       ]
     },
@@ -4686,7 +4873,7 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 307,
+          "line": 327,
           "column": 38
         }
       ]
@@ -4708,7 +4895,7 @@
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 182,
+          "line": 201,
           "column": 121
         }
       ]
@@ -4732,17 +4919,17 @@
       "refs": [
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 65,
+          "line": 69,
           "column": 46
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 203,
+          "line": 222,
           "column": 22
         },
         {
           "file": "pages/SettingsPage.tsx",
-          "line": 218,
+          "line": 237,
           "column": 58
         }
       ]

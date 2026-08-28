@@ -14,6 +14,8 @@ use crate::{
     Error, Result,
 };
 
+pub use account::{CursorAccountSource, CursorAccountStatus};
+
 use self::{ca::CaManager, proxy::ProxyRuntime};
 
 pub(crate) fn proxy_host_allowed(host: &str) -> bool {
@@ -145,7 +147,16 @@ impl CursorHarness {
     pub async fn set_tab_settings(&self, settings: TabSettings) -> Result<TabSettings> {
         let saved = self.inner.store.set_tab_settings(settings).await?;
         *self.inner.tab_mode.write() = saved.mode;
+        account::apply_for_tab_mode(&self.inner.store, saved.mode).await?;
         Ok(saved)
+    }
+
+    pub async fn cursor_account(&self) -> Result<CursorAccountStatus> {
+        account::status(&self.inner.store).await
+    }
+
+    pub async fn restore_cursor_account(&self) -> Result<CursorAccountStatus> {
+        account::restore_original(&self.inner.store).await
     }
 
     async fn enable(&self) -> Result<()> {
@@ -162,7 +173,7 @@ impl CursorHarness {
         let mut proxy = self.inner.proxy.lock().await;
         if proxy.running() {
             if let Some(url) = proxy.url() {
-                apply_cursor_configuration(&url).await?;
+                apply_cursor_configuration(&self.inner.store, &url).await?;
             }
             return Ok(());
         }
@@ -181,7 +192,7 @@ impl CursorHarness {
             proxy.stop().await;
             return Err(error);
         }
-        if let Err(error) = apply_cursor_configuration(&url).await {
+        if let Err(error) = apply_cursor_configuration(&self.inner.store, &url).await {
             proxy.stop().await;
             return Err(error);
         }
@@ -191,12 +202,14 @@ impl CursorHarness {
     pub async fn disable(&self) -> Result<()> {
         settings::clear_proxy_settings()?;
         self.inner.proxy.lock().await.stop().await;
+        account::restore_original_or_clear_local(&self.inner.store).await?;
         Ok(())
     }
 }
 
-async fn apply_cursor_configuration(proxy_url: &str) -> Result<()> {
-    account::inject_if_missing().await?;
+async fn apply_cursor_configuration(store: &Store, proxy_url: &str) -> Result<()> {
+    let mode = store.tab_settings().await?.mode;
+    account::apply_for_tab_mode(store, mode).await?;
     settings::write_proxy_settings(proxy_url)
 }
 

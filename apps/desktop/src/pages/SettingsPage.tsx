@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { api, type ProxySettings, type ProxySettingsInput, type StatisticsStorage, type StatisticsStorageScope, type TabSettings } from "../api";
+import { api, type CursorAccountStatus, type ProxySettings, type ProxySettingsInput, type StatisticsStorage, type StatisticsStorageScope, type TabSettings } from "../api";
 import { PageContent } from "../components/layout/PageContent";
 import { LegacyModelImport } from "../components/models/LegacyModelImport";
 import { AppLifecycleSettingsCard } from "../components/settings/AppLifecycleSettingsCard";
 import { ProxySettingsCard } from "../components/settings/ProxySettingsCard";
+import { CursorAccountCard } from "../components/settings/CursorAccountCard";
 import { TabSettingsCard } from "../components/settings/TabSettingsCard";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
@@ -37,13 +38,16 @@ export function SettingsPage() {
   const [tabDraft, setTabDraft] = useState<TabSettings>({ mode: "public", address: "" });
   const [editingTab, setEditingTab] = useState(false);
   const [savingTab, setSavingTab] = useState(false);
+  const [cursorAccount, setCursorAccount] = useState<CursorAccountStatus | null>(null);
+  const [restoringAccount, setRestoringAccount] = useState(false);
   useEffect(() => {
-    void Promise.all([api.statisticsStorage(), api.proxySettings(), api.tabSettings()]).then(([nextStorage, nextProxy, nextTab]) => {
+    void Promise.all([api.statisticsStorage(), api.proxySettings(), api.tabSettings(), api.cursorAccount()]).then(([nextStorage, nextProxy, nextTab, nextAccount]) => {
       setStorage(nextStorage);
       setOutboundProxy(nextProxy);
       setProxyDraft({ mode: nextProxy.mode, address: nextProxy.address, auth_enabled: nextProxy.auth_enabled, username: nextProxy.username, password: "" });
       setTabSettings(nextTab);
       setTabDraft(nextTab);
+      setCursorAccount(nextAccount);
     }).catch((cause) => message(cause instanceof Error ? cause.message : String(cause)));
   }, [message]);
   useEffect(() => {
@@ -140,11 +144,26 @@ export function SettingsPage() {
       setTabSettings(saved);
       setTabDraft(saved);
       setEditingTab(false);
-      message(t("TAB 设置已保存"));
+      const account = await api.cursorAccount().catch(() => null);
+      if (account) setCursorAccount(account);
+      message(saved.mode === "direct"
+        ? t("TAB 已直连。已切到 Cursor 原账号时，请完全退出并重新打开 Cursor。")
+        : t("TAB 设置已保存"));
     } catch (cause) {
       message(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSavingTab(false);
+    }
+  };
+  const restoreCursorAccount = async () => {
+    try {
+      setRestoringAccount(true);
+      setCursorAccount(await api.restoreCursorAccount());
+      message(t("已恢复 Cursor 原账号。请完全退出并重新打开 Cursor。"), { duration: 4_000 });
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRestoringAccount(false);
     }
   };
   const formatBytes = (bytes: number) => {
@@ -229,6 +248,7 @@ export function SettingsPage() {
       </TitledCard>
       <ProxySettingsCard settings={outboundProxy} draft={proxyDraft} editing={editingProxy} saving={savingProxy} onDraftChange={setProxyDraft} onEdit={editProxy} onCancel={cancelProxyEdit} onSave={() => void saveProxy()} />
       <TabSettingsCard settings={tabSettings} draft={tabDraft} editing={editingTab} saving={savingTab} onDraftChange={setTabDraft} onEdit={editTab} onCancel={cancelTabEdit} onSave={() => void saveTab()} />
+      <CursorAccountCard account={cursorAccount} restoring={restoringAccount} onRestore={() => void restoreCursorAccount()} />
       <AppLifecycleSettingsCard />
       <LegacyModelImport>{({ busy, previewing, open }) => <TitledCard title={t("导入")}>
         <div className={styles.importRow}>
