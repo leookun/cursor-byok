@@ -186,6 +186,9 @@ impl ModelConfig {
         if model.context_window_tokens.is_none() {
             model.context_window_tokens = self.context_window_tokens;
         }
+        if model.max_output_tokens.is_none() {
+            model.max_output_tokens = self.max_output_tokens();
+        }
         if model.reasoning.effort.is_none() {
             model.reasoning.effort = match self.model_type {
                 ModelType::OpenAi => self.reasoning_effort.clone(),

@@ -465,7 +465,14 @@ impl CursorSession {
                                 .map_err(|_| Error::Protocol("checkpoint worker stopped".into()))?
                             {
                                 Ok(checkpoint) => {
-                                    compaction_checkpoint = Some(checkpoint);
+                                    if self.context.compacting {
+                                        compaction_checkpoint = Some(checkpoint);
+                                    } else if let Err(error) =
+                                        self.checkpoint.publish(&self.handle, &checkpoint).await
+                                    {
+                                        state.barrier.complete(Err(error.to_string()));
+                                        return Err(error);
+                                    }
                                     state.barrier.complete(Ok(()));
                                 }
                                 Err(error) => {
