@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{ModelSpec, ProjectedContent, ProjectedMessage, ToolDefinition};
 
-const PROVIDER_TOOL_CALL_ID_MAX_CHARS: usize = 64;
+const PROVIDER_TOOL_CALL_ID_MAX_CHARS: usize = 256;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PromptSpec {
@@ -57,9 +57,9 @@ mod tests {
 
     #[test]
     fn provider_tool_call_ids_are_truncated_once_for_every_provider() {
-        let call_id = format!("cursor-tool-call:{}", "x".repeat(68));
-        assert_eq!(call_id.len(), 85);
-        let expected = call_id[..64].to_string();
+        let call_id = format!("cursor-tool-call:{}", "x".repeat(260));
+        assert_eq!(call_id.len(), 277);
+        let expected = call_id[..256].to_string();
         let mut history = vec![
             ProjectedMessage {
                 message_id: "assistant".into(),
@@ -113,7 +113,7 @@ mod tests {
                 replay_state: None,
                 calls: vec![ToolCallContent {
                     index: 0,
-                    call_id: format!("{}界y", "x".repeat(63)),
+                    call_id: format!("{}界y", "x".repeat(255)),
                     name: "Read".into(),
                     arguments: serde_json::json!({}),
                 }],
@@ -125,6 +125,6 @@ mod tests {
         let ProjectedContent::Assistant { calls, .. } = &history[0].content else {
             panic!("expected assistant message");
         };
-        assert_eq!(calls[0].call_id, format!("{}界", "x".repeat(63)));
+        assert_eq!(calls[0].call_id, format!("{}界", "x".repeat(255)));
     }
 }
