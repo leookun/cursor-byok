@@ -5,6 +5,7 @@ mod compaction;
 mod engine;
 mod event;
 mod handle;
+mod history;
 mod messages;
 mod model_cycle;
 mod model_retry;

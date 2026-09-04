@@ -174,7 +174,11 @@ async fn summarize_replaces_model_history_and_preserves_cursor_history() {
         .prompt
         .instructions
         .contains("compacting conversation history"));
-    assert_eq!(requests[1].history.len(), 2);
+    assert_eq!(requests[1].history.len(), 3);
+    assert_eq!(
+        requests[1].history[2].message_id, "compaction:instruction",
+        "an assistant-terminated history gets the summarize instruction as its user tail"
+    );
     assert_eq!(requests[2].history.len(), 2);
     let ProjectedContent::Parts(summary_parts) = &requests[2].history[0].content else {
         panic!("first post-compaction message must be the summary")
@@ -468,6 +472,192 @@ async fn irreducibly_oversized_current_input_fails_before_provider_dispatch() {
     assert!(provider.requests().is_empty());
     assert_eq!(output.summary_started, 0);
     assert_eq!(output.summary_completed, 0);
+}
+
+fn windowed_model(model_id: &str, context_window_tokens: Option<u64>) -> ModelConfigInput {
+    ModelConfigInput {
+        sort_order: 0,
+        display_name: model_id.into(),
+        group_name: None,
+        model_type: ModelType::OpenAi,
+        base_url: "https://example.com/v1/chat/completions".into(),
+        use_full_url: true,
+        api_key: "test-key".into(),
+        tooltip_data: model_id.into(),
+        model_id: model_id.into(),
+        reasoning_effort: None,
+        openai_endpoint: OPENAI_CHAT_ENDPOINT.into(),
+        openai_extra_params_enabled: false,
+        openai_extra_params: serde_json::json!({}),
+        custom_headers_enabled: false,
+        custom_headers: serde_json::json!({}),
+        anthropic_extra_params_enabled: false,
+        anthropic_extra_params: serde_json::json!({}),
+        context_window_tokens,
+        max_completion_tokens: None,
+        anthropic_max_tokens: None,
+        anthropic_thinking_effort: None,
+        thinking_budget_tokens: None,
+    }
+}
+
+#[tokio::test]
+async fn provider_overflow_refusal_compacts_and_retries_once() {
+    // The estimate cleared the compaction check, but the provider counted
+    // more and refused. The refusal is the trigger the estimate missed.
+    let (_directory, store) = fixtures::temp_store().await;
+    let model = store
+        .create_model(&windowed_model("refusal-model", Some(1_000_000)))
+        .await
+        .unwrap();
+    let provider = fake_provider::FakeProvider::default();
+    provider.push(text_response("first answer", 4_000, 12));
+    provider.push_error(cursor_server::Error::Provider(
+        "Anthropic 400 Bad Request: {\"type\":\"error\",\"error\":{\"type\":\
+         \"invalid_request_error\",\"message\":\"prompt is too long: 1002148 tokens > \
+         1000000 maximum\"}}"
+            .into(),
+    ));
+    provider.push(text_response("durable summary", 3_000, 20));
+    provider.push(text_response("answer after compaction", 500, 20));
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let registry = TransportRegistry::new(
+        store,
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+    );
+
+    let first = run(
+        &registry,
+        "refusal-first",
+        user_request(
+            "refusal-conversation",
+            "refusal-user-1",
+            "start",
+            &model.model_hash,
+            None,
+        ),
+    )
+    .await;
+    let second = run(
+        &registry,
+        "refusal-second",
+        user_request(
+            "refusal-conversation",
+            "refusal-user-2",
+            "continue",
+            &model.model_hash,
+            first.checkpoints.last().cloned(),
+        ),
+    )
+    .await;
+
+    assert_eq!(second.summary_started, 1);
+    assert_eq!(second.summary_completed, 1);
+    assert_eq!(second.turn_ended, 1);
+    let requests = provider.requests();
+    assert_eq!(
+        requests.len(),
+        4,
+        "refused call, summary call, retried call"
+    );
+    assert!(requests[2].prompt.tools.is_empty());
+    assert_eq!(
+        requests[2].history.last().unwrap().role,
+        Role::User,
+        "the summarizer history must end with a user message"
+    );
+    assert!(!requests[3].prompt.tools.is_empty());
+    assert!(requests[3]
+        .history
+        .iter()
+        .any(|message| match &message.content {
+            ProjectedContent::Parts(parts) =>
+                matches!(parts.as_slice(), [ContentPart::Text { text }]
+            if text.contains("durable summary")),
+            _ => false,
+        }));
+}
+
+#[tokio::test]
+async fn assistant_terminated_history_is_sent_with_a_user_tail() {
+    // Cursor can resume a conversation whose committed history already ends
+    // with the assistant. Anthropic refuses that as a prefill, so the run
+    // appends a provider-visible continuation without persisting it.
+    let (_directory, store) = fixtures::temp_store().await;
+    let model = store
+        .create_model(&windowed_model("tail-model", None))
+        .await
+        .unwrap();
+    let provider = fake_provider::FakeProvider::default();
+    provider.push(text_response("first answer", 400, 12));
+    provider.push(text_response("resumed answer", 450, 12));
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let registry = TransportRegistry::new(
+        store.clone(),
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+    );
+
+    let first = run(
+        &registry,
+        "tail-first",
+        user_request(
+            "tail-conversation",
+            "tail-user-1",
+            "start",
+            &model.model_hash,
+            None,
+        ),
+    )
+    .await;
+    let resumed = run(
+        &registry,
+        "tail-resume",
+        request(
+            "tail-conversation",
+            &model.model_hash,
+            first.checkpoints.last().cloned(),
+            pb::conversation_action::Action::ResumeAction(pb::ResumeAction::default()),
+        ),
+    )
+    .await;
+    assert_eq!(resumed.turn_ended, 1);
+
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    let tail = requests[1].history.last().unwrap();
+    assert_eq!(tail.role, Role::User);
+    assert_eq!(tail.message_id, "runtime:continue");
+    assert_eq!(
+        requests[1].history[..requests[1].history.len() - 1]
+            .iter()
+            .map(|message| message.message_id.as_str())
+            .collect::<Vec<_>>()
+            .len(),
+        requests[0].history.len() + 1,
+        "committed history plus the first answer, then the transient tail"
+    );
+    let stored = store
+        .load_current_messages(&ConversationId::new("tail-conversation"))
+        .await
+        .unwrap();
+    assert!(
+        stored
+            .iter()
+            .all(|message| message.message_id != "runtime:continue"),
+        "the continuation tail is provider-visible only and never persisted"
+    );
 }
 
 #[derive(Default)]
