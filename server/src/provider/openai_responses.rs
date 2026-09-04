@@ -113,6 +113,7 @@ impl Provider for OpenAiResponsesProvider {
             futures_util::pin_mut!(source);
             let mut text_open = false;
             let mut text = String::new();
+            let mut text_index = None;
             let mut thinking_open = false;
             let mut tools = std::collections::BTreeMap::<usize, ResponseToolState>::new();
             let mut reasoning_items = Vec::new();
@@ -134,6 +135,7 @@ impl Provider for OpenAiResponsesProvider {
                 let kind = value.get("type").and_then(Value::as_str).unwrap_or(&event.event);
                 match kind {
                     "response.output_text.delta" => {
+                        enter_response_text_item(&value, &mut text_index, &mut text);
                         if thinking_open { thinking_open = false; yield ModelEvent::ThinkingEnd; }
                         if !text_open { text_open = true; yield ModelEvent::TextStart; }
                         if let Some(delta) = value.get("delta").and_then(Value::as_str) {
@@ -142,6 +144,7 @@ impl Provider for OpenAiResponsesProvider {
                         }
                     }
                     "response.output_text.done" => {
+                        enter_response_text_item(&value, &mut text_index, &mut text);
                         if let Some(final_text) = value.get("text").and_then(Value::as_str) {
                             for event in reconcile_response_text(&mut text_open, &mut text, final_text) { yield event; }
                         }
@@ -170,6 +173,7 @@ impl Provider for OpenAiResponsesProvider {
                             }
                             Some("message") => {
                                 saw_completed_item = true;
+                                enter_response_text_item(&value, &mut text_index, &mut text);
                                 if let Some(final_text) = response_item_text(item) {
                                     for event in reconcile_response_text(&mut text_open, &mut text, &final_text) { yield event; }
                                 }
@@ -282,6 +286,20 @@ fn response_item_text(item: &Value) -> Option<String> {
         .filter_map(|part| part.get("text").and_then(Value::as_str))
         .collect::<String>();
     Some(text)
+}
+
+/// Scopes the streamed text accumulator to a single output item.
+///
+/// `response.output_text.done` and `response.output_item.done` report the final
+/// text of one item, so reconciliation is only meaningful against the deltas of
+/// that same item. Events without an `output_index` keep the current scope.
+fn enter_response_text_item(value: &Value, current: &mut Option<u64>, streamed: &mut String) {
+    let Some(index) = value.get("output_index").and_then(Value::as_u64) else {
+        return;
+    };
+    if current.replace(index) != Some(index) {
+        streamed.clear();
+    }
 }
 
 fn reconcile_response_text(
@@ -580,5 +598,66 @@ mod tests {
                 "encrypted_content": "opaque"
             })]
         );
+    }
+
+    #[test]
+    fn a_later_output_item_reconciles_against_its_own_text() {
+        let mut open = false;
+        let mut streamed = String::new();
+        let mut index = None;
+
+        enter_response_text_item(&json!({"output_index": 0}), &mut index, &mut streamed);
+        assert_eq!(
+            reconcile_response_text(&mut open, &mut streamed, "checking the file"),
+            vec![
+                ModelEvent::TextStart,
+                ModelEvent::TextDelta("checking the file".into())
+            ]
+        );
+        open = false;
+
+        enter_response_text_item(&json!({"output_index": 2}), &mut index, &mut streamed);
+        assert_eq!(
+            reconcile_response_text(&mut open, &mut streamed, "the file looks fine"),
+            vec![
+                ModelEvent::TextStart,
+                ModelEvent::TextDelta("the file looks fine".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_later_output_item_still_repairs_a_truncated_delta_stream() {
+        let mut open = true;
+        let mut streamed = String::new();
+        let mut index = None;
+
+        enter_response_text_item(&json!({"output_index": 0}), &mut index, &mut streamed);
+        streamed.push_str("checking the file");
+
+        enter_response_text_item(&json!({"output_index": 3}), &mut index, &mut streamed);
+        streamed.push_str("the file ");
+        assert_eq!(
+            reconcile_response_text(&mut open, &mut streamed, "the file looks fine"),
+            vec![ModelEvent::TextDelta("looks fine".into())]
+        );
+    }
+
+    #[test]
+    fn repeated_reports_for_one_output_item_do_not_replay_its_text() {
+        let mut open = false;
+        let mut streamed = String::new();
+        let mut index = None;
+        let event = json!({"output_index": 0});
+
+        enter_response_text_item(&event, &mut index, &mut streamed);
+        assert_eq!(
+            reconcile_response_text(&mut open, &mut streamed, "done"),
+            vec![ModelEvent::TextStart, ModelEvent::TextDelta("done".into())]
+        );
+        open = false;
+
+        enter_response_text_item(&event, &mut index, &mut streamed);
+        assert!(reconcile_response_text(&mut open, &mut streamed, "done").is_empty());
     }
 }
