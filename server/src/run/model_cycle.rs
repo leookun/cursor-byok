@@ -373,13 +373,33 @@ fn failure(
     partial_reasoning: String,
     usage: Option<Usage>,
 ) -> Box<ModelCycleFailure> {
-    let retryable = matches!(failure, RunFailure::Protocol(_) | RunFailure::Provider(_));
+    let retryable = match &failure {
+        RunFailure::Protocol(_) => true,
+        RunFailure::Provider(message) if is_rejected_request(message) => false,
+        RunFailure::Provider(_) => true,
+        RunFailure::Store(_) | RunFailure::Client(_) => false,
+    };
     Box::new(ModelCycleFailure {
         failure,
         partial_text,
         partial_reasoning,
         usage,
         retryable,
+    })
+}
+
+/// A rejected request (wrong key, unknown model, malformed or oversized body)
+/// fails identically every time, so retrying it only delays the error the user
+/// needs to see. Provider failures are formatted as `<label> <status>: <body>`,
+/// so only the head before the body is inspected. 408 and 425 are timing
+/// failures and stay retryable.
+fn is_rejected_request(message: &str) -> bool {
+    let head = message.split_once(": ").map_or(message, |(head, _)| head);
+    head.split_whitespace().any(|token| {
+        token.len() == 3
+            && token.starts_with('4')
+            && token.bytes().all(|byte| byte.is_ascii_digit())
+            && !matches!(token, "408" | "425" | "429")
     })
 }
 
@@ -479,5 +499,56 @@ mod tests {
         let result = cycle.await.unwrap().unwrap();
         assert_eq!(result.usage, Some(usage));
         assert!(event_rx.try_recv().is_err(), "usage must be forwarded once");
+    }
+
+    #[test]
+    fn other_provider_errors_are_retryable() {
+        let result = failure(
+            RunFailure::Provider("Anthropic 502 Bad Gateway".into()),
+            String::new(),
+            String::new(),
+            None,
+        );
+        assert!(result.retryable);
+        let timeout = failure(
+            RunFailure::Provider("Anthropic 408 Request Timeout".into()),
+            String::new(),
+            String::new(),
+            None,
+        );
+        assert!(timeout.retryable);
+    }
+
+    #[test]
+    fn rejected_requests_are_not_retryable() {
+        // Verbatim from a wedged conversation: eight retries of the same
+        // over-limit prompt only delayed the error by forty seconds.
+        let too_long = failure(
+            RunFailure::Provider(
+                "Anthropic 400 Bad Request: {\"type\":\"error\",\"error\":{\"type\":\
+                 \"invalid_request_error\",\"message\":\"prompt is too long: 1002148 \
+                 tokens > 1000000 maximum\"}}"
+                    .into(),
+            ),
+            String::new(),
+            String::new(),
+            None,
+        );
+        assert!(!too_long.retryable);
+        let unauthorized = failure(
+            RunFailure::Provider("OpenAI Chat 401 Unauthorized: invalid api key".into()),
+            String::new(),
+            String::new(),
+            None,
+        );
+        assert!(!unauthorized.retryable);
+        // A status-looking number inside the body is not a status code.
+        let body_number = failure(
+            RunFailure::Provider("Anthropic 502 Bad Gateway: upstream returned 400".into()),
+            String::new(),
+            String::new(),
+            None,
+        );
+        assert!(body_number.retryable);
     }
 }
