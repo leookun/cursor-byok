@@ -517,11 +517,9 @@ fn gate_mcp_resources(tool: &mut pb::ListMcpResourcesToolCall) {
             .push(pb::list_mcp_resources_exec_result::McpResource {
                 uri: "truncated:list-mcp-resources".into(),
                 name: Some("truncated".into()),
-                description: Some(truncation_notice(
-                    "ListMcpResources",
-                    MCP_TEXT_LIMIT,
-                    success.resources.len(),
-                    original,
+                description: Some(format!(
+                    "[truncated: ListMcpResources result exceeded {MCP_RESOURCE_LIMIT} resources; showing {} of {original} resources]",
+                    success.resources.len()
                 )),
                 ..Default::default()
             });
@@ -860,5 +858,40 @@ mod tests {
         let mut tool = grep_tool(matches);
         let mut content = String::new();
         tool_completion("Grep", &mut tool, &mut content);
+    }
+
+    #[test]
+    fn list_mcp_resources_reports_the_cap_it_actually_applied() {
+        let resources = (0..MCP_RESOURCE_LIMIT + 50)
+            .map(|index| pb::list_mcp_resources_exec_result::McpResource {
+                uri: format!("mcp://resource/{index}"),
+                ..Default::default()
+            })
+            .collect();
+        let mut tool = pb::ListMcpResourcesToolCall {
+            args: None,
+            result: Some(pb::ListMcpResourcesExecResult {
+                result: Some(pb::list_mcp_resources_exec_result::Result::Success(
+                    pb::ListMcpResourcesSuccess { resources },
+                )),
+            }),
+        };
+
+        gate_mcp_resources(&mut tool);
+
+        let pb::list_mcp_resources_exec_result::Result::Success(success) =
+            tool.result.unwrap().result.unwrap()
+        else {
+            panic!("expected a successful result");
+        };
+        let notice = success.resources.last().unwrap();
+        assert_eq!(notice.uri, "truncated:list-mcp-resources");
+        assert_eq!(
+            notice.description.as_deref(),
+            Some(
+                "[truncated: ListMcpResources result exceeded 200 resources; \
+                 showing 200 of 250 resources]"
+            )
+        );
     }
 }
