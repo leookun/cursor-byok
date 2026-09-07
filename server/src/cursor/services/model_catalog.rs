@@ -41,6 +41,10 @@ struct AvailableModel {
     supports_images: Option<bool>,
     #[prost(bool, optional, tag = "14")]
     supports_max_mode: Option<bool>,
+    #[prost(int32, optional, tag = "15")]
+    context_token_limit: Option<i32>,
+    #[prost(int32, optional, tag = "16")]
+    context_token_limit_for_max_mode: Option<i32>,
     #[prost(string, optional, tag = "17")]
     client_display_name: Option<String>,
     #[prost(string, optional, tag = "18")]
@@ -473,6 +477,8 @@ fn available_model(model: &ModelConfig) -> AvailableModel {
         supports_thinking: Some(true),
         supports_images: Some(true),
         supports_max_mode: Some(true),
+        context_token_limit: model.context_window_tokens.map(|t| t as i32),
+        context_token_limit_for_max_mode: model.context_window_tokens.map(|t| t as i32),
         client_display_name: Some(model.display_name.clone()),
         server_model_name: Some(model.model_hash.clone()),
         supports_non_max_mode: Some(true),
@@ -710,6 +716,8 @@ fn available_plugin_model(model: &PluginModelDescriptor) -> AvailableModel {
         supports_thinking: Some(true),
         supports_images: Some(model.images),
         supports_max_mode: Some(false),
+        context_token_limit: None,
+        context_token_limit_for_max_mode: None,
         client_display_name: Some(model.display_name.clone()),
         server_model_name: Some(model.id.clone()),
         supports_non_max_mode: Some(true),
