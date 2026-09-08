@@ -113,8 +113,16 @@ impl HttpHandler for CursorRelay {
         mut request: Request<Body>,
     ) -> RequestOrResponse {
         let original = request.uri().clone();
-        let locally_routed = should_route_locally(original.path(), *self.tab_mode.read());
-        if is_cursor_host(original.host().unwrap_or_default()) && locally_routed {
+        // Route every Cursor-host request through the local backend instead of
+        // letting hudsucker dial the official upstream directly: direct dials
+        // hang (~75s) on networks that only allow proxied egress. Paths outside
+        // the explicit route table fall through to the router fallback
+        // (proxy::forward), which uses the configured outbound proxy. Tab paths
+        // in explicit Direct mode keep their original upstream pass-through.
+        let route_locally = is_cursor_host(original.host().unwrap_or_default())
+            && (should_route_locally(original.path(), *self.tab_mode.read())
+                || !is_tab_path(original.path()));
+        if route_locally {
             if let Ok(value) = original.to_string().parse() {
                 request.headers_mut().insert(UPSTREAM_URL_HEADER, value);
             }
