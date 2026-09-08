@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use hudsucker::{
     certificate_authority::RcgenAuthority,
-    hyper::{Request, Uri},
+    hyper::{Method, Request, Uri},
     rustls::crypto::aws_lc_rs,
     Body, HttpContext, HttpHandler, Proxy, RequestOrResponse,
 };
@@ -113,6 +113,14 @@ impl HttpHandler for CursorRelay {
         mut request: Request<Body>,
     ) -> RequestOrResponse {
         let original = request.uri().clone();
+        // Never rewrite CONNECT tunnels: hudsucker inspects them only to decide
+        // whether to MITM (should_intercept_connect), and rewriting the
+        // authority to the local backend would disable TLS interception for
+        // every Cursor-host connection. Only inner (post-MITM) requests are
+        // routed locally.
+        if request.method() == Method::CONNECT {
+            return request.into();
+        }
         // Route every Cursor-host request through the local backend instead of
         // letting hudsucker dial the official upstream directly: direct dials
         // hang (~75s) on networks that only allow proxied egress. Paths outside
