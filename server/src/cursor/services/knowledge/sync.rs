@@ -40,6 +40,14 @@ pub async fn replay(
 
 /// 用上游返回的完整列表覆盖本地镜像。仅应在日志已清空时调用。
 pub fn mirror(store: &RuleStore, items: Vec<KnowledgeBaseListItem>) -> Result<()> {
+    tracing::info!(
+        count = items.len(),
+        items = ?items
+            .iter()
+            .map(|item| (item.id.clone(), item.title.clone()))
+            .collect::<Vec<_>>(),
+        "KB mirror from upstream"
+    );
     let records = items
         .into_iter()
         .map(|item| RuleRecord {
