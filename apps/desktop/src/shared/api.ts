@@ -8,6 +8,7 @@ export interface Model {
   sort_order: number;
   display_name: string;
   group_name: string | null;
+  enabled: boolean;
   type: ModelType;
   base_url: string;
   use_full_url: boolean;
@@ -331,11 +332,6 @@ export interface PluginImportResult {
   modelSyncError: string | null;
 }
 
-export function configuredPluginModels(plugins: PluginDescriptor[]): PluginModelDescriptor[] {
-  return plugins.flatMap((plugin) =>
-    plugin.providers.flatMap((provider) => provider.configured ? provider.models.filter((model) => model.enabled) : []));
-}
-
 export interface OverviewMetrics {
   llm_calls: number;
   successful_calls: number;
@@ -478,6 +474,7 @@ export const api = {
   models: () => request<Model[]>("/models"),
   createModels: (models: ModelInput[]) => request<Model[]>("/models", { method: "POST", body: JSON.stringify({ models }) }),
   reorderModels: (modelHashes: string[]) => request<Model[]>("/models/order", { method: "PUT", body: JSON.stringify({ model_hashes: modelHashes }) }),
+  setModelsEnabled: (modelHashes: string[], enabled: boolean) => request<Model[]>("/models/publication", { method: "PUT", body: JSON.stringify({ model_hashes: modelHashes, enabled }) }),
   discoverModels: (input: ModelDiscoveryInput) => request<{ models: string[] }>("/models/discover", { method: "POST", body: JSON.stringify(input) }),
   previewV0049Models: () => request<LegacyModelImportPreview>("/models/import-v0049"),
   importV0049Models: () => request<LegacyModelImportResult>("/models/import-v0049", { method: "POST" }),

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, configuredPluginModels, type Model, type ModelInput } from "../../shared/api";
+import { api, type Model, type ModelInput } from "../../shared/api";
 import { CursorCaGate, CursorCaProvider, CursorModelGate, CursorModelProvider } from "./CursorGates";
-import { CursorModelCards, cursorModelGroups, type CursorModelGroup, type CursorModelGrouping } from "./CursorModelCards";
+import { CursorModelCards, cursorModelGroups, cursorPluginModelGroups, groupToggleKey, type CursorModelGroup, type CursorModelGrouping, type CursorPluginModelGroup } from "./CursorModelCards";
 import { CursorModelEditor, emptyCursorModelDraft, type CursorModelDraft } from "./CursorModelEditor";
 import { CursorModelTestResult, type CursorModelTestState } from "./CursorModelTestResult";
 import styles from "./CursorSettings.module.scss";
@@ -42,14 +42,16 @@ export function CursorSettingsPage() {
   const [groupBaseUrlDraft, setGroupBaseUrlDraft] = useState("");
   const [groupApiKeyDraft, setGroupApiKeyDraft] = useState("");
   const [groupSettingsBusy, setGroupSettingsBusy] = useState(false);
+  /** 只标记正在切换的那一组,避免其它分组的开关一起变灰闪动。 */
+  const [busyGroupKey, setBusyGroupKey] = useState<string | null>(null);
   const activeModelTests = useRef(new Map<string, { testId: string; controller: AbortController; cancelling: boolean }>());
   const caReady = cursorHarness?.ca === "ready";
   const cursorTakenOver = cursorHarness?.settings_applied ?? false;
   const takeoverLabel = cursorTakenOver ? t("关闭接管Cursor") : t("开启接管Cursor");
-  const pluginModels = configuredPluginModels(plugins);
+  const pluginGroups = cursorPluginModelGroups(plugins);
   const testTargets = [
     ...models.map((model) => ({ model_hash: model.model_hash, display_name: model.display_name })),
-    ...pluginModels.map((model) => ({ model_hash: model.id, display_name: model.displayName })),
+    ...pluginGroups.flatMap((group) => group.models.map((model) => ({ model_hash: model.id, display_name: model.displayName }))),
   ];
   const providerGroups = cursorModelGroups(models, "provider");
   const typeGroups = cursorModelGroups(models, "type");
@@ -257,12 +259,40 @@ export function CursorSettingsPage() {
       message(appStore.getSnapshot().error || t("排序失败"));
     }
   }, [message]);
+  /** 分组开关:关闭后该分组的模型不再发布到 Cursor,但仍保留在配置里。 */
+  const setBuiltinGroupEnabled = async (group: CursorModelGroup, enabled: boolean) => {
+    setBusyGroupKey(groupToggleKey("builtin", group.key));
+    try {
+      await api.setModelsEnabled(group.models.map((model) => model.model_hash), enabled);
+      await appStore.refresh();
+    } catch (cause) {
+      message(errorText(cause));
+    } finally {
+      setBusyGroupKey(null);
+    }
+  };
+  const setPluginGroupEnabled = async (group: CursorPluginModelGroup, enabled: boolean) => {
+    setBusyGroupKey(groupToggleKey("plugin", group.key));
+    try {
+      for (const model of group.models) {
+        if (model.enabled !== enabled) {
+          await api.setPluginModelEnabled(model.pluginId, model.providerId, model.modelId, enabled);
+        }
+      }
+      await appStore.refreshPlugins();
+    } catch (cause) {
+      message(errorText(cause));
+    } finally {
+      setBusyGroupKey(null);
+    }
+  };
 
   const list = <CursorModelCards
     models={models}
-    pluginModels={pluginModels}
+    pluginGroups={pluginGroups}
     grouping={grouping}
     disabled={cursorBusy}
+    busyGroupKey={busyGroupKey}
     testingModelHashes={testingModelHashes}
     testResults={modelTestResults}
     onTest={(model) => void testModel(model)}
@@ -273,6 +303,8 @@ export function CursorSettingsPage() {
     onPluginSettings={() => navigate("/plugins")}
     onReorder={reorderModels}
     onGroupSettings={openGroupSettings}
+    onSetBuiltinGroupEnabled={(group, enabled) => void setBuiltinGroupEnabled(group, enabled)}
+    onSetPluginGroupEnabled={(group, enabled) => void setPluginGroupEnabled(group, enabled)}
   />;
 
   const refreshCa = async () => {
@@ -295,7 +327,8 @@ export function CursorSettingsPage() {
   const editorTestState = editing ? modelTestResults.get(editing.model_hash) : undefined;
   const editorTesting = Boolean(editing && testingModelHashes.has(editing.model_hash));
   const activeGroups = grouping === "provider" ? providerGroups : typeGroups;
-  const pluginSectionHeight = pluginModels.length > 0 ? 60 + pluginModels.length * 56 : 0;
+  const pluginModelCount = pluginGroups.reduce((total, group) => total + group.models.length, 0);
+  const pluginSectionHeight = pluginGroups.length > 0 ? 60 + pluginModelCount * 56 : 0;
   const estimatedModelHeight = grouping === "flat"
     ? Math.max(380, Math.ceil(models.length / 3) * 196 + pluginSectionHeight)
     : Math.max(380, activeGroups.reduce((height, group) => height + 60 + group.models.length * 56, 0) + Math.max(0, activeGroups.length - 1) * 20 + pluginSectionHeight);

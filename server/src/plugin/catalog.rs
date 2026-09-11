@@ -86,7 +86,11 @@ impl PluginCatalog {
                 {
                     Ok(entry) => {
                         if plugins.contains_key(&entry.manifest.id) {
-                            tracing::warn!(plugin = %entry.manifest.id, path = %directory.display(), "ignoring duplicate plugin");
+                            tracing::debug!(
+                                plugin = %entry.manifest.id,
+                                path = %directory.display(),
+                                "duplicate plugin ignored; earlier plugin source has priority"
+                            );
                         } else {
                             plugins.insert(entry.manifest.id.clone(), entry);
                         }
@@ -119,7 +123,7 @@ impl PluginCatalog {
                 if let Ok((manifest, icon)) = loaded {
                     plugins
                         .entry(manifest.id.clone())
-                        .or_insert((manifest, icon));
+                        .or_insert_with(|| (manifest, icon));
                 }
             }
         }

@@ -107,6 +107,7 @@ export function __descriptor(definition: ProviderPluginDefinition) {
         destructive: action.destructive ?? false,
       })),
       canRefresh: resource.refresh !== undefined,
+      refreshIntervalMs: resource.refreshIntervalMs ?? null,
       canRemove: resource.remove !== undefined,
     })),
   };

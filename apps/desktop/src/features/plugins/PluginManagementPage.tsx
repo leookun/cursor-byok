@@ -82,7 +82,7 @@ export function PluginManagementPage() {
       submitLabel={t("确定")}
     >
       {selected?.mode === "add" && selectedPlugin && <PluginAddPanel plugin={selectedPlugin} onConfigured={() => setSelected(null)} />}
-      {selected?.mode === "settings" && selectedPlugin && <PluginSettingsPanel plugin={selectedPlugin} />}
+      {selected?.mode === "settings" && selectedPlugin && <PluginSettingsPanel plugin={selectedPlugin} onResourcesEmpty={() => setSelected(null)} />}
     </Modal>
   </>;
 }

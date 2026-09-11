@@ -253,8 +253,7 @@ mod tests {
         else {
             panic!("expected an InteractionQuery");
         };
-        let Some(pb::interaction_query::Query::WebSearchRequestQuery(request)) = query.query
-        else {
+        let Some(pb::interaction_query::Query::WebSearchRequestQuery(request)) = query.query else {
             panic!("expected a WebSearchRequestQuery");
         };
         assert_eq!(request.args.unwrap().search_term, "lmarena leaderboard");

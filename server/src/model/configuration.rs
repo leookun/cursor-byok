@@ -128,6 +128,8 @@ pub struct ModelConfig {
     pub sort_order: i64,
     pub display_name: String,
     pub group_name: Option<String>,
+    /// 是否发布到 Cursor 的模型目录;分组开关批量切换该标记,不参与模型身份哈希。
+    pub enabled: bool,
     #[serde(rename = "type")]
     pub model_type: ModelType,
     pub base_url: String,

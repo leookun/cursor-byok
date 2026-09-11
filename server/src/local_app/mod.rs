@@ -111,7 +111,7 @@ impl CursorHarness {
     pub async fn status(&self) -> Result<CursorHarnessStatus> {
         let models = self.inner.store.models().await?;
         let configured_models = models.len();
-        let enabled_models = configured_models;
+        let enabled_models = models.iter().filter(|model| model.enabled).count();
         let ca = self.inner.ca.state()?;
         if self.inner.store.cursor_takeover_enabled().await?
             && matches!(ca, CaState::Ready)

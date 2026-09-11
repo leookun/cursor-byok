@@ -220,6 +220,7 @@ impl PluginWorker {
     pub async fn stop(&self) {
         if let Some(mut process) = self.inner.process.lock().await.take() {
             let _ = process.child.kill().await;
+            let _ = process.child.wait().await;
         }
         fail_pending(&self.inner.pending, "plugin worker stopped").await;
     }

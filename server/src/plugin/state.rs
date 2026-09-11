@@ -309,6 +309,7 @@ impl PluginStateStore {
         plugin_id: &str,
         resource_type: &str,
         resource_id: &str,
+        clear_model_providers_if_last: &[String],
     ) -> Result<ResourceRecord> {
         let mut records = self.resources(plugin_id, resource_type).await?;
         let index = records
@@ -318,7 +319,16 @@ impl PluginStateStore {
         let removed = records.remove(index);
         self.save_resources(plugin_id, resource_type, &records)
             .await?;
+        if records.is_empty() {
+            for provider_id in clear_model_providers_if_last {
+                self.replace_models(plugin_id, provider_id, &[]).await?;
+            }
+        }
         Ok(removed)
+    }
+
+    pub async fn has_resources(&self, plugin_id: &str, resource_type: &str) -> Result<bool> {
+        Ok(!self.resources(plugin_id, resource_type).await?.is_empty())
     }
 
     pub async fn models(&self, plugin_id: &str, provider_id: &str) -> Result<Vec<StoredModel>> {
@@ -493,5 +503,75 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert!(models[0].images);
         assert_eq!(models[0].private_data["reasoningEfforts"][0], "low");
+
+        store
+            .replace_models("dev.example", "codex", &[])
+            .await
+            .unwrap();
+        assert!(store
+            .models("dev.example", "codex")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn last_resource_removal_can_clear_the_model_catalog() {
+        let (_root, store) = store();
+        let outcome = store
+            .upsert_resources(
+                "dev.example",
+                "account",
+                vec![
+                    ResourceDraft {
+                        key: "acct-1".into(),
+                        private_data: serde_json::json!({"token": "one"}),
+                        state: None,
+                    },
+                    ResourceDraft {
+                        key: "acct-2".into(),
+                        private_data: serde_json::json!({"token": "two"}),
+                        state: None,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.added, 2);
+        let model = StoredModel::from_definition(&serde_json::json!({
+            "id": "gpt-test",
+            "displayName": "GPT Test",
+            "capabilities": {"images": false},
+        }))
+        .unwrap();
+        store
+            .replace_models("dev.example", "codex", &[model])
+            .await
+            .unwrap();
+
+        let records = store.resources("dev.example", "account").await.unwrap();
+        store
+            .remove_resource("dev.example", "account", &records[0].id, &["codex".into()])
+            .await
+            .unwrap();
+        assert!(store.has_resources("dev.example", "account").await.unwrap());
+        assert_eq!(store.models("dev.example", "codex").await.unwrap().len(), 1);
+
+        let remaining = store.resources("dev.example", "account").await.unwrap();
+        store
+            .remove_resource(
+                "dev.example",
+                "account",
+                &remaining[0].id,
+                &["codex".into()],
+            )
+            .await
+            .unwrap();
+        assert!(!store.has_resources("dev.example", "account").await.unwrap());
+        assert!(store
+            .models("dev.example", "codex")
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

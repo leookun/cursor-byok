@@ -23,6 +23,12 @@ import { Switch } from "../../shared/ui/Switch";
 import styles from "./PluginResourcePanels.module.scss";
 
 const PAGE_SIZE = 10;
+const ANTIGRAVITY_PLUGIN_ID = "dev.cursorbyok.plugins.antigravity-auth";
+const ANTIGRAVITY_RESOURCE_TYPE = "antigravity-account";
+
+function isAntigravityAccountResource(pluginId: string, resourceType: string) {
+  return pluginId === ANTIGRAVITY_PLUGIN_ID && resourceType === ANTIGRAVITY_RESOURCE_TYPE;
+}
 
 export function PluginAddPanel({ plugin, onConfigured }: { plugin: PluginDescriptor; onConfigured: () => void }) {
   return <div className={styles.panel}>
@@ -145,7 +151,10 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
   </Card>;
 }
 
-export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
+export function PluginSettingsPanel({ plugin, onResourcesEmpty }: {
+  plugin: PluginDescriptor;
+  onResourcesEmpty: () => void;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelProviderId, setModelProviderId] = useState<string | null>(null);
@@ -156,6 +165,8 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
   const [resourceActionResult, setResourceActionResult] = useState<PluginResourceActionResult | null>(null);
   const [resourceActionError, setResourceActionError] = useState<string | null>(null);
   const modelProvider = modelProviderId ? plugin.providers.find((provider) => provider.id === modelProviderId) ?? null : null;
+  const quotaNow = useQuotaClock(plugin.resources);
+  usePluginSnapshotPoll();
 
   const run = async (key: string, task: () => Promise<void>) => {
     setBusy(key);
@@ -202,6 +213,16 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     void executeResourceAction({ resource, item }, action);
   };
 
+  const applyModels = async (provider: PluginProviderDescriptor, enabledByModel: Record<string, boolean>) => {
+    await run("models", async () => {
+      for (const model of provider.models) {
+        const enabled = enabledByModel[model.id] ?? model.enabled;
+        if (model.enabled !== enabled) await api.setPluginModelEnabled(plugin.id, provider.id, model.modelId, enabled);
+      }
+    });
+    setModelProviderId(null);
+  };
+
   return <div className={styles.panel}>
     {plugin.providers.map((provider) => <ProviderRow
       key={provider.id}
@@ -215,14 +236,20 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     />)}
     {plugin.resources.map((resource) => <ResourceList
       key={resource.type}
+      pluginId={plugin.id}
       resource={resource}
       busy={busy !== null}
+      now={quotaNow}
       onAction={(item, action) => openResourceAction(resource, item, action)}
       onRefresh={(item) => void run(`refresh:${item.id}`, async () => {
         await api.refreshPluginResource(plugin.id, resource.type, item.id);
       })}
       onDelete={(item) => void run(`delete:${item.id}`, async () => {
         await api.deletePluginResource(plugin.id, resource.type, item.id);
+        await appStore.refreshPlugins();
+        const refreshed = appStore.getSnapshot().plugins.find((candidate) => candidate.id === plugin.id);
+        const remaining = refreshed?.resources.find((candidate) => candidate.type === resource.type)?.resources.length ?? 0;
+        if (isAntigravityAccountResource(plugin.id, resource.type) && remaining === 0) onResourcesEmpty();
       })}
     />)}
     {error && <span className={styles.error} role="alert">{error}</span>}
@@ -230,12 +257,7 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
       provider={modelProvider}
       busy={busy !== null}
       onClose={() => setModelProviderId(null)}
-      onSubmit={(enabledByModel) => void run("models", async () => {
-        for (const model of modelProvider.models) {
-          const enabled = enabledByModel[model.id] ?? model.enabled;
-          if (model.enabled !== enabled) await api.setPluginModelEnabled(plugin.id, modelProvider.id, model.modelId, enabled);
-        }
-      })}
+      onSubmit={(enabledByModel) => void applyModels(modelProvider, enabledByModel)}
     />}
     {resourceAction && <ResourceActionModal
       action={resourceAction.resource.actions.find((item) => item.target === "resource") ?? null}
@@ -284,11 +306,9 @@ function ModelManagementModal({ provider, busy, onClose, onSubmit }: {
   onSubmit: (enabledByModel: Record<string, boolean>) => void;
 }) {
   const { locale } = useI18n();
-  const [enabledByModel, setEnabledByModel] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    setEnabledByModel(Object.fromEntries(provider.models.map((model) => [model.id, model.enabled])));
-  }, [provider.models]);
+  const [enabledByModel, setEnabledByModel] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(provider.models.map((model) => [model.id, model.enabled])),
+  );
 
   const setAll = (enabled: boolean) => {
     setEnabledByModel(Object.fromEntries(provider.models.map((model) => [model.id, enabled])));
@@ -314,7 +334,6 @@ function ModelManagementModal({ provider, busy, onClose, onSubmit }: {
           {provider.models.map((model) => <tr key={model.id}>
             <td><div className={styles.modelName}>
               <strong>{model.displayName}</strong>
-              {model.description && <span>{model.description}</span>}
             </div></td>
             <td><Switch
               checked={enabledByModel[model.id] ?? model.enabled}
@@ -330,9 +349,11 @@ function ModelManagementModal({ provider, busy, onClose, onSubmit }: {
   </Modal>;
 }
 
-function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
+function ResourceList({ pluginId, resource, busy, now, onAction, onRefresh, onDelete }: {
+  pluginId: string;
   resource: PluginResourceDescriptor;
   busy: boolean;
+  now: number;
   onAction: (item: PluginResourceView, action: PluginResourceAction) => void;
   onRefresh: (item: PluginResourceView) => void;
   onDelete: (item: PluginResourceView) => void;
@@ -349,18 +370,19 @@ function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
 
   useEffect(() => setPage(1), [query]);
 
-  return <FormField label={pluginText(resource.displayName, locale)}>
-    <div className={styles.resourceSection}>
+  const content = <div className={styles.resourceSection}>
       {resource.resources.length > PAGE_SIZE && <div className={styles.toolbar}>
         <TextInput aria-label={t("搜索资源")} placeholder={t("搜索资源")} value={query} onChange={(event) => setQuery(event.target.value)} />
       </div>}
       <div className={styles.resourceList}>
         {visible.map((item) => <ResourceRow
           key={item.id}
+          isAntigravityAccount={isAntigravityAccountResource(pluginId, resource.type)}
           item={item}
           actions={resource.actions.filter((action) => action.target === "resource")}
           canRefresh={resource.canRefresh}
           disabled={busy}
+          now={now}
           onAction={(action) => onAction(item, action)}
           onRefresh={() => onRefresh(item)}
           onDelete={() => onDelete(item)}
@@ -372,37 +394,143 @@ function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
         <span>{t("第 {page} / {total} 页", { page: Math.min(page, pageCount), total: pageCount })}</span>
         <Button size="small" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)}>{t("下一页")}</Button>
       </div>}
-    </div>
-  </FormField>;
+    </div>;
+
+  return isAntigravityAccountResource(pluginId, resource.type)
+    ? content
+    : <FormField label={pluginText(resource.displayName, locale)}>{content}</FormField>;
 }
 
-function ResourceRow({ item, actions, canRefresh, disabled, onAction, onRefresh, onDelete }: {
+function ResourceRow({ isAntigravityAccount, item, actions, canRefresh, disabled, now, onAction, onRefresh, onDelete }: {
+  isAntigravityAccount: boolean;
   item: PluginResourceView;
   actions: PluginResourceAction[];
   canRefresh: boolean;
   disabled: boolean;
+  now: number;
   onAction: (action: PluginResourceAction) => void;
   onRefresh: () => void;
   onDelete: () => void;
 }) {
   const { locale } = useI18n();
+  const resourceActions = actions.length > 0 || canRefresh;
   return <Card className={styles.resourceRow}>
-    <div>
-      <strong>{item.displayName}</strong>
-      {item.description && <span>{pluginText(item.description, locale)}</span>}
-      {item.metrics.map((metric) => <span key={metric.id}>
-        {metric.unit === "percent"
-          ? t("{label} 剩余 {percent}%", { label: pluginText(metric.label, locale), percent: Math.round(metric.value) })
-          : `${pluginText(metric.label, locale)}: ${metric.value}`}
-      </span>)}
+    <div className={styles.resourceHeader}>
+      <div className={styles.resourceIdentity}>
+        <div className={styles.resourceNameAndState}>
+          <strong title={item.displayName}>{item.displayName}</strong>
+          {isAntigravityAccount && <StateBadge state={item.state} />}
+        </div>
+        {item.description && <span title={pluginText(item.description, locale)}>{pluginText(item.description, locale)}</span>}
+      </div>
+      <div className={styles.resourceOperations}>
+        {!isAntigravityAccount && <StateBadge state={item.state} />}
+        {resourceActions && <div className={styles.resourceActionButtons} aria-label={t("资源操作")}>
+          {actions.map((action) => <Button key={action.id} size="small" disabled={disabled} onClick={() => onAction(action)}>{pluginText(action.displayName, locale)}</Button>)}
+          {canRefresh && <Button size="small" disabled={disabled} onClick={onRefresh}>{t("刷新")}</Button>}
+        </div>}
+        <Button size="small" disabled={disabled} onClick={onDelete}>{isAntigravityAccount ? t("删除账户") : t("删除")}</Button>
+      </div>
     </div>
-    <div className={styles.actions}>
-      <StateBadge state={item.state} />
-      {actions.map((action) => <Button key={action.id} size="small" disabled={disabled} onClick={() => onAction(action)}>{pluginText(action.displayName, locale)}</Button>)}
-      {canRefresh && <Button size="small" disabled={disabled} onClick={onRefresh}>{t("刷新")}</Button>}
-      <Button size="small" disabled={disabled} onClick={onDelete}>{t("删除")}</Button>
-    </div>
+    <QuotaMetrics
+      metrics={item.metrics}
+      locale={locale}
+      now={now}
+      isAntigravityAccount={isAntigravityAccount}
+    />
   </Card>;
+}
+
+function QuotaMetrics({ metrics, locale, now, isAntigravityAccount }: {
+  metrics: PluginResourceView["metrics"];
+  locale: string;
+  now: number;
+  isAntigravityAccount: boolean;
+}) {
+  const [period, setPeriod] = useState<"5h" | "weekly">("5h");
+
+  if (isAntigravityAccount) {
+    const suffix = period === "5h" ? "5h" : "weekly";
+    const pools = [
+      { id: "gemini", label: "Gemini" },
+      { id: "claude-gpt", label: "Claude/GPT" },
+    ];
+
+    return <section className={styles.quotaGroups} aria-label={t("模型配额")}>
+      <div className={styles.quotaGroupHeader}>
+        <span className={styles.quotaGroupTitle}>{t("用量限额")}</span>
+        <div className={styles.quotaPeriodToggle}>
+          <Button size="small" variant={period === "5h" ? "primary" : "secondary"} onClick={() => setPeriod("5h")} aria-pressed={period === "5h"}>{t("5 小时")}</Button>
+          <Button size="small" variant={period === "weekly" ? "primary" : "secondary"} onClick={() => setPeriod("weekly")} aria-pressed={period === "weekly"}>{t("每周")}</Button>
+        </div>
+      </div>
+      <div className={styles.quotaGrid}>{pools.map((pool) => {
+        const metric = metrics.find((entry) => entry.id === `pool:${pool.id}:${suffix}`);
+        return metric
+          ? <QuotaMetric key={pool.id} metric={metric} locale={locale} now={now} poolLabel={pool.label} period={period} />
+          : <div key={pool.id} className={styles.quotaMetric}>
+            <span>{pool.label}</span><span className={styles.quotaEmpty}>{t("暂无配额数据")}</span>
+          </div>;
+      })}</div>
+    </section>;
+  }
+
+  const modelMetrics = metrics.filter((metric) => metric.id.startsWith("model:") || metric.id === "five-hour");
+  const weeklyMetrics = metrics.filter((metric) => metric.id.startsWith("group:") || metric.id === "weekly");
+  const otherMetrics = metrics.filter((metric) => !modelMetrics.includes(metric) && !weeklyMetrics.includes(metric));
+
+  return <div className={styles.quotaGroups}>
+    {modelMetrics.length > 0 && <QuotaGroup title={t("模型配额")} metrics={modelMetrics} locale={locale} now={now} />}
+    {weeklyMetrics.length > 0 && <QuotaGroup title={t("每周配额")} metrics={weeklyMetrics} locale={locale} now={now} />}
+    {otherMetrics.length > 0 && <QuotaGroup metrics={otherMetrics} locale={locale} now={now} />}
+  </div>;
+}
+
+function QuotaGroup({ title, metrics, locale, now }: {
+  title?: string;
+  metrics: PluginResourceView["metrics"];
+  locale: string;
+  now: number;
+}) {
+  return <section className={styles.quotaGroup} aria-label={title}>
+    {title && <span className={styles.quotaGroupTitle}>{title}</span>}
+    <div className={styles.quotaGrid}>
+      {metrics.map((metric) => <QuotaMetric key={metric.id} metric={metric} locale={locale} now={now} />)}
+    </div>
+  </section>;
+}
+
+function QuotaMetric({ metric, locale, now, poolLabel, period }: {
+  metric: PluginResourceView["metrics"][number];
+  locale: string;
+  now: number;
+  poolLabel?: string;
+  period?: "5h" | "weekly";
+}) {
+  const label = poolLabel ?? pluginText(metric.label, locale);
+  const remainingPercent = Math.max(0, Math.min(100, Math.round(metric.value)));
+  const usedPercent = 100 - remainingPercent;
+  const resetAt = metric.resetAtMs ? formatActionDate(metric.resetAtMs, locale) : null;
+  const fullLabel = `${label} · ${metric.id.replace(/^model:/, "")}`;
+  const title = resetAt ? t("{label}：已使用 {percent}%，重置时间 {resetAt}", { label: fullLabel, percent: usedPercent, resetAt }) : t("{label}：已使用 {percent}%", { label: fullLabel, percent: usedPercent });
+
+  if (metric.unit !== "percent") return <div className={styles.quotaMetric} title={title}>
+    <span className={styles.quotaName}>{label}</span>
+    <strong className={styles.quotaValue}>{metric.value}</strong>
+  </div>;
+
+  return <div className={styles.quotaMetric} title={title}>
+    <div className={styles.quotaMetricHeader}>
+      <span className={styles.quotaName}>{label}</span>
+      <span className={styles.quotaMeta}>
+        <span>{t("已使用 {percent}%", { percent: usedPercent })}</span>
+      </span>
+    </div>
+    <div className={styles.quotaTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPercent} aria-label={title}>
+      <span className={styles.quotaFill} style={{ width: `${usedPercent}%` }} />
+    </div>
+    {metric.resetAtMs && <span className={styles.quotaReset}>{t("重置时间：{time}", { time: period === "weekly" ? formatWeeklyResetDate(metric.resetAtMs, locale) : formatCountdown(metric.resetAtMs, now) })}</span>}
+  </div>;
 }
 
 function ResourceActionModal({ action, cardAction, result, busy, error, onClose, onCardAction }: {
@@ -474,6 +602,58 @@ function formatActionStatus(status: PluginResourceActionCard["status"], locale: 
     case "expired": return t("已过期");
     default: return value;
   }
+}
+
+function usePluginSnapshotPoll() {
+  useEffect(() => {
+    let stopped = false;
+    let timer = 0;
+    const poll = async () => {
+      if (document.visibilityState === "visible") await appStore.refreshPlugins();
+      if (!stopped) timer = window.setTimeout(() => void poll(), 30_000);
+    };
+    timer = window.setTimeout(() => void poll(), 30_000);
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, []);
+}
+
+function useQuotaClock(resources: PluginResourceDescriptor[]) {
+  const hasResetTime = resources.some((resource) => resource.resources.some((item) => item.metrics.some((metric) => metric.resetAtMs)));
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!hasResetTime) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [hasResetTime]);
+
+  return now;
+}
+
+function formatCountdown(resetAtMs: number, now: number) {
+  const remainingMinutes = Math.ceil((resetAtMs - now) / 60_000);
+  if (remainingMinutes <= 0) return t("即将重置");
+  const hours = Math.floor(remainingMinutes / 60);
+  const minutes = remainingMinutes % 60;
+  if (hours > 0) return minutes > 0
+    ? t("{hours} 小时 {minutes} 分钟", { hours, minutes })
+    : t("{hours} 小时", { hours });
+  return t("{minutes} 分钟", { minutes });
+}
+
+function formatWeeklyResetDate(value: number, locale: string) {
+  const parts = new Intl.DateTimeFormat(locale, {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(value));
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return locale.startsWith("zh")
+    ? `${get("month")}月${get("day")}日${get("hour")}:${get("minute")}`
+    : `${get("month")}/${get("day")} ${get("hour")}:${get("minute")}`;
 }
 
 function formatActionDate(value: number, locale: string) {

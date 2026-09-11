@@ -1,7 +1,5 @@
 import type {
-  LlmContentPart,
   LlmMessage,
-  LlmRequest,
   ProviderInvokeInput,
   ProviderOutput,
   ProviderResult,
@@ -9,6 +7,7 @@ import type {
 } from "cursor-byok:provider";
 import type { JsonValue, PluginContext } from "cursor-byok:plugin";
 import { HttpError } from "cursor-byok:protocol/openai-chat";
+import { resolveModelRoute } from "./model_routes.ts";
 import {
   ANTIGRAVITY_CLIENT_HEADERS,
   ANTIGRAVITY_ENDPOINTS,
@@ -19,22 +18,9 @@ import {
   type AccountData,
   accountData,
   isTokenExpired,
-  quotaExhaustedPatch,
   refreshAccount,
   RESOURCE_TYPE,
 } from "./resources.ts";
-
-export function isQuotaError(error: string): boolean {
-  const message = error.toLowerCase();
-  return message.includes("resource_exhausted") ||
-    message.includes("quota_exceeded") ||
-    message.includes("quota_exhausted") ||
-    message.includes("rate_limit_exceeded") ||
-    message.includes("rate limit") ||
-    message.includes("model_capacity_exhausted") ||
-    message.includes("too many requests") ||
-    message.includes("429");
-}
 
 function isQuotaHttpError(error: HttpError): boolean {
   if (error.status === 429) return true;
@@ -61,66 +47,6 @@ async function readBody(lines: AsyncIterable<string>): Promise<string> {
   const collected: string[] = [];
   for await (const line of lines) collected.push(line);
   return collected.join("\n");
-}
-
-function resolveAntigravityModel(modelId: string): string {
-  const raw = modelId.trim();
-  const lower = raw.toLowerCase();
-
-  // 1. If explicit tier is already specified in the model ID, pass it directly!
-  if (
-    lower.startsWith("gemini-3.7-flash-") ||
-    lower.startsWith("gemini-3.6-flash-") ||
-    lower.startsWith("gemini-3.1-pro-") ||
-    lower === "gemini-3.7-flash" ||
-    lower === "gemini-3.6-flash" ||
-    lower === "gemini-2.5-flash" ||
-    lower === "gemini-2.5-pro" ||
-    lower === "gemini-2.0-flash" ||
-    lower === "claude-sonnet-4-6" ||
-    lower === "claude-sonnet-4-6-thinking" ||
-    lower === "claude-opus-4-6-thinking" ||
-    lower === "gemini-3.1-flash-image" ||
-    lower === "gpt-oss-120b-medium"
-  ) {
-    if (lower === "gemini-3.1-pro-high") return "gemini-pro-agent";
-    return raw;
-  }
-
-  // 2. Canonical Antigravity-Manager mapping for aliases
-  if (
-    lower === "claude-3-7-sonnet" || lower === "claude-3-5-sonnet" || lower === "claude-sonnet-4-5"
-  ) {
-    return "claude-sonnet-4-6";
-  }
-  if (lower === "claude-3-5-haiku" || lower === "claude-haiku-4") {
-    return "claude-sonnet-4-6";
-  }
-  if (
-    lower === "claude-3-7-opus" || lower === "claude-opus-4" || lower === "claude-opus-4.6" ||
-    lower === "claude-opus-4-5-thinking"
-  ) {
-    return "claude-opus-4-6-thinking";
-  }
-  if (
-    lower === "gpt-4" || lower === "gpt-4o" || lower === "gpt-4o-mini" || lower === "gpt-3.5-turbo"
-  ) {
-    return "gemini-2.5-flash";
-  }
-  if (lower === "gemini-2.5-flash-lite") {
-    return "gemini-2.5-flash";
-  }
-  if (lower === "gemini-3-flash" || lower === "gemini-3.5-flash") {
-    return "gemini-3.7-flash";
-  }
-  if (lower === "gemini-3-pro" || lower === "gemini-3.1-pro") {
-    return "gemini-3.1-pro-preview";
-  }
-  if (lower === "gemini-3-pro-high") {
-    return "gemini-pro-agent";
-  }
-
-  return raw;
 }
 
 function randomHex(length = 8): string {
@@ -307,12 +233,18 @@ function convertToCloudCodeContents(
 async function streamCloudCode(
   accessToken: string,
   projectId: string,
-  modelId: string,
   input: ProviderInvokeInput,
   output: ProviderOutput,
   context: PluginContext,
 ): Promise<void> {
-  const actualModel = resolveAntigravityModel(modelId);
+  if (context.signal.aborted) throw context.signal.reason;
+  const route = resolveModelRoute(input.model, input.request.reasoning.effort);
+  const actualModel = route.id;
+  const maxOutputTokens = Math.min(
+    input.request.maxOutputTokens ?? route.maxOutputTokens,
+    route.maxOutputTokens,
+  );
+  const thinkingBudget = Math.min(route.thinkingBudget, Math.max(0, maxOutputTokens - 1));
   const { contents, systemInstruction } = convertToCloudCodeContents(
     input.request.instructions,
     input.request.messages,
@@ -336,8 +268,12 @@ async function streamCloudCode(
     }
     : undefined;
 
+  if (!projectId) {
+    throw new Error("Antigravity account is missing its project ID");
+  }
+
   const payload = {
-    project: projectId || "bamboo-precept-lgxtn",
+    project: projectId,
     model: actualModel,
     userAgent: "antigravity",
     requestType: "agent",
@@ -349,7 +285,10 @@ async function streamCloudCode(
       ...(tools ? { tools } : {}),
       ...(toolConfig ? { toolConfig } : {}),
       generationConfig: {
-        maxOutputTokens: 65536,
+        maxOutputTokens,
+        ...(thinkingBudget > 0
+          ? { thinkingConfig: { thinkingBudget, includeThoughts: true } }
+          : {}),
       },
     },
   };
@@ -370,6 +309,7 @@ async function streamCloudCode(
   let hasEmittedAnyChunk = false;
 
   for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
+    context.signal.throwIfAborted();
     if (hasEmittedAnyChunk) break;
 
     try {
@@ -421,6 +361,8 @@ async function streamCloudCode(
 
         const resp = (json.response as Record<string, unknown> | undefined) ?? json;
         if (!resp) continue;
+        const streamError = (resp.error ?? json.error) as { code?: number } | undefined;
+        if (streamError) throw new HttpError(streamError.code ?? 502, JSON.stringify(streamError));
 
         const usage = resp.usageMetadata as Record<string, number> | undefined;
         if (usage) {
@@ -593,7 +535,11 @@ async function streamCloudCode(
       return;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (hasEmittedAnyChunk) {
+      if (
+        hasEmittedAnyChunk || context.signal.aborted ||
+        (lastError instanceof HttpError && lastError.status < 500 &&
+          lastError.status !== 429 && lastError.status !== 404)
+      ) {
         throw lastError;
       }
     }
@@ -622,6 +568,13 @@ async function invoke(
   }
 
   let patchData: AccountData | null = null;
+  let emitted = false;
+  const guardedOutput: ProviderOutput = {
+    emit(event) {
+      emitted = true;
+      output.emit(event);
+    },
+  };
 
   // Auto-refresh token if expired or close to expiration (skew 5 mins)
   if (data.refreshToken && isTokenExpired(data)) {
@@ -636,10 +589,22 @@ async function invoke(
     }
   }
 
-  let projectId = data.projectId ?? "bamboo-precept-lgxtn";
+  const projectId = data.projectId;
+  if (!projectId) {
+    return {
+      status: "request-error",
+      message: "Antigravity account is missing its project ID",
+    };
+  }
 
   try {
-    await streamCloudCode(data.accessToken, projectId, input.model.id, input, output, context);
+    await streamCloudCode(
+      data.accessToken,
+      projectId,
+      input,
+      guardedOutput,
+      context,
+    );
     return patchData
       ? {
         status: "completed",
@@ -649,7 +614,7 @@ async function invoke(
   } catch (error) {
     if (error instanceof HttpError) {
       if (
-        (error.status === 401 || error.status === 403) && data.refreshToken &&
+        !emitted && (error.status === 401 || error.status === 403) && data.refreshToken &&
         !isQuotaHttpError(error)
       ) {
         try {
@@ -660,9 +625,8 @@ async function invoke(
             await streamCloudCode(
               freshData.accessToken,
               freshProj,
-              input.model.id,
               input,
-              output,
+              guardedOutput,
               context,
             );
             return {
@@ -674,19 +638,10 @@ async function invoke(
           // Failed refresh
         }
       }
-      if (isQuotaHttpError(error)) {
-        return {
-          status: "resource-error",
-          message: error.message,
-          patch: quotaExhaustedPatch(data, error.body),
-        };
-      }
+      // A model/endpoint capacity error does not invalidate the entire account.
       return { status: "request-error", message: error.message };
     }
     const message = error instanceof Error ? error.message : String(error);
-    if (isQuotaError(message)) {
-      return { status: "resource-error", message, patch: quotaExhaustedPatch(data, message) };
-    }
     return { status: "request-error", message };
   }
 }

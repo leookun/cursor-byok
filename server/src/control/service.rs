@@ -369,6 +369,14 @@ impl ControlService {
         self.store.reorder_models(model_hashes).await
     }
 
+    pub async fn set_models_enabled(
+        &self,
+        model_hashes: &[String],
+        enabled: bool,
+    ) -> Result<Vec<ModelConfig>> {
+        self.store.set_models_enabled(model_hashes, enabled).await
+    }
+
     pub async fn delete_model(&self, model_hash: &str) -> Result<()> {
         self.store.delete_model(model_hash).await
     }

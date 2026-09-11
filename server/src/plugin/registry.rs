@@ -6,6 +6,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, RwLock};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -46,6 +47,7 @@ struct RegistryInner {
     state: PluginStateStore,
     entries: RwLock<Option<Vec<PluginEntry>>>,
     workers: Mutex<HashMap<String, Arc<PluginWorker>>>,
+    resource_operations: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     oauth_sessions: Mutex<HashMap<String, OAuthSession>>,
 }
 
@@ -143,6 +145,7 @@ impl PluginRegistry {
                 state: PluginStateStore::new(data),
                 entries: RwLock::new(None),
                 workers: Mutex::new(HashMap::new()),
+                resource_operations: Mutex::new(HashMap::new()),
                 oauth_sessions: Mutex::new(HashMap::new()),
             }),
         })
@@ -307,6 +310,142 @@ impl PluginRegistry {
             }
             Err(Error::Provider(format!("plugin '{plugin_id}' worker stopped mid-stream")))?;
         })
+    }
+
+    /// Runs opt-in resource refreshes until the server shuts down.
+    pub async fn run_background_resource_refresh(&self, shutdown: CancellationToken) {
+        let targets = loop {
+            let Some(executable) = self.inner.runtime.executable() else {
+                tokio::select! {
+                    () = shutdown.cancelled() => return,
+                    () = tokio::time::sleep(Duration::from_secs(1)) => continue,
+                }
+            };
+            break self
+                .entries(&executable)
+                .await
+                .into_iter()
+                .flat_map(|entry| {
+                    entry
+                        .definition
+                        .resources
+                        .into_iter()
+                        .filter_map(move |resource| {
+                            refresh_interval(&resource).map(|interval| {
+                                (entry.manifest.id.clone(), resource.resource_type, interval)
+                            })
+                        })
+                })
+                .collect::<Vec<_>>();
+        };
+        let mut due = targets
+            .iter()
+            .map(|(_, _, interval)| Instant::now() + *interval)
+            .collect::<Vec<_>>();
+        while !targets.is_empty() {
+            let next = *due.iter().min().expect("refresh targets are non-empty");
+            if !wait_for_refresh(next, &shutdown).await {
+                return;
+            }
+            for (index, (plugin_id, resource_type, interval)) in targets.iter().enumerate() {
+                if due[index] > Instant::now() {
+                    continue;
+                }
+                due[index] = Instant::now() + *interval;
+                let records = match self.inner.state.resources(plugin_id, resource_type).await {
+                    Ok(records) => records,
+                    Err(error) => {
+                        tracing::warn!(plugin = %plugin_id, resource_type, %error, "failed to load resources for background refresh");
+                        continue;
+                    }
+                };
+                for record in records.into_iter().filter(|record| {
+                    !matches!(record.state, super::state::ResourceState::Invalid { .. })
+                }) {
+                    if let Err(error) = self
+                        .refresh_resource_with_cancellation(
+                            plugin_id,
+                            resource_type,
+                            &record.id,
+                            shutdown.clone(),
+                        )
+                        .await
+                    {
+                        if !matches!(error, Error::Cancelled) {
+                            tracing::warn!(plugin = %plugin_id, resource_type, resource_id = %record.id, %error, "background resource refresh failed");
+                        }
+                    }
+                    if shutdown.is_cancelled() {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn resource_operation_lock(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+    ) -> Arc<Mutex<()>> {
+        let mut locks = self.inner.resource_operations.lock().await;
+        locks
+            .entry(format!("{plugin_id}\u{0}{resource_type}"))
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    async fn refresh_resource_with_cancellation(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        cancellation: CancellationToken,
+    ) -> Result<()> {
+        let lock = self.resource_operation_lock(plugin_id, resource_type).await;
+        let _guard = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => return Err(Error::Cancelled),
+            guard = lock.lock() => guard,
+        };
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => Err(Error::Cancelled),
+            result = self.refresh_resource_locked(plugin_id, resource_type, resource_id, cancellation.clone()) => result,
+        }
+    }
+
+    async fn refresh_resource_locked(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        cancellation: CancellationToken,
+    ) -> Result<()> {
+        let executable = self.executable()?;
+        let entry = self.find_entry(&executable, plugin_id).await?;
+        let resource = find_resource(&entry, resource_type)?;
+        if !resource.can_refresh {
+            return Err(Error::Config(format!(
+                "plugin '{plugin_id}' resource '{resource_type}' does not support refresh"
+            )));
+        }
+        let record = self
+            .find_record(plugin_id, resource_type, resource_id)
+            .await?;
+        let value = self.worker(&entry, &executable).await.invoke("resource.refresh", serde_json::json!({"resourceType": resource_type, "resource": record.snapshot(resource_type)}), cancellation).await?;
+        let patch: ResourcePatch = serde_json::from_value(value)?;
+        self.inner
+            .state
+            .apply_patch(plugin_id, resource_type, resource_id, patch)
+            .await?;
+        if let Some(error) = self
+            .sync_provider_models_for_resource(&entry, &executable, resource_type)
+            .await
+        {
+            tracing::warn!(plugin = %plugin_id, %error, "model sync after resource refresh failed");
+        }
+        Ok(())
     }
 
     pub async fn oauth_begin(
@@ -809,34 +948,13 @@ impl PluginRegistry {
         resource_type: &str,
         resource_id: &str,
     ) -> Result<()> {
-        let executable = self.executable()?;
-        let entry = self.find_entry(&executable, plugin_id).await?;
-        let resource = find_resource(&entry, resource_type)?;
-        if !resource.can_refresh {
-            return Err(Error::Config(format!(
-                "plugin '{plugin_id}' resource '{resource_type}' does not support refresh"
-            )));
-        }
-        let record = self
-            .find_record(plugin_id, resource_type, resource_id)
-            .await?;
-        let value = self
-            .worker(&entry, &executable)
-            .await
-            .invoke(
-                "resource.refresh",
-                serde_json::json!({
-                    "resourceType": resource_type,
-                    "resource": record.snapshot(resource_type),
-                }),
-                CancellationToken::new(),
-            )
-            .await?;
-        let patch: ResourcePatch = serde_json::from_value(value)?;
-        self.inner
-            .state
-            .apply_patch(plugin_id, resource_type, resource_id, patch)
-            .await
+        self.refresh_resource_with_cancellation(
+            plugin_id,
+            resource_type,
+            resource_id,
+            CancellationToken::new(),
+        )
+        .await
     }
 
     pub async fn resource_action(
@@ -897,6 +1015,8 @@ impl PluginRegistry {
         resource_type: &str,
         resource_id: &str,
     ) -> Result<()> {
+        let lock = self.resource_operation_lock(plugin_id, resource_type).await;
+        let _guard = lock.lock().await;
         let executable = self.executable()?;
         let entry = self.find_entry(&executable, plugin_id).await?;
         let resource = find_resource(&entry, resource_type)?;
@@ -921,10 +1041,32 @@ impl PluginRegistry {
                 tracing::warn!(plugin = %plugin_id, %error, "plugin resource remove hook failed");
             }
         }
+        let model_providers = entry
+            .definition
+            .providers
+            .iter()
+            .filter(|provider| {
+                provider.has_models && provider.resource_type.as_deref() == Some(resource_type)
+            })
+            .map(|provider| provider.id.clone())
+            .collect::<Vec<_>>();
         self.inner
             .state
-            .remove_resource(plugin_id, resource_type, resource_id)
+            .remove_resource(plugin_id, resource_type, resource_id, &model_providers)
             .await?;
+        if self
+            .inner
+            .state
+            .has_resources(plugin_id, resource_type)
+            .await?
+        {
+            if let Some(error) = self
+                .sync_provider_models_for_resource(&entry, &executable, resource_type)
+                .await
+            {
+                tracing::warn!(plugin = %plugin_id, %error, "model sync after resource removal failed");
+            }
+        }
         Ok(())
     }
 
@@ -955,6 +1097,13 @@ impl PluginRegistry {
             .state
             .set_model_enabled(plugin_id, provider_id, model_id, enabled)
             .await
+    }
+
+    pub async fn shutdown(&self) {
+        let workers = std::mem::take(&mut *self.inner.workers.lock().await);
+        for worker in workers.into_values() {
+            worker.stop().await;
+        }
     }
 
     pub async fn remove(&self, plugin_id: &str) -> Result<()> {
@@ -1354,6 +1503,55 @@ fn find_provider<'a>(entry: &'a PluginEntry, provider_id: &str) -> Result<&'a Pr
                 entry.manifest.id
             ))
         })
+}
+
+async fn wait_for_refresh(next: Instant, shutdown: &CancellationToken) -> bool {
+    tokio::select! {
+        () = shutdown.cancelled() => false,
+        () = tokio::time::sleep_until(next) => true,
+    }
+}
+
+fn refresh_interval(resource: &ResourceDefinition) -> Option<Duration> {
+    resource
+        .can_refresh
+        .then_some(resource.refresh_interval_ms)
+        .flatten()
+        .filter(|interval| *interval > 0)
+        .map(Duration::from_millis)
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::{refresh_interval, wait_for_refresh, ResourceDefinition};
+    use std::time::Duration;
+    use tokio::time::Instant;
+    use tokio_util::sync::CancellationToken;
+
+    fn resource(can_refresh: bool, interval: Option<u64>) -> ResourceDefinition {
+        serde_json::from_value(serde_json::json!({
+            "type": "account", "displayName": "Accounts", "add": [], "import": null,
+            "actions": [], "canRefresh": can_refresh, "refreshIntervalMs": interval, "canRemove": false
+        })).unwrap()
+    }
+
+    #[test]
+    fn background_refresh_is_explicitly_opt_in() {
+        assert_eq!(refresh_interval(&resource(true, None)), None);
+        assert_eq!(refresh_interval(&resource(false, Some(5_000))), None);
+        assert_eq!(refresh_interval(&resource(true, Some(0))), None);
+        assert_eq!(
+            refresh_interval(&resource(true, Some(5_000))),
+            Some(Duration::from_secs(5))
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_wait_stops_on_cancellation() {
+        let shutdown = CancellationToken::new();
+        shutdown.cancel();
+        assert!(!wait_for_refresh(Instant::now() + Duration::from_secs(60), &shutdown).await);
+    }
 }
 
 fn find_resource<'a>(

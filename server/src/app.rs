@@ -25,6 +25,7 @@ pub struct App {
     router: axum::Router,
     registry: TransportRegistry,
     harness: CursorHarness,
+    plugins: PluginRegistry,
     store: Store,
 }
 
@@ -64,7 +65,7 @@ impl App {
             store.clone(),
             provider,
             plugin_runtime,
-            plugins,
+            plugins.clone(),
             clients.clone(),
             config.app_version.clone(),
         )?;
@@ -83,6 +84,7 @@ impl App {
             router,
             registry,
             harness,
+            plugins,
             store,
             config,
         })
@@ -135,6 +137,7 @@ impl App {
         tracing::info!(%address, "cursor server listening");
         let registry = self.registry;
         let harness = self.harness;
+        let plugins = self.plugins.clone();
         let graceful = shutdown.clone();
         let server = axum::serve(listener, self.router)
             .with_graceful_shutdown(async move {
@@ -143,24 +146,40 @@ impl App {
             .into_future();
         tokio::pin!(server);
 
-        tokio::select! {
+        let refresh_shutdown = shutdown.clone();
+        let refresh_plugins = plugins.clone();
+        let refresh_task = tokio::spawn(async move {
+            refresh_plugins
+                .run_background_resource_refresh(refresh_shutdown)
+                .await;
+        });
+        let serve_result = tokio::select! {
             result = &mut server => {
                 if let Err(error) = harness.disable().await {
                     tracing::warn!(%error, "failed to disable Cursor harness after server stop");
                 }
-                result?
+                plugins.shutdown().await;
+                registry.shutdown().await;
+                result
             },
             () = shutdown.cancelled() => {
                 if let Err(error) = harness.disable().await {
                     tracing::warn!(%error, "failed to disable Cursor harness during shutdown");
                 }
+                plugins.shutdown().await;
                 registry.shutdown().await;
                 match tokio::time::timeout(Duration::from_secs(10), &mut server).await {
-                    Ok(result) => result?,
-                    Err(_) => tracing::warn!("graceful shutdown timed out; forcing server close"),
+                    Ok(result) => result,
+                    Err(_) => {
+                        tracing::warn!("graceful shutdown timed out; forcing server close");
+                        Ok(())
+                    }
                 }
             }
-        }
+        };
+        shutdown.cancel();
+        let _ = refresh_task.await;
+        serve_result?;
         Ok(())
     }
 }
