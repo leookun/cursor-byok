@@ -51,7 +51,9 @@ export function CursorSettingsPage() {
   const pluginGroups = cursorPluginModelGroups(plugins);
   const testTargets = [
     ...models.map((model) => ({ model_hash: model.model_hash, display_name: model.display_name })),
-    ...pluginGroups.flatMap((group) => group.models.map((model) => ({ model_hash: model.id, display_name: model.displayName }))),
+    ...pluginGroups.flatMap((group) => group.models
+      .filter((model) => model.enabled)
+      .map((model) => ({ model_hash: model.id, display_name: model.displayName }))),
   ];
   const providerGroups = cursorModelGroups(models, "provider");
   const typeGroups = cursorModelGroups(models, "type");

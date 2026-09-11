@@ -128,7 +128,7 @@ export function CursorModelCards(props: CursorModelCardsProps) {
       busy={props.disabled || props.busyGroupKey === groupToggleKey("plugin", group.key)}
       onToggleEnabled={(enabled) => props.onSetPluginGroupEnabled(group, enabled)}
     >
-      {group.models.map((model) => <PluginModelRow
+      {group.models.filter((model) => model.enabled).map((model) => <PluginModelRow
         key={model.id}
         model={model}
         disabled={props.disabled}
