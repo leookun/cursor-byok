@@ -729,6 +729,17 @@ impl ControlService {
         self.store.tab_settings().await
     }
 
+    pub async fn cursor_model_aliases(&self) -> Result<BTreeMap<String, String>> {
+        self.store.cursor_model_aliases().await
+    }
+
+    pub async fn set_cursor_model_aliases(
+        &self,
+        aliases: BTreeMap<String, String>,
+    ) -> Result<BTreeMap<String, String>> {
+        self.store.set_cursor_model_aliases(aliases).await
+    }
+
     pub async fn set_tab_settings(&self, settings: TabSettings) -> Result<TabSettings> {
         self.cursor_harness.set_tab_settings(settings).await
     }

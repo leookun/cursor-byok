@@ -14,6 +14,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  cursor-cli:
+    name: Cursor CLI launcher (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test isolated CLI setup
+        run: node --test support/cursor-cli/launcher.test.cjs
+
   rust:
     name: Rust (Linux)
     runs-on: ubuntu-22.04

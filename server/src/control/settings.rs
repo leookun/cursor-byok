@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::store::{
     CommitPromptLocale, CommitSettings, DesktopSettings, PortSettings, ProxySettings,
@@ -72,6 +73,19 @@ pub async fn update_proxy(
 
 pub async fn get_tab(State(service): State<ControlService>) -> Result<Json<TabSettings>> {
     Ok(Json(service.tab_settings().await?))
+}
+
+pub async fn get_model_aliases(
+    State(service): State<ControlService>,
+) -> Result<Json<BTreeMap<String, String>>> {
+    Ok(Json(service.cursor_model_aliases().await?))
+}
+
+pub async fn update_model_aliases(
+    State(service): State<ControlService>,
+    Json(aliases): Json<BTreeMap<String, String>>,
+) -> Result<Json<BTreeMap<String, String>>> {
+    Ok(Json(service.set_cursor_model_aliases(aliases).await?))
 }
 
 pub async fn update_tab(

@@ -216,8 +216,21 @@ make build-docker    # 构建 Docker 镜像
 
 ## 参与贡献
 
+### Cursor CLI 接管
+
+仓库提供可选的 [Windows/macOS CLI 启动器](./support/cursor-cli/README.md)，复用运行中的助手模型配置、动态端口和本地身份。CLI 设置独立保存，保留工具审批。它目前需要从源码目录手动运行，桌面安装程序不会自动安装；macOS 的真实供应商调用仍需在目标机器验证。
+
 欢迎提交 Issue 和 Pull Request。提交代码前请先阅读项目中的开发说明，并运行 `make check` 确认格式、测试和前端构建检查通过。
 
 ## 许可证
 
 本项目采用 [MIT License](./LICENSE) 开源。
+
+## Cursor 模型精确映射
+
+Cursor 托管模型编号默认使用 Cursor 上游。要让指定编号使用已有的 BYOK 配置，可以通过本地管理 API 设置：
+
+- `GET /__byok-api__/api/settings/cursor-model-aliases` 读取映射。
+- `PUT /__byok-api__/api/settings/cursor-model-aliases` 整体替换映射，例如 `{"cursor-grok-4.6-high-fast":"<已配置模型的 hash>"}`。目标必须使用已配置模型的内部 hash，不能使用供应商模型名或显示名称。
+
+映射必须明确配置，默认不改变任何托管模型的线路。供应商地址、密钥和模型名来自目标 BYOK 配置；Cursor 请求中明确指定的参数仍优先于已保存的默认值，与直接选择 BYOK 模型一致。首次模型选择、model details 和显式子代理模型选择都会应用映射，已经运行的请求保持原线路。目标被删除或不存在时在本地报错，不回退到托管模型。发送 `{}` 可清除全部映射；修改供应商配置导致目标 hash 变化时，也需要更新映射。

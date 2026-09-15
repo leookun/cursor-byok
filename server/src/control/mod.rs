@@ -111,6 +111,10 @@ fn proxy_error(error: impl std::fmt::Display) -> Response<Body> {
 
 pub fn api_router(service: ControlService) -> Router {
     Router::new()
+        .route(
+            "/__byok-api__/api/settings/cursor-model-aliases",
+            get(settings::get_model_aliases).put(settings::update_model_aliases),
+        )
         .route("/__byok-api__/api/promotions", get(ads::get))
         .route(
             "/__byok-api__/api/promotions/images/{file_name}",
