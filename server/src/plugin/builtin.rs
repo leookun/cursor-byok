@@ -168,10 +168,63 @@ const ANTIGRAVITY_AUTH: &[(&str, &str)] = &[
     ),
 ];
 
+const CODEBUDDY_AUTH: &[(&str, &str)] = &[
+    (
+        "plugin.json",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/plugin.json"
+        )),
+    ),
+    (
+        "main.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/main.ts"
+        )),
+    ),
+    (
+        "provider.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/provider.ts"
+        )),
+    ),
+    (
+        "models.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/models.ts"
+        )),
+    ),
+    (
+        "oauth.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/oauth.ts"
+        )),
+    ),
+    (
+        "resources.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/resources.ts"
+        )),
+    ),
+    (
+        "assets/codebuddy.svg",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-auth/assets/codebuddy.svg"
+        )),
+    ),
+];
+
 const PLUGINS: &[(&str, &[(&str, &str)])] = &[
     ("codex-auth", CODEX_AUTH),
     ("grok-auth", GROK_AUTH),
     ("antigravity-auth", ANTIGRAVITY_AUTH),
+    ("codebuddy-auth", CODEBUDDY_AUTH),
 ];
 
 /// 把内置插件预装到 installed 目录。manifest 的 version 是缓存键:
@@ -275,6 +328,10 @@ mod tests {
         assert!(root
             .path()
             .join("antigravity-auth/assets/antigravity.svg")
+            .is_file());
+        assert!(root
+            .path()
+            .join("codebuddy-auth/assets/codebuddy.svg")
             .is_file());
 
         // 版本一致:本地改动与额外文件保持原样,不发生任何写盘。

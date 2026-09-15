@@ -1,0 +1,14 @@
+{
+  "apiVersion": 1,
+  "id": "dev.cursorbyok.plugins.codebuddy-auth",
+  "name": "CodeBuddy",
+  "version": "0.3.1",
+  "minAppVersion": "0.1.7",
+  "icon": "assets/codebuddy.svg",
+  "entry": "main.ts",
+  "permissions": {
+    "network": [
+      "copilot.tencent.com"
+    ]
+  }
+}
