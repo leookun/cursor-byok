@@ -88,7 +88,7 @@ impl CaManager {
                 )
             }),
             "windows" => Some(format!(
-                "certutil -addstore -f Root \"{}\"",
+                "certutil -user -addstore -f Root \"{}\"",
                 self.cert_path().display()
             )),
             "linux" => {
