@@ -88,12 +88,17 @@ fn start_web_search(
     search: WebSearch,
     pending: PendingInteraction,
 ) -> Result<()> {
-    let query = pending
-        .call
-        .arguments
-        .get("search_term")
-        .and_then(serde_json::Value::as_str)
-        .filter(|query| !query.trim().is_empty())
+    // Claude Code 习惯的 query 作为 search_term 的别名兼容。
+    let query = ["search_term", "query"]
+        .iter()
+        .find_map(|name| {
+            pending
+                .call
+                .arguments
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
         .ok_or_else(|| Error::Protocol("WebSearch is missing search_term".into()))?
         .to_string();
     tokio::spawn(async move {

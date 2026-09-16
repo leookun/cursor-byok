@@ -7,23 +7,50 @@ export const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.googleapis
 export const ANTIGRAVITY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
 
 export const ANTIGRAVITY_ENDPOINTS = [
-  ANTIGRAVITY_PROD_ENDPOINT,
   ANTIGRAVITY_DAILY_ENDPOINT,
+  ANTIGRAVITY_PROD_ENDPOINT,
   ANTIGRAVITY_SANDBOX_ENDPOINT,
 ];
 
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
 export const ANTIGRAVITY_USER_AGENT =
-  "Antigravity/4.3.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3";
+  "antigravity/hub/2.12.2 (aidev_client; os_type=darwin; arch=arm64; cl=975423596)";
 
-export const ANTIGRAVITY_CLIENT_HEADERS: Record<string, string> = {
-  "x-client-name": "antigravity",
-  "x-client-version": "4.3.0",
-};
+export const ANTIGRAVITY_CLIENT_HEADERS: Record<string, string> = {};
 
 const ANTIGRAVITY_DENYLIST = new Set(["chat_20706", "chat_23310"]);
 
 export const STATIC_ANTIGRAVITY_MODELS: ModelDefinition[] = [
+  // Gemini 3.8 Series
+  {
+    id: "gemini-3.8-flash-high",
+    displayName: "Gemini 3.8 Flash (High)",
+    capabilities: { images: true },
+    maxOutputTokens: 65536,
+    privateData: { reasoningEfforts: ["low", "medium", "high"] },
+  },
+  {
+    id: "gemini-3.8-flash-medium",
+    displayName: "Gemini 3.8 Flash (Medium)",
+    capabilities: { images: true },
+    maxOutputTokens: 65536,
+    privateData: { reasoningEfforts: ["low", "medium", "high"] },
+  },
+  {
+    id: "gemini-3.8-flash-low",
+    displayName: "Gemini 3.8 Flash (Low)",
+    capabilities: { images: true },
+    maxOutputTokens: 65536,
+    privateData: { reasoningEfforts: ["low", "medium", "high"] },
+  },
+  {
+    id: "gemini-3.8-flash-tiered",
+    displayName: "Gemini 3.8 Flash (Tiered)",
+    capabilities: { images: true },
+    maxOutputTokens: 65536,
+    privateData: { reasoningEfforts: ["low", "medium", "high"] },
+  },
+
   // Gemini 3.7 Series
   {
     id: "gemini-3.7-flash",

@@ -9,7 +9,7 @@ import { normalizePath, type Plugin } from "vite"
 const traverse = traverseModule.default ?? traverseModule
 
 const SOURCE_LOCALE = "zh-CN"
-const SUPPORTED_LOCALES = ["zh-CN", "en-US"]
+const SUPPORTED_LOCALES = ["zh-CN", "en-US", "pt-BR"]
 const CHINESE_SOURCE_PATTERN = /[\u3400-\u9fff]/u
 const PLACEHOLDER_PATTERN = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 const AUTO_IMPORT_NAME = "__staticI18nT"

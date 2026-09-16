@@ -22,6 +22,18 @@ pub fn request(id: u32, call: &ToolCall, context: &ExecContext) -> Result<pb::Ag
             .map(str::to_string)
             .ok_or_else(|| Error::Protocol(format!("{} is missing {name}", call.name)))
     };
+    // Claude 系模型常按 Claude Code 习惯输出别名参数(如 file_path),逐个回退兼容。
+    let string_aliased = |names: &[&str]| -> Result<String> {
+        for name in names {
+            if let Some(value) = call.arguments.get(name).and_then(Value::as_str) {
+                return Ok(value.to_string());
+            }
+        }
+        Err(Error::Protocol(format!(
+            "{} is missing {}",
+            call.name, names[0]
+        )))
+    };
     let optional_string = |name: &str| {
         call.arguments
             .get(name)
@@ -63,7 +75,7 @@ pub fn request(id: u32, call: &ToolCall, context: &ExecContext) -> Result<pb::Ag
             })
         }
         "read" => Message::ReadArgs(pb::ReadArgs {
-            path: string("path")?,
+            path: string_aliased(&["path", "file_path", "filePath"])?,
             tool_call_id: call.call_id.clone(),
             offset: int("offset"),
             limit: call
@@ -74,7 +86,7 @@ pub fn request(id: u32, call: &ToolCall, context: &ExecContext) -> Result<pb::Ag
             encoding_hint: optional_string("encoding_hint"),
         }),
         "delete" => Message::DeleteArgs(pb::DeleteArgs {
-            path: string("path")?,
+            path: string_aliased(&["path", "file_path", "filePath"])?,
             tool_call_id: call.call_id.clone(),
         }),
         "grep" => Message::GrepArgs(pb::GrepArgs {

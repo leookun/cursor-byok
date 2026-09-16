@@ -13,12 +13,12 @@ pub(crate) struct EditWrite {
 }
 
 pub(crate) fn path(call: &ToolCall) -> Result<String> {
-    let field = if normalized(&call.name) == "editnotebook" {
-        "target_notebook"
+    if normalized(&call.name) == "editnotebook" {
+        string(call, "target_notebook")
     } else {
-        "path"
-    };
-    string(call, field)
+        // Claude 系模型常按 Claude Code 习惯输出 file_path/filePath,做别名兼容。
+        string_any(call, &["path", "file_path", "filePath"])
+    }
 }
 
 pub(crate) fn execution_path(call: &ToolCall) -> Result<Option<String>> {
@@ -63,7 +63,10 @@ pub(crate) fn after_read(
     };
     let after = match normalized(&call.name).as_str() {
         "write" => {
-            normalize_newlines(&string(call, "contents").map_err(|error| error.to_string())?)
+            // Claude Code 习惯的 content 作为 contents 的别名兼容。
+            normalize_newlines(
+                &string_any(call, &["contents", "content"]).map_err(|error| error.to_string())?,
+            )
         }
         "strreplace" => replace_string(call, &before)?,
         "editnotebook" => edit_notebook(call, &before)?,
@@ -230,11 +233,19 @@ fn source_lines(value: &str) -> Vec<Value> {
 }
 
 fn string(call: &ToolCall, field: &str) -> Result<String> {
-    call.arguments
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| Error::Protocol(format!("{} is missing {field}", call.name)))
+    string_any(call, &[field])
+}
+
+fn string_any(call: &ToolCall, fields: &[&str]) -> Result<String> {
+    for field in fields {
+        if let Some(value) = call.arguments.get(field).and_then(Value::as_str) {
+            return Ok(value.to_owned());
+        }
+    }
+    Err(Error::Protocol(format!(
+        "{} is missing {}",
+        call.name, fields[0]
+    )))
 }
 
 fn normalized(value: &str) -> String {

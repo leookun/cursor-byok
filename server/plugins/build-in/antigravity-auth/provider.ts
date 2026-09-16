@@ -69,9 +69,11 @@ function resolveAntigravityModel(modelId: string): string {
 
   // 1. If explicit tier is already specified in the model ID, pass it directly!
   if (
+    lower.startsWith("gemini-3.8-flash-") ||
     lower.startsWith("gemini-3.7-flash-") ||
     lower.startsWith("gemini-3.6-flash-") ||
     lower.startsWith("gemini-3.1-pro-") ||
+    lower === "gemini-3.8-flash" ||
     lower === "gemini-3.7-flash" ||
     lower === "gemini-3.6-flash" ||
     lower === "gemini-2.5-flash" ||

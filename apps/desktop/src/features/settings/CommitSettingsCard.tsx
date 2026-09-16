@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, pluginText, type CommitSettingsView } from "../../shared/api";
+import { commitPromptLocale } from "../../i18n/runtime";
 import { useI18n } from "../../i18n/store";
 import { useAppStore } from "../../shared/store/appStore";
 import { Button } from "../../shared/ui/Button";
@@ -33,11 +34,12 @@ export function CommitSettingsCard() {
     void (async () => {
       try {
         let loaded = await api.commitSettings(locale);
-        if (!loaded.prompt.trim() && loaded.prompt_locale !== locale) {
+        const promptLocale = commitPromptLocale(locale);
+        if (!loaded.prompt.trim() && loaded.prompt_locale !== promptLocale) {
           loaded = await api.setCommitSettings({
             model_id: loaded.model_id,
             prompt: "",
-            prompt_locale: locale,
+            prompt_locale: promptLocale,
           });
         }
         if (active) {
@@ -97,7 +99,7 @@ export function CommitSettingsCard() {
       return api.setCommitSettings({
         model_id: modelId,
         prompt: normalizedPrompt,
-        prompt_locale: locale,
+        prompt_locale: commitPromptLocale(locale),
       });
     },
     [view, locale],

@@ -122,8 +122,12 @@ fn merge(merged: &mut HashMap<String, SearchHit>, engine: &'static str, results:
         let score = 1.0 / (RRF_K + rank as f64 + 1.0);
         match merged.get_mut(&result.url) {
             Some(existing) => {
-                existing.score += score;
+                // Reciprocal Rank Fusion sums one term per ranked list. One
+                // engine listing a URL more than once is still one list, so
+                // only its best rank counts; a later repeat contributes
+                // nothing but its snippet.
                 if !existing.engines.contains(&engine) {
+                    existing.score += score;
                     existing.engines.push(engine);
                 }
                 if result.chunk.len() > existing.chunk.len() {
@@ -135,5 +139,82 @@ fn merge(merged: &mut HashMap<String, SearchHit>, engine: &'static str, results:
                 merged.insert(result.url.clone(), result);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit(url: &str, engine: &'static str, chunk: &str) -> SearchHit {
+        SearchHit::new("title", url, chunk, vec![engine])
+    }
+
+    fn rrf(rank: usize) -> f64 {
+        1.0 / (RRF_K + rank as f64 + 1.0)
+    }
+
+    #[test]
+    fn an_engine_that_lists_one_url_twice_contributes_a_single_rrf_term() {
+        let mut merged = HashMap::new();
+        merge(
+            &mut merged,
+            "duckduckgo",
+            vec![
+                hit("https://example.com/p", "duckduckgo", "short"),
+                hit("https://example.com/p", "duckduckgo", "longer snippet"),
+            ],
+        );
+
+        let entry = &merged["https://example.com/p"];
+        assert_eq!(entry.engines, vec!["duckduckgo"]);
+        assert_eq!(entry.score, rrf(0));
+        assert_eq!(entry.chunk, "longer snippet");
+    }
+
+    #[test]
+    fn two_engines_that_agree_on_a_url_still_sum_both_ranks() {
+        let mut merged = HashMap::new();
+        merge(
+            &mut merged,
+            "google",
+            vec![hit("https://example.com/p", "google", "a")],
+        );
+        merge(
+            &mut merged,
+            "bing",
+            vec![
+                hit("https://example.com/other", "bing", "b"),
+                hit("https://example.com/p", "bing", "c"),
+            ],
+        );
+
+        let entry = &merged["https://example.com/p"];
+        assert_eq!(entry.engines, vec!["google", "bing"]);
+        assert_eq!(entry.score, rrf(0) + rrf(1));
+    }
+
+    #[test]
+    fn agreement_between_engines_outranks_one_engine_repeating_itself() {
+        let mut merged = HashMap::new();
+        merge(
+            &mut merged,
+            "duckduckgo",
+            vec![
+                hit("https://example.com/repeated", "duckduckgo", "a"),
+                hit("https://example.com/repeated", "duckduckgo", "b"),
+                hit("https://example.com/agreed", "duckduckgo", "c"),
+            ],
+        );
+        merge(
+            &mut merged,
+            "brave",
+            vec![hit("https://example.com/agreed", "brave", "d")],
+        );
+
+        assert!(
+            merged["https://example.com/agreed"].score
+                > merged["https://example.com/repeated"].score
+        );
     }
 }
