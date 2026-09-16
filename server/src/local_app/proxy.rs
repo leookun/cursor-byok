@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use hudsucker::{
     certificate_authority::RcgenAuthority,
-    hyper::{Request, Uri},
+    hyper::{header, http::StatusCode, Method, Request, Response, Uri},
     rustls::crypto::aws_lc_rs,
     Body, HttpContext, HttpHandler, Proxy, RequestOrResponse,
 };
@@ -113,8 +113,56 @@ impl HttpHandler for CursorRelay {
         mut request: Request<Body>,
     ) -> RequestOrResponse {
         let original = request.uri().clone();
-        let locally_routed = should_route_locally(original.path(), *self.tab_mode.read());
-        if is_cursor_host(original.host().unwrap_or_default()) && locally_routed {
+        // Never rewrite CONNECT tunnels: hudsucker inspects them only to decide
+        // whether to MITM (should_intercept_connect), and rewriting the
+        // authority to the local backend would disable TLS interception for
+        // every Cursor-host connection. Only inner (post-MITM) requests are
+        // routed locally.
+        if request.method() == Method::CONNECT {
+            return request.into();
+        }
+        // External-only endpoints that the official upstream deterministically
+        // rejects (404/400) for accounts without the corresponding cloud
+        // features (e.g. legacy `/agent/v1/run` probe, agent-store /
+        // background-composer mints, tab file sync). Forwarding them upstream
+        // only re-produces the rejection over the network, which on
+        // proxied-only egress networks used to hang for ~75s. Answer them
+        // locally with the same status Cursor already tolerates so the request
+        // never leaves the machine: Cursor keeps its existing fallbacks
+        // (gRPC `RunSSE` after the `/agent/v1/run` 404, local agent stores
+        // after `MintAgentStoreToken` 400).
+        if let Some(status) = local_stub_status(original.path()) {
+            let mut response = Response::new(Body::empty());
+            *response.status_mut() = status;
+            response.headers_mut().insert(
+                header::CONTENT_LENGTH,
+                header::HeaderValue::from_static("0"),
+            );
+            if original.path().starts_with("/aiserver.v1.")
+                || original.path().starts_with("/agent.v1.")
+            {
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    header::HeaderValue::from_static("application/grpc"),
+                );
+            }
+            tracing::info!(
+                path = %original.path(),
+                status = status.as_u16(),
+                "local stub: external-only path answered locally, upstream blocked"
+            );
+            return RequestOrResponse::Response(response);
+        }
+        // Route every Cursor-host request through the local backend instead of
+        // letting hudsucker dial the official upstream directly: direct dials
+        // hang (~75s) on networks that only allow proxied egress. Paths outside
+        // the explicit route table fall through to the router fallback
+        // (proxy::forward), which uses the configured outbound proxy. Tab paths
+        // in explicit Direct mode keep their original upstream pass-through.
+        let route_locally = is_cursor_host(original.host().unwrap_or_default())
+            && (should_route_locally(original.path(), *self.tab_mode.read())
+                || !is_tab_path(original.path()));
+        if route_locally {
             if let Ok(value) = original.to_string().parse() {
                 request.headers_mut().insert(UPSTREAM_URL_HEADER, value);
             }
@@ -152,6 +200,26 @@ impl HttpHandler for CursorRelay {
 pub fn is_cursor_host(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     matches!(host.as_str(), "api2.cursor.sh" | "api3.cursor.sh") || host.ends_with(".cursor.sh")
+}
+
+/// Paths the official upstream deterministically rejects (404/400) for
+/// accounts without the corresponding cloud features. Kept in sync with the
+/// observed upstream answers; answered locally by `CursorRelay` so these
+/// requests never leave the machine.
+fn local_stub_status(path: &str) -> Option<StatusCode> {
+    let stub = match path {
+        "/agent/v1/run" => StatusCode::NOT_FOUND,
+        "/aiserver.v1.BackgroundComposerService/MintAgentStoreToken"
+        | "/aiserver.v1.BackgroundComposerService/ListPrivateWorkers"
+        | "/aiserver.v1.BackgroundComposerService/ListEnvironments"
+        | "/aiserver.v1.BackgroundComposerService/ListBackgroundComposers" => {
+            StatusCode::BAD_REQUEST
+        }
+        "/aiserver.v1.FileSyncService/FSSyncFile" => StatusCode::NOT_FOUND,
+        "/ws-reachability-probe" => StatusCode::NOT_FOUND,
+        _ => return None,
+    };
+    Some(stub)
 }
 
 fn is_local_path(path: &str) -> bool {
