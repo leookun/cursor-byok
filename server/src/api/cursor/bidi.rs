@@ -105,6 +105,14 @@ impl DecodedAppend {
             .filter(|s| !s.trim().is_empty())
         {
             store.resolve_model_hash(alias_target).await?
+        } else if settings.model_aliases.contains_key(current_model) {
+            // An alias key is configured for this hosted model (e.g. composer-2.5-fast, composer-2.5, default)
+            // but left blank: automatically fall back to target_model_id or the first BYOK model!
+            if !settings.target_model_id.trim().is_empty() {
+                store.resolve_model_hash(&settings.target_model_id).await?
+            } else {
+                store.first_model_hash().await?
+            }
         } else if is_subagent {
             if !settings.target_model_id.trim().is_empty() {
                 store.resolve_model_hash(&settings.target_model_id).await?
@@ -527,5 +535,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(decoded.model_id(), Some("composer-2.5-fast"));
+    }
+
+    #[tokio::test]
+    async fn blank_alias_falls_back_to_byok_model() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        // Default settings has "default" with an empty string target
+        let settings = SubagentRoutingSettings::default();
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-6".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "default".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        assert_eq!(decoded.model_id(), Some(expected_hash.as_str()));
     }
 }
