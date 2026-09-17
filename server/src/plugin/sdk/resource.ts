@@ -187,6 +187,8 @@ export type ResourceSupport = {
   actions?: ResourceAction[];
   /** 用户主动触发时重新读取上游状态(额度、凭证有效性)。 */
   refresh?(resource: ResourceSnapshot, context: PluginContext): Promise<ResourcePatch>;
+  /** 可选的后台刷新间隔;未声明时宿主绝不自动刷新。 */
+  refreshIntervalMs?: number;
   /** 可选的上游撤销;宿主随后删除本地记录。 */
   remove?(resource: ResourceSnapshot, context: PluginContext): Promise<void>;
 };

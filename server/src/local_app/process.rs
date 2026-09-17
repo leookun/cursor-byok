@@ -74,12 +74,37 @@ async fn terminate_platform_cursor() -> Result<()> {
         .status()
         .await?;
     if terminated.success() {
-        Ok(())
-    } else {
-        Err(Error::Config(
-            "failed to terminate the Cursor.exe process".into(),
-        ))
+        for _ in 0..20 {
+            if !cursor_process_is_running().await? {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    } else if !cursor_process_is_running().await? {
+        return Ok(());
     }
+
+    Err(Error::Config(
+        "failed to terminate the Cursor.exe process".into(),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+async fn cursor_process_is_running() -> Result<bool> {
+    let mut list = Command::new("tasklist");
+    hide_console(&mut list);
+    let processes = list
+        .args(["/FI", "IMAGENAME eq Cursor.exe", "/NH", "/FO", "CSV"])
+        .output()
+        .await?;
+    if !processes.status.success() {
+        return Err(Error::Config(
+            "failed to inspect the Cursor.exe process".into(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&processes.stdout)
+        .to_ascii_lowercase()
+        .contains("cursor.exe"))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]

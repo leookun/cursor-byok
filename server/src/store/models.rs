@@ -11,7 +11,7 @@ use crate::{
 use super::{now_ms, Store};
 
 const MODEL_COLUMNS: &str = r#"
-    model_hash, sort_order, display_name, group_name, model_type, base_url, use_full_url, api_key, tooltip_data,
+    model_hash, sort_order, display_name, group_name, enabled, model_type, base_url, use_full_url, api_key, tooltip_data,
     model_id, reasoning_effort, openai_endpoint, openai_extra_params_enabled,
     openai_extra_params_json, custom_headers_enabled, custom_headers_json,
     anthropic_extra_params_enabled, anthropic_extra_params_json, context_window_tokens,
@@ -187,6 +187,36 @@ impl Store {
         Ok(())
     }
 
+    /// 批量切换模型是否发布到 Cursor 的模型目录。分组开关影响分组内的全部模型,
+    /// 因此这里按哈希列表一次事务内完成,不改变模型身份或其它配置。
+    pub async fn set_models_enabled(
+        &self,
+        model_hashes: &[String],
+        enabled: bool,
+    ) -> Result<Vec<ModelConfig>> {
+        if model_hashes.is_empty() {
+            return Err(Error::Config("at least one model is required".into()));
+        }
+        let now = now_ms();
+        let _write = self.writes.lock().await;
+        let mut transaction = self.pool.begin().await?;
+        for hash in model_hashes {
+            let result = sqlx::query(
+                "UPDATE model_configs SET enabled = ?, updated_at_ms = ? WHERE model_hash = ?",
+            )
+            .bind(enabled)
+            .bind(now)
+            .bind(hash)
+            .execute(&mut *transaction)
+            .await?;
+            if result.rows_affected() != 1 {
+                return Err(Error::RunNotFound(format!("model {hash}")));
+            }
+        }
+        transaction.commit().await?;
+        self.models().await
+    }
+
     pub async fn reorder_models(&self, model_hashes: &[String]) -> Result<Vec<ModelConfig>> {
         let current = self.models().await?;
         let current_hashes = current
@@ -291,6 +321,7 @@ fn model_from_row(row: sqlx::sqlite::SqliteRow) -> Result<ModelConfig> {
         sort_order: row.try_get("sort_order")?,
         display_name: row.try_get("display_name")?,
         group_name: row.try_get("group_name")?,
+        enabled: row.try_get("enabled")?,
         model_type: ModelType::from_str(row.try_get("model_type")?)?,
         base_url: row.try_get("base_url")?,
         use_full_url: row.try_get("use_full_url")?,
@@ -397,5 +428,41 @@ mod tests {
             .unwrap();
         assert_eq!(cleared.model_hash, created.model_hash);
         assert_eq!(cleared.group_name, None);
+    }
+
+    /// 分组开关按模型哈希批量切换发布状态:新模型默认发布,关闭只改标记,
+    /// 不改变身份哈希,未知哈希则报错。
+    #[tokio::test]
+    async fn set_models_enabled_toggles_publication_without_changing_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::connect(&format!(
+            "sqlite://{}",
+            directory.path().join("test.db").display()
+        ))
+        .await
+        .unwrap();
+
+        let created = store.create_model(&model_input(None)).await.unwrap();
+        assert!(created.enabled, "new models are published by default");
+
+        let hidden = store
+            .set_models_enabled(&[created.model_hash.clone()], false)
+            .await
+            .unwrap();
+        assert_eq!(hidden.len(), 1);
+        assert!(!hidden[0].enabled);
+        assert_eq!(hidden[0].model_hash, created.model_hash);
+
+        let published = store
+            .set_models_enabled(&[created.model_hash.clone()], true)
+            .await
+            .unwrap();
+        assert!(published[0].enabled);
+
+        assert!(store
+            .set_models_enabled(&["missing-model".into()], false)
+            .await
+            .is_err());
+        assert!(store.set_models_enabled(&[], false).await.is_err());
     }
 }

@@ -15,5 +15,6 @@ export default defineProviderPlugin({
     import: credentialImport,
     present: presentAccount,
     refresh: refreshAccount,
+    refreshIntervalMs: 5 * 60 * 1000,
   }],
 });

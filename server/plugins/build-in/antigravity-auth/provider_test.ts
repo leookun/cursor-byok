@@ -6,8 +6,11 @@ import type {
 } from "cursor-byok:plugin";
 import type { LlmRequest, ModelEvent } from "cursor-byok:provider";
 import type { ResourceSnapshot } from "cursor-byok:resource";
-import { antigravityProvider, isQuotaError } from "./provider.ts";
+import { antigravityProvider } from "./provider.ts";
+import { callableModels } from "./model_routes.ts";
 import { RESOURCE_TYPE } from "./resources.ts";
+
+const PUBLIC_NAMES = ["Gemini 3.8 Flash", "Gemini 3.1 Pro"];
 
 function assert(condition: unknown, message = "assertion failed"): asserts condition {
   if (!condition) throw new Error(message);
@@ -58,12 +61,42 @@ function request(): LlmRequest {
     instructions: "You are an AI coding assistant.",
     messages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
     tools: [],
-    reasoning: { enabled: true, effort: "medium" },
+    reasoning: { enabled: true, effort: "high" },
     latency: "standard",
     maxOutputTokens: 65536,
     cacheKey: "conv-1",
   };
 }
+
+Deno.test("model capacity 429 tries endpoints without cooling the entire account", async () => {
+  let attempts = 0;
+  const result = await antigravityProvider.invoke(
+    {
+      model:
+        callableModels([{ id: "gemini-3.8-flash-high", displayName: "Flash" }], PUBLIC_NAMES)[0],
+      resource: snapshot({ accessToken: "mock", refreshToken: null, projectId: "real-project" }),
+      request: request(),
+    },
+    {
+      emit: () => {
+        throw new Error("failed request must not emit success");
+      },
+    },
+    context({
+      stream: () => {
+        attempts++;
+        return {
+          status: 429,
+          headers: {},
+          lines: sse(['{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}']),
+        };
+      },
+    }),
+  );
+  assertEquals(attempts, 3);
+  assertEquals(result.status, "request-error");
+  assert(!("patch" in result), "model capacity must not change global account quota/state");
+});
 
 Deno.test("provider parses usage metadata including cachedContentTokenCount as cacheReadTokens", async () => {
   let requestBody = "";
@@ -72,11 +105,12 @@ Deno.test("provider parses usage metadata including cachedContentTokenCount as c
 
   const result = await antigravityProvider.invoke(
     {
-      model: {
-        id: "gemini-3.7-flash-medium",
-        displayName: "Gemini 3.7 Flash Medium",
-        privateData: {},
-      },
+      model: callableModels([{
+        id: "gemini-3.1-pro-high",
+        displayName: "Gemini 3.1 Pro High",
+        privateData: { thinkingBudget: 10001 },
+        maxOutputTokens: 65535,
+      }], PUBLIC_NAMES)[0],
       resource: snapshot({
         accessToken: "mock-access-token",
         refreshToken: "mock-refresh-token",
@@ -112,7 +146,12 @@ Deno.test("provider parses usage metadata including cachedContentTokenCount as c
   assert(!("x-client-request-id" in requestHeaders), "request-id header was reused as cache key");
   const body = JSON.parse(requestBody) as Record<string, unknown>;
   assertEquals(body.project, "test-project-123");
-  assertEquals(body.model, "gemini-3.7-flash-medium");
+  assertEquals(body.model, "gemini-3.1-pro-high");
+  const upstream = body.request as Record<string, unknown>;
+  assertEquals(upstream.generationConfig, {
+    maxOutputTokens: 65535,
+    thinkingConfig: { thinkingBudget: 10001, includeThoughts: true },
+  });
   assert(!("sessionId" in body), "unsupported sessionId field was sent");
   assert(!("conversationId" in body), "unsupported conversationId field was sent");
 
@@ -136,11 +175,4 @@ Deno.test("provider parses usage metadata including cachedContentTokenCount as c
     },
     { type: "done", reason: "stop" },
   ]);
-});
-
-Deno.test("isQuotaError identifies rate limits and quota exhaustion", () => {
-  assert(isQuotaError("RESOURCE_EXHAUSTED: quota exceeded"));
-  assert(isQuotaError("Rate limit exceeded for model"));
-  assert(isQuotaError("HTTP 429 Too Many Requests"));
-  assert(!isQuotaError("Invalid authorization header"));
 });

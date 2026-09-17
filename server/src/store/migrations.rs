@@ -455,10 +455,21 @@ mod tests {
             .await
             .unwrap();
 
+            let model_enabled_column_exists: i64 = sqlx::query_scalar(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('model_configs')
+                    WHERE name = 'enabled'
+                 )",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
             assert_eq!(checksum_after, checksum_before);
-            assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+            assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
             assert_eq!(checkpoint_table_exists, 1);
             assert_eq!(argument_error_column_exists, 1);
+            assert_eq!(model_enabled_column_exists, 1);
         }
     }
 

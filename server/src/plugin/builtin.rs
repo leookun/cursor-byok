@@ -139,6 +139,20 @@ const ANTIGRAVITY_AUTH: &[(&str, &str)] = &[
         )),
     ),
     (
+        "model_routes.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/antigravity-auth/model_routes.ts"
+        )),
+    ),
+    (
+        "public_models.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/antigravity-auth/public_models.ts"
+        )),
+    ),
+    (
         "oauth.ts",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
