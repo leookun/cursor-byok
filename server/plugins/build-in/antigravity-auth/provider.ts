@@ -8,12 +8,7 @@ import type {
 import type { JsonValue, PluginContext } from "cursor-byok:plugin";
 import { HttpError } from "cursor-byok:protocol/openai-chat";
 import { resolveModelRoute } from "./model_routes.ts";
-import {
-  ANTIGRAVITY_CLIENT_HEADERS,
-  ANTIGRAVITY_ENDPOINTS,
-  ANTIGRAVITY_USER_AGENT,
-  antigravityModels,
-} from "./models.ts";
+import { ANTIGRAVITY_ENDPOINTS, ANTIGRAVITY_USER_AGENT, antigravityModels } from "./models.ts";
 import {
   type AccountData,
   accountData,
@@ -298,7 +293,6 @@ async function streamCloudCode(
     "content-type": "application/json",
     accept: "text/event-stream",
     "user-agent": ANTIGRAVITY_USER_AGENT,
-    ...ANTIGRAVITY_CLIENT_HEADERS,
   };
   if (actualModel.toLowerCase().includes("claude")) {
     headers["anthropic-beta"] =

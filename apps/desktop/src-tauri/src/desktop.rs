@@ -36,6 +36,7 @@ struct DesktopRuntime {
     shutdown: CancellationToken,
     server: Mutex<Option<JoinHandle<Result<()>>>>,
     exiting: AtomicBool,
+    server_addr: std::net::SocketAddr,
 }
 
 #[tauri::command]
@@ -141,6 +142,21 @@ fn create_main_window(
     builder.build()
 }
 
+/// 按需打开主窗口:webview 仅在需要界面时创建,关闭窗口即销毁释放内存。
+pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let address = app.state::<DesktopRuntime>().server_addr;
+    let window = create_main_window(app, address)?;
+    window.show()?;
+    window.set_focus()?;
+    Ok(())
+}
+
 pub fn run() -> ExitCode {
     let diagnostics = match StartupDiagnostics::initialize() {
         Ok(diagnostics) => diagnostics,
@@ -184,7 +200,7 @@ pub fn run() -> ExitCode {
         ])
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == AUTOSTART_ARG) {
-                tray::show_main_window(app);
+                let _ = open_main_window(app);
             }
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -240,13 +256,12 @@ pub fn run() -> ExitCode {
                 shutdown,
                 server: Mutex::new(Some(task)),
                 exiting: AtomicBool::new(false),
+                server_addr: address,
             });
-            let window = create_main_window(app.handle(), address)?;
             if desktop_settings.silent_start && started_by_autostart {
-                tracing::info!("silent autostart enabled; keeping the main window hidden");
+                tracing::info!("silent autostart enabled; starting without the main window");
             } else {
-                window.show()?;
-                window.set_focus()?;
+                open_main_window(app.handle())?;
             }
             tray::create(app)?;
             crate::update::signal_ready_if_requested()?;
@@ -262,46 +277,42 @@ pub fn run() -> ExitCode {
     };
 
     app.run(|app, event| match event {
-        RunEvent::WindowEvent {
-            label,
-            event: tauri::WindowEvent::CloseRequested { api, .. },
-            ..
-        } if label == MAIN_WINDOW_LABEL => {
-            let runtime = app.state::<DesktopRuntime>();
-            if !runtime.exiting.load(Ordering::Acquire) {
-                api.prevent_close();
-                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                    let _ = window.hide();
+        // code 为 None 表示所有窗口已被关闭(轻量模式),阻止退出,
+        // 转发服务继续在托盘后台运行;code 为 Some 时是显式退出请求。
+        RunEvent::ExitRequested { code, api, .. } => match code {
+            None => api.prevent_exit(),
+            Some(_) => {
+                let runtime = app.state::<DesktopRuntime>();
+                if !runtime.exiting.swap(true, Ordering::AcqRel) {
+                    api.prevent_exit();
+                    runtime.shutdown.cancel();
+                    let server = runtime.server.lock().expect("server lock poisoned").take();
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(server) = server {
+                            match tokio::time::timeout(Duration::from_secs(11), server).await {
+                                Ok(Ok(Ok(()))) => {}
+                                Ok(Ok(Err(error))) => {
+                                    tracing::error!(%error, "desktop server shutdown failed")
+                                }
+                                Ok(Err(error)) => {
+                                    tracing::error!(%error, "desktop server task failed")
+                                }
+                                Err(_) => tracing::warn!("desktop server shutdown timed out"),
+                            }
+                        }
+                        app.exit(0);
+                    });
                 }
             }
-        }
-        RunEvent::ExitRequested { api, .. } => {
-            let runtime = app.state::<DesktopRuntime>();
-            if !runtime.exiting.swap(true, Ordering::AcqRel) {
-                api.prevent_exit();
-                runtime.shutdown.cancel();
-                let server = runtime.server.lock().expect("server lock poisoned").take();
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Some(server) = server {
-                        match tokio::time::timeout(Duration::from_secs(11), server).await {
-                            Ok(Ok(Ok(()))) => {}
-                            Ok(Ok(Err(error))) => {
-                                tracing::error!(%error, "desktop server shutdown failed")
-                            }
-                            Ok(Err(error)) => tracing::error!(%error, "desktop server task failed"),
-                            Err(_) => tracing::warn!("desktop server shutdown timed out"),
-                        }
-                    }
-                    app.exit(0);
-                });
-            }
-        }
+        },
         #[cfg(target_os = "macos")]
         RunEvent::Reopen {
             has_visible_windows: false,
             ..
-        } => tray::show_main_window(app),
+        } => {
+            let _ = open_main_window(app);
+        }
         _ => {}
     });
 

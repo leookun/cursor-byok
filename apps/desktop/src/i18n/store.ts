@@ -14,7 +14,7 @@ let initialized = false;
 let snapshot: I18nSnapshot = { preference: "system", locale: "en-US" };
 
 function isLocale(value: string | null): value is Locale {
-  return value === "zh-CN" || value === "en-US";
+  return value === "zh-CN" || value === "en-US" || value === "pt-BR";
 }
 
 export function resolveSystemLocale(
@@ -24,6 +24,7 @@ export function resolveSystemLocale(
 ): Locale {
   const normalized = languages[0]?.toLowerCase() ?? "";
   if (normalized === "zh" || normalized.startsWith("zh-")) return "zh-CN";
+  if (normalized === "pt" || normalized.startsWith("pt-")) return "pt-BR";
   if (normalized === "en" || normalized.startsWith("en-")) return "en-US";
   return "en-US";
 }

@@ -18,13 +18,8 @@ export const ANTIGRAVITY_ENDPOINTS = [
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
 
 export const ANTIGRAVITY_USER_AGENT =
-  "Antigravity/4.3.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3";
+  "antigravity/hub/2.12.2 (aidev_client; os_type=darwin; arch=arm64; cl=975423596)";
 export const ANTIGRAVITY_OAUTH_USER_AGENT = "vscode/1.X.X (Antigravity/4.3.0)";
-
-export const ANTIGRAVITY_CLIENT_HEADERS: Record<string, string> = {
-  "x-client-name": "antigravity",
-  "x-client-version": "4.3.0",
-};
 
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)

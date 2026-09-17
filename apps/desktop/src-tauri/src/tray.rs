@@ -1,13 +1,13 @@
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    App, AppHandle, Manager,
+    App,
 };
 
 #[cfg(target_os = "windows")]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 
-use crate::desktop::MAIN_WINDOW_LABEL;
+use crate::desktop::open_main_window;
 
 const OPEN_MENU_ID: &str = "tray-open";
 const QUIT_MENU_ID: &str = "tray-quit";
@@ -24,7 +24,9 @@ pub fn create(app: &mut App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id().as_ref() {
-            OPEN_MENU_ID => show_main_window(app),
+            OPEN_MENU_ID => {
+                let _ = open_main_window(app);
+            }
             QUIT_MENU_ID => app.exit(0),
             _ => {}
         })
@@ -36,7 +38,7 @@ pub fn create(app: &mut App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                let _ = open_main_window(tray.app_handle());
             }
 
             #[cfg(not(target_os = "windows"))]
@@ -44,12 +46,4 @@ pub fn create(app: &mut App) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
-}
-
-pub fn show_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
 }
