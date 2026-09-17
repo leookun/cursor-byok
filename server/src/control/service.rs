@@ -29,7 +29,7 @@ use crate::{
     provider::{is_valid_response_event, ModelEvent, Provider},
     store::{
         CommitSettings, DesktopSettings, PortSettings, ProxySettings, ProxySettingsInput,
-        StatisticsStorage, Store, TabSettings, TokenPricingSettings,
+        StatisticsStorage, Store, SubagentRoutingSettings, TabSettings, TokenPricingSettings,
     },
     Error, Result,
 };
@@ -758,6 +758,17 @@ impl ControlService {
         settings: TokenPricingSettings,
     ) -> Result<TokenPricingSettings> {
         self.store.set_pricing_settings(settings).await
+    }
+
+    pub async fn subagent_routing(&self) -> Result<SubagentRoutingSettings> {
+        self.store.subagent_routing_settings().await
+    }
+
+    pub async fn set_subagent_routing(
+        &self,
+        settings: SubagentRoutingSettings,
+    ) -> Result<SubagentRoutingSettings> {
+        self.store.set_subagent_routing_settings(settings).await
     }
 }
 

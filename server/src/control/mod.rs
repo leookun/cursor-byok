@@ -221,6 +221,10 @@ pub fn api_router(service: ControlService) -> Router {
             get(settings::get_pricing_settings).put(settings::update_pricing_settings),
         )
         .route(
+            "/__byok-api__/api/settings/subagent-routing",
+            get(settings::get_subagent_routing).put(settings::update_subagent_routing),
+        )
+        .route(
             "/__byok-api__/api/harness/cursor/status",
             get(harness::status),
         )

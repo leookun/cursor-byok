@@ -49,6 +49,100 @@ impl DecodedAppend {
         request.conversation_id.as_deref()
     }
 
+    pub async fn resolve_subagent_and_model_aliases(
+        &mut self,
+        store: &crate::store::Store,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<()> {
+        let Some(agent::agent_client_message::Message::RunRequest(request)) =
+            self.message.message.as_mut()
+        else {
+            return Ok(());
+        };
+        let settings = store.subagent_routing_settings().await?;
+        if !settings.enabled {
+            return Ok(());
+        }
+
+        let is_subagent = request.subagent_type_name.is_some()
+            || headers.contains_key("x-parent-request-id");
+
+        // 1. In parent requests, rewrite subagent model overrides
+        if !is_subagent {
+            let target_hash = if !settings.target_model_id.trim().is_empty() {
+                store.resolve_model_hash(&settings.target_model_id).await?
+            } else {
+                store.first_model_hash().await?
+            };
+            if let Some(target_hash) = target_hash {
+                for selection in &mut request.subagent_model_overrides {
+                    if let Some(agent::subagent_model_override::Selection::Model(model)) =
+                        selection.selection.as_mut()
+                    {
+                        if model.model_id == "composer-2.5-fast"
+                            || model.model_id == "composer-2.5"
+                            || model.model_id == "default"
+                            || settings.model_aliases.contains_key(&model.model_id)
+                        {
+                            model.model_id.clone_from(&target_hash);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Identify the currently requested model
+        let current_model = request
+            .requested_model
+            .as_ref()
+            .map(|m| m.model_id.as_str())
+            .or_else(|| request.model_details.as_ref().map(|m| m.model_id.as_str()))
+            .unwrap_or_default();
+
+        let target_hash = if let Some(alias_target) = settings
+            .model_aliases
+            .get(current_model)
+            .filter(|s| !s.trim().is_empty())
+        {
+            store.resolve_model_hash(alias_target).await?
+        } else if is_subagent {
+            if !settings.target_model_id.trim().is_empty() {
+                store.resolve_model_hash(&settings.target_model_id).await?
+            } else if store.model(current_model).await?.is_some() {
+                // If current_model is already a valid BYOK model in store, keep it
+                None
+            } else {
+                store.first_model_hash().await?
+            }
+        } else {
+            None
+        };
+
+        if let Some(target_hash) = target_hash {
+            tracing::info!(
+                request_id = self.request_id,
+                original_model = current_model,
+                target_model = target_hash,
+                is_subagent,
+                subagent_type = ?request.subagent_type_name,
+                "intercepted Cursor request and routed to BYOK model"
+            );
+            if let Some(model) = request.requested_model.as_mut() {
+                model.model_id.clone_from(&target_hash);
+            } else {
+                request.requested_model = Some(agent::RequestedModel {
+                    model_id: target_hash.clone(),
+                    ..Default::default()
+                });
+            }
+            if let Some(details) = request.model_details.as_mut() {
+                details.model_id.clone_from(&target_hash);
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn is_background_task_completion(&self) -> bool {
         let Some(agent::agent_client_message::Message::RunRequest(request)) =
             self.message.message.as_ref()
@@ -208,4 +302,230 @@ pub async fn append(
         })
         .await?;
     Ok(ai::BidiAppendResponse {})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cursor::protocol::proto::agent::v1 as agent;
+    use crate::model::{ModelConfigInput, ModelType, OPENAI_CHAT_ENDPOINT};
+    use crate::store::{Store, SubagentRoutingSettings};
+    use axum::http::HeaderMap;
+
+    async fn test_store_with_model() -> (tempfile::TempDir, Store, String) {
+        let directory = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", directory.path().join("test.db").display());
+        let store = Store::connect(&url).await.unwrap();
+        let model = store
+            .create_model(&ModelConfigInput {
+                sort_order: 0,
+                display_name: "deepseek-v4.1-flash free".into(),
+                group_name: None,
+                model_type: ModelType::OpenAi,
+                base_url: "http://127.0.0.1:3000/v1".into(),
+                use_full_url: false,
+                api_key: "local".into(),
+                tooltip_data: "deepseek-v4.1-flash free".into(),
+                model_id: "deepseek-v4.1-flash".into(),
+                reasoning_effort: None,
+                openai_endpoint: OPENAI_CHAT_ENDPOINT.into(),
+                openai_extra_params_enabled: false,
+                openai_extra_params: serde_json::json!({}),
+                custom_headers_enabled: false,
+                custom_headers: serde_json::json!({}),
+                anthropic_extra_params_enabled: false,
+                anthropic_extra_params: serde_json::json!({}),
+                context_window_tokens: None,
+                max_completion_tokens: None,
+                anthropic_max_tokens: None,
+                anthropic_thinking_effort: None,
+                thinking_budget_tokens: None,
+            })
+            .await
+            .unwrap();
+        let model_hash = model.model_hash.clone();
+        (directory, store, model_hash)
+    }
+
+    #[tokio::test]
+    async fn explore_subagent_intercepted_and_routed_to_byok_model() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-1".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        subagent_type_name: Some("explore".into()),
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        model_details: Some(agent::ModelDetails {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        assert_eq!(decoded.model_id(), Some(expected_hash.as_str()));
+    }
+
+    #[tokio::test]
+    async fn subagent_header_intercepted_and_routed_to_byok_model() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-2".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-parent-request-id", "parent-req-123".parse().unwrap());
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        assert_eq!(decoded.model_id(), Some(expected_hash.as_str()));
+    }
+
+    #[tokio::test]
+    async fn model_alias_intercepted_for_regular_request() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut settings = SubagentRoutingSettings::default();
+        settings
+            .model_aliases
+            .insert("composer-2.5-fast".into(), expected_hash.clone());
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-3".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        assert_eq!(decoded.model_id(), Some(expected_hash.as_str()));
+    }
+
+    #[tokio::test]
+    async fn parent_request_subagent_overrides_rewritten() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-4".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "claude-3-7-sonnet".into(),
+                            ..Default::default()
+                        }),
+                        subagent_model_overrides: vec![agent::SubagentModelOverride {
+                            selection: Some(agent::subagent_model_override::Selection::Model(
+                                agent::RequestedModel {
+                                    model_id: "composer-2.5-fast".into(),
+                                    ..Default::default()
+                                },
+                            )),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        // The parent model is untouched
+        assert_eq!(decoded.model_id(), Some("claude-3-7-sonnet"));
+
+        // But the subagent override is rewritten to byok model
+        let Some(agent::agent_client_message::Message::RunRequest(req)) =
+            decoded.message.message.as_ref()
+        else {
+            panic!("expected RunRequest");
+        };
+        let Some(agent::subagent_model_override::Selection::Model(override_model)) = req
+            .subagent_model_overrides
+            .first()
+            .and_then(|o| o.selection.as_ref())
+        else {
+            panic!("expected model override");
+        };
+        assert_eq!(override_model.model_id, expected_hash);
+    }
+
+    #[tokio::test]
+    async fn subagent_routing_disabled_preserves_original_model() {
+        let (_dir, store, _hash) = test_store_with_model().await;
+        let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = false;
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-5".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        subagent_type_name: Some("explore".into()),
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        assert_eq!(decoded.model_id(), Some("composer-2.5-fast"));
+    }
 }

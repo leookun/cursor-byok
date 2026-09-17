@@ -13,6 +13,7 @@ const DESKTOP_SETTINGS_KEY: &str = "desktop_lifecycle";
 const COMMIT_SETTINGS_KEY: &str = "commit_settings";
 const CURSOR_TAKEOVER_ENABLED_KEY: &str = "cursor_takeover_enabled";
 const PRICING_SETTINGS_KEY: &str = "token_pricing";
+const SUBAGENT_ROUTING_KEY: &str = "subagent_routing";
 
 /// Embedded default system prompts for commit message generation.
 pub const DEFAULT_COMMIT_PROMPT_ZH_CN: &str = include_str!("../../prompt/cursor/commit/zh-CN.md");
@@ -164,6 +165,34 @@ impl CommitSettings {
             self.prompt_locale.default_prompt()
         } else {
             trimmed
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct SubagentRoutingSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub target_model_id: String,
+    #[serde(default = "default_model_aliases")]
+    pub model_aliases: std::collections::BTreeMap<String, String>,
+}
+
+fn default_model_aliases() -> std::collections::BTreeMap<String, String> {
+    let mut aliases = std::collections::BTreeMap::new();
+    aliases.insert("composer-2.5-fast".into(), "".into());
+    aliases.insert("composer-2.5".into(), "".into());
+    aliases.insert("default".into(), "".into());
+    aliases
+}
+
+impl Default for SubagentRoutingSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            target_model_id: String::new(),
+            model_aliases: default_model_aliases(),
         }
     }
 }
@@ -490,6 +519,60 @@ impl Store {
         .await?;
         Ok(settings)
     }
+
+    pub async fn subagent_routing_settings(&self) -> Result<SubagentRoutingSettings> {
+        let value = sqlx::query_scalar::<_, String>(
+            "SELECT value_json FROM service_settings WHERE setting_key = ?",
+        )
+        .bind(SUBAGENT_ROUTING_KEY)
+        .fetch_optional(&self.pool)
+        .await?;
+        value
+            .map(|value| serde_json::from_str(&value).map_err(Into::into))
+            .unwrap_or_else(|| Ok(SubagentRoutingSettings::default()))
+    }
+
+    pub async fn set_subagent_routing_settings(
+        &self,
+        settings: SubagentRoutingSettings,
+    ) -> Result<SubagentRoutingSettings> {
+        let value_json = serde_json::to_string(&settings)?;
+        let _write = self.writes.lock().await;
+        sqlx::query(
+            "INSERT INTO service_settings(setting_key, value_json, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(setting_key) DO UPDATE SET value_json = excluded.value_json, updated_at_ms = excluded.updated_at_ms",
+        )
+        .bind(SUBAGENT_ROUTING_KEY)
+        .bind(value_json)
+        .bind(now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(settings)
+    }
+
+    pub async fn resolve_model_hash(&self, query: &str) -> Result<Option<String>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(None);
+        }
+        if self.model(query).await?.is_some() {
+            return Ok(Some(query.to_owned()));
+        }
+        let models = self.models().await?;
+        for model in &models {
+            if model.display_name.eq_ignore_ascii_case(query)
+                || model.model_id.eq_ignore_ascii_case(query)
+                || model.model_hash.eq_ignore_ascii_case(query)
+            {
+                return Ok(Some(model.model_hash.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn first_model_hash(&self) -> Result<Option<String>> {
+        let models = self.models().await?;
+        Ok(models.first().map(|m| m.model_hash.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -631,5 +714,32 @@ mod tests {
         assert_eq!(saved, custom);
 
         assert_eq!(store.pricing_settings().await.unwrap(), custom);
+    }
+
+    #[tokio::test]
+    async fn subagent_routing_settings_persists_and_reads_back() {
+        let directory = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", directory.path().join("test.db").display());
+        let store = Store::connect(&url).await.unwrap();
+
+        let defaults = store.subagent_routing_settings().await.unwrap();
+        assert!(defaults.enabled);
+        assert!(defaults.target_model_id.is_empty());
+        assert!(defaults.model_aliases.contains_key("composer-2.5-fast"));
+
+        let mut custom = defaults.clone();
+        custom.target_model_id = "test-hash-123".into();
+        custom
+            .model_aliases
+            .insert("composer-2.5-fast".into(), "test-hash-123".into());
+        let saved = store.set_subagent_routing_settings(custom).await.unwrap();
+        assert_eq!(saved.target_model_id, "test-hash-123");
+
+        let reloaded = store.subagent_routing_settings().await.unwrap();
+        assert_eq!(reloaded.target_model_id, "test-hash-123");
+        assert_eq!(
+            reloaded.model_aliases.get("composer-2.5-fast").unwrap(),
+            "test-hash-123"
+        );
     }
 }
