@@ -88,6 +88,25 @@ impl DecodedAppend {
                         }
                     }
                 }
+                for subagent_type in ["generalPurpose", "explore"] {
+                    if !request
+                        .subagent_model_overrides
+                        .iter()
+                        .any(|o| o.subagent_type == subagent_type)
+                    {
+                        request
+                            .subagent_model_overrides
+                            .push(agent::SubagentModelOverride {
+                                subagent_type: subagent_type.into(),
+                                selection: Some(agent::subagent_model_override::Selection::Model(
+                                    agent::RequestedModel {
+                                        model_id: target_hash.clone(),
+                                        ..Default::default()
+                                    },
+                                )),
+                            });
+                    }
+                }
             }
         }
 
@@ -567,5 +586,90 @@ mod tests {
             .unwrap();
 
         assert_eq!(decoded.model_id(), Some(expected_hash.as_str()));
+    }
+
+    #[tokio::test]
+    async fn parent_request_injects_missing_general_purpose_and_explore_overrides() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-7".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "gemini-3.8-flash".into(),
+                            ..Default::default()
+                        }),
+                        subagent_model_overrides: vec![],
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        let Some(agent::agent_client_message::Message::RunRequest(req)) =
+            decoded.message.message.as_ref()
+        else {
+            panic!("expected RunRequest");
+        };
+        assert!(req
+            .subagent_model_overrides
+            .iter()
+            .any(|o| o.subagent_type == "generalPurpose"
+                && matches!(
+                    &o.selection,
+                    Some(agent::subagent_model_override::Selection::Model(m)) if m.model_id == expected_hash
+                )));
+        assert!(req
+            .subagent_model_overrides
+            .iter()
+            .any(|o| o.subagent_type == "explore"
+                && matches!(
+                    &o.selection,
+                    Some(agent::subagent_model_override::Selection::Model(m)) if m.model_id == expected_hash
+                )));
+    }
+
+    #[tokio::test]
+    async fn plugin_model_id_resolves_and_routes_subagent() {
+        let (_dir, store, _hash) = test_store_with_model().await;
+        let mut settings = SubagentRoutingSettings::default();
+        settings.target_model_id = "plugin:dev.example/codex/gpt-test".into();
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-plugin".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        subagent_type_name: Some("explore".into()),
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            decoded.model_id(),
+            Some("plugin:dev.example/codex/gpt-test")
+        );
     }
 }

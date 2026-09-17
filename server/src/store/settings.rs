@@ -554,6 +554,9 @@ impl Store {
         if query.is_empty() {
             return Ok(None);
         }
+        if query.starts_with(crate::plugin::ADAPTER_ID_PREFIX) {
+            return Ok(Some(query.to_owned()));
+        }
         if self.model(query).await?.is_some() {
             return Ok(Some(query.to_owned()));
         }

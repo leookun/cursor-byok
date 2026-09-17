@@ -26,6 +26,18 @@
         }
       ]
     },
+    "019a245f94bda3b1": {
+      "source": "当请求指定 Cursor 官方模型时，自动重定向至本地自定义模型。留空时使用上方默认目标模型。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 249,
+          "column": 16
+        }
+      ]
+    },
     "01f3e69a5a9b2c9b": {
       "source": "访问模型服务所需的密钥。",
       "kind": "text",
@@ -116,7 +128,7 @@
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 176,
+          "line": 178,
           "column": 10
         },
         {
@@ -131,8 +143,13 @@
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 187,
+          "line": 188,
           "column": 82
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 186,
+          "column": 8
         },
         {
           "file": "features/settings/TabSettingsCard.tsx",
@@ -148,7 +165,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 223,
+          "line": 225,
           "column": 23
         }
       ]
@@ -234,6 +251,18 @@
           "file": "features/models/CursorSettingsPage.tsx",
           "line": 388,
           "column": 73
+        }
+      ]
+    },
+    "07cf4f52bd335802": {
+      "source": "拦截未指定模型的子 Agent（如 generalPurpose、explore）时使用的自定义模型",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 226,
+          "column": 16
         }
       ]
     },
@@ -372,7 +401,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 96,
+          "line": 97,
           "column": 38
         }
       ]
@@ -401,7 +430,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 282,
+          "line": 284,
           "column": 26
         }
       ]
@@ -674,12 +703,12 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 173,
+          "line": 175,
           "column": 10
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 205,
+          "line": 207,
           "column": 16
         }
       ]
@@ -764,7 +793,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 286,
+          "line": 288,
           "column": 60
         }
       ]
@@ -790,17 +819,17 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 66,
+          "line": 67,
           "column": 42
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 192,
+          "line": 193,
           "column": 22
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 219,
+          "line": 220,
           "column": 58
         }
       ]
@@ -856,6 +885,18 @@
         }
       ]
     },
+    "1ffc78cc7e42d027": {
+      "source": "子 Agent 路由与模型别名",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 196,
+          "column": 24
+        }
+      ]
+    },
     "202064bb84804852": {
       "source": "留空时使用默认值。",
       "kind": "text",
@@ -899,8 +940,25 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 259,
+          "line": 261,
           "column": 43
+        }
+      ]
+    },
+    "21995eee86e3149c": {
+      "source": "子 Agent 默认目标模型",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 224,
+          "column": 22
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 236,
+          "column": 24
         }
       ]
     },
@@ -923,7 +981,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 121,
+          "line": 122,
           "column": 15
         }
       ]
@@ -947,7 +1005,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 309,
+          "line": 311,
           "column": 24
         }
       ]
@@ -1115,12 +1173,12 @@
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 165,
+          "line": 167,
           "column": 78
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 212,
+          "line": 214,
           "column": 21
         },
         {
@@ -1135,13 +1193,18 @@
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 183,
+          "line": 184,
           "column": 81
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 301,
+          "line": 303,
           "column": 22
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 168,
+          "column": 10
         },
         {
           "file": "features/settings/TabSettingsCard.tsx",
@@ -1246,7 +1309,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 145,
+          "line": 146,
           "column": 15
         }
       ]
@@ -1396,7 +1459,7 @@
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 244,
+          "line": 246,
           "column": 27
         }
       ]
@@ -1469,7 +1532,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 311,
+          "line": 313,
           "column": 42
         }
       ]
@@ -1495,6 +1558,18 @@
           "file": "features/calls/CallDetails.tsx",
           "line": 54,
           "column": 32
+        }
+      ]
+    },
+    "39f212c05fc0c453": {
+      "source": "添加别名",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 299,
+          "column": 18
         }
       ]
     },
@@ -1534,7 +1609,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 293,
+          "line": 295,
           "column": 14
         }
       ]
@@ -1563,7 +1638,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 244,
+          "line": 246,
           "column": 39
         }
       ]
@@ -1630,12 +1705,12 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 251,
+          "line": 253,
           "column": 22
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 257,
+          "line": 259,
           "column": 26
         }
       ]
@@ -1717,7 +1792,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 160,
+          "line": 161,
           "column": 66
         }
       ]
@@ -1729,7 +1804,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 277,
+          "line": 279,
           "column": 52
         }
       ]
@@ -1903,7 +1978,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 162,
+          "line": 164,
           "column": 8
         },
         {
@@ -2024,6 +2099,18 @@
           "file": "features/models/CursorModelEditor.tsx",
           "line": 154,
           "column": 145
+        }
+      ]
+    },
+    "4c0c3698548c0e21": {
+      "source": "子 Agent 路由设置已保存",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 113,
+          "column": 15
         }
       ]
     },
@@ -2179,7 +2266,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 181,
+          "line": 182,
           "column": 26
         }
       ]
@@ -2244,7 +2331,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 183,
+          "line": 185,
           "column": 26
         }
       ]
@@ -2302,7 +2389,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 237,
+          "line": 239,
           "column": 78
         }
       ]
@@ -2348,7 +2435,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 241,
+          "line": 243,
           "column": 21
         }
       ]
@@ -2649,7 +2736,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 528,
+          "line": 534,
           "column": 43
         }
       ]
@@ -2776,7 +2863,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 96,
+          "line": 97,
           "column": 55
         }
       ]
@@ -2940,8 +3027,20 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 171,
+          "line": 172,
           "column": 16
+        }
+      ]
+    },
+    "760c70e2388bddfa": {
+      "source": "模型别名已存在",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 152,
+          "column": 15
         }
       ]
     },
@@ -2964,7 +3063,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 269,
+          "line": 271,
           "column": 26
         }
       ]
@@ -2988,7 +3087,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 523,
+          "line": 529,
           "column": 43
         }
       ]
@@ -3012,7 +3111,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 302,
+          "line": 304,
           "column": 23
         }
       ]
@@ -3067,7 +3166,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 139,
+          "line": 140,
           "column": 83
         }
       ]
@@ -3142,7 +3241,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 457,
+          "line": 463,
           "column": 21
         }
       ]
@@ -3387,7 +3486,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 240,
+          "line": 242,
           "column": 22
         }
       ]
@@ -3514,7 +3613,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 163,
+          "line": 164,
           "column": 7
         }
       ]
@@ -3838,7 +3937,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 248,
+          "line": 250,
           "column": 26
         }
       ]
@@ -3874,7 +3973,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 59,
+          "line": 60,
           "column": 34
         }
       ]
@@ -3963,12 +4062,12 @@
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 167,
+          "line": 169,
           "column": 36
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 211,
+          "line": 213,
           "column": 22
         },
         {
@@ -3983,8 +4082,13 @@
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 184,
+          "line": 185,
           "column": 133
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 176,
+          "column": 31
         },
         {
           "file": "features/settings/TabSettingsCard.tsx",
@@ -4182,6 +4286,30 @@
         }
       ]
     },
+    "a82130f97715ecd0": {
+      "source": "添加模型别名，如 gemini-3.8-flash",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 289,
+          "column": 30
+        }
+      ]
+    },
+    "a8ab8f31c8b55a0c": {
+      "source": "启用子 Agent 拦截与模型别名",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 200,
+          "column": 22
+        }
+      ]
+    },
     "a98585871c5313ff": {
       "source": "显示名称",
       "kind": "text",
@@ -4350,7 +4478,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 57,
+          "line": 59,
           "column": 63
         },
         {
@@ -4495,7 +4623,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 160,
+          "line": 161,
           "column": 45
         }
       ]
@@ -4521,7 +4649,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 285,
+          "line": 287,
           "column": 22
         }
       ]
@@ -4603,7 +4731,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 215,
+          "line": 217,
           "column": 14
         },
         {
@@ -4676,8 +4804,20 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 277,
+          "line": 279,
           "column": 40
+        }
+      ]
+    },
+    "bc5a87a757a557d9": {
+      "source": "已禁用",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 217,
+          "column": 39
         }
       ]
     },
@@ -4962,12 +5102,12 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 169,
+          "line": 170,
           "column": 22
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 175,
+          "line": 176,
           "column": 20
         }
       ]
@@ -4979,7 +5119,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 206,
+          "line": 207,
           "column": 21
         }
       ]
@@ -5015,7 +5155,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 162,
+          "line": 163,
           "column": 7
         }
       ]
@@ -5075,6 +5215,18 @@
           "file": "features/models/CursorSettingsPage.tsx",
           "line": 354,
           "column": 27
+        }
+      ]
+    },
+    "d3b7373473aa0f1f": {
+      "source": "托管模型别名重写",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 247,
+          "column": 22
         }
       ]
     },
@@ -5236,8 +5388,20 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 147,
+          "line": 149,
           "column": 15
+        }
+      ]
+    },
+    "d8e401a4207b350b": {
+      "source": "删除别名",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 272,
+          "column": 30
         }
       ]
     },
@@ -5383,7 +5547,7 @@
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 321,
+          "line": 323,
           "column": 30
         },
         {
@@ -5419,6 +5583,16 @@
           "file": "features/settings/ProxySettingsCard.tsx",
           "line": 72,
           "column": 121
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 211,
+          "column": 24
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 217,
+          "column": 28
         }
       ]
     },
@@ -5577,12 +5751,12 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 187,
+          "line": 189,
           "column": 24
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 195,
+          "line": 197,
           "column": 24
         }
       ]
@@ -5647,7 +5821,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 72,
+          "line": 73,
           "column": 17
         }
       ]
@@ -5722,6 +5896,18 @@
         }
       ]
     },
+    "e98b5c93c868c82a": {
+      "source": "开启后，自动拦截子 Agent 及 Composer 2.5 调用并重定向至自定义模型；关闭后直连官方上游。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 202,
+          "column": 16
+        }
+      ]
+    },
     "e9d8d890d33584e8": {
       "source": "没有可用的重置卡。",
       "kind": "text",
@@ -5741,7 +5927,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 166,
+          "line": 167,
           "column": 26
         }
       ]
@@ -5856,7 +6042,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 225,
+          "line": 226,
           "column": 16
         }
       ]
@@ -5889,6 +6075,23 @@
           "file": "features/settings/PricingSettingsCard.tsx",
           "line": 153,
           "column": 24
+        }
+      ]
+    },
+    "f04f0707d50ecd19": {
+      "source": "默认（首个可用模型）",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 49,
+          "column": 27
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 85,
+          "column": 30
         }
       ]
     },
@@ -6017,7 +6220,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 252,
+          "line": 254,
           "column": 21
         }
       ]
@@ -6103,7 +6306,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 193,
+          "line": 194,
           "column": 21
         }
       ]
@@ -6301,7 +6504,7 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 312,
+          "line": 314,
           "column": 38
         }
       ]
@@ -6313,7 +6516,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 167,
+          "line": 169,
           "column": 24
         },
         {
@@ -6328,8 +6531,13 @@
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 184,
+          "line": 185,
           "column": 121
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 176,
+          "column": 19
         },
         {
           "file": "features/settings/TabSettingsCard.tsx",
@@ -6357,17 +6565,17 @@
       "refs": [
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 67,
+          "line": 68,
           "column": 46
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 205,
+          "line": 206,
           "column": 22
         },
         {
           "file": "features/settings/SettingsPage.tsx",
-          "line": 220,
+          "line": 221,
           "column": 58
         }
       ]

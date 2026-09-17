@@ -1,0 +1,125 @@
+@use "../../styles/typography" as type;
+
+.content {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.row {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.details {
+  display: grid;
+  gap: 4px;
+
+  small {
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.control {
+  width: min(320px, 50%);
+}
+
+.value {
+  min-width: 0;
+  max-width: 70%;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-size: type.$font-size-xs;
+}
+
+.headerAction {
+  padding: 4px;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 0;
+  font-size: type.$font-size-xs;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--vscode-textLink-activeForeground);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.actionGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aliasesSection {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+  border-top: 1px solid var(--vscode-widget-border);
+  padding-top: 14px;
+}
+
+.aliasesList {
+  display: grid;
+  gap: 8px;
+}
+
+.aliasRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.aliasKey {
+  font-family: var(--vscode-editor-font-family);
+  font-size: type.$font-size-xs;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.aliasSelect {
+  width: min(280px, 50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deleteButton {
+  padding: 4px 6px;
+  color: var(--vscode-errorForeground);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: type.$font-size-xs;
+  line-height: 1;
+
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+.newAliasRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.newAliasInput {
+  flex: 1;
+}

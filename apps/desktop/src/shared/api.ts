@@ -168,6 +168,12 @@ export interface TokenPricingSettings {
   cache_write_per_million: number;
 }
 
+export interface SubagentRoutingSettings {
+  enabled: boolean;
+  target_model_id: string;
+  model_aliases: Record<string, string>;
+}
+
 export type PluginRuntimeState = "uninitialized" | "initializing" | "ready" | "failed" | "unsupported";
 export type PluginRuntimePhase = "checking" | "downloading" | "verifying" | "installing" | "validating";
 
@@ -554,4 +560,7 @@ export const api = {
   setCommitSettings: (settings: CommitSettings) => request<CommitSettingsView>("/settings/commit", { method: "PUT", body: JSON.stringify(settings) }),
   pricingSettings: () => request<TokenPricingSettings>("/settings/pricing"),
   setPricingSettings: (settings: TokenPricingSettings) => request<TokenPricingSettings>("/settings/pricing", { method: "PUT", body: JSON.stringify(settings) }),
+  subagentRoutingSettings: () => request<SubagentRoutingSettings>("/settings/subagent-routing"),
+  setSubagentRoutingSettings: (settings: SubagentRoutingSettings) =>
+    request<SubagentRoutingSettings>("/settings/subagent-routing", { method: "PUT", body: JSON.stringify(settings) }),
 };
