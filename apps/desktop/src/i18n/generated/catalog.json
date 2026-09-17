@@ -33,7 +33,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 249,
+          "line": 333,
           "column": 16
         }
       ]
@@ -148,7 +148,7 @@
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 186,
+          "line": 212,
           "column": 8
         },
         {
@@ -261,7 +261,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 226,
+          "line": 310,
           "column": 16
         }
       ]
@@ -892,7 +892,12 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 196,
+          "line": 218,
+          "column": 26
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 249,
           "column": 24
         }
       ]
@@ -952,12 +957,12 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 224,
+          "line": 308,
           "column": 22
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 236,
+          "line": 320,
           "column": 24
         }
       ]
@@ -971,6 +976,11 @@
           "file": "features/plugins/PluginResourcePanels.tsx",
           "line": 426,
           "column": 50
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 221,
+          "column": 45
         }
       ]
     },
@@ -1112,6 +1122,18 @@
         }
       ]
     },
+    "2b3e83ffc00d92f3": {
+      "source": "子 Agent 与常规聊天",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 237,
+          "column": 14
+        }
+      ]
+    },
     "2caeaec539e78898": {
       "source": "思考预算 Token",
       "kind": "text",
@@ -1203,7 +1225,7 @@
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 168,
+          "line": 194,
           "column": 10
         },
         {
@@ -1568,7 +1590,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 299,
+          "line": 386,
           "column": 18
         }
       ]
@@ -2010,6 +2032,18 @@
         }
       ]
     },
+    "498a38978b1796b4": {
+      "source": "应用范围",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 277,
+          "column": 22
+        }
+      ]
+    },
     "499c729eb09aa2a6": {
       "source": "上下文窗口 Token",
       "kind": "text",
@@ -2109,7 +2143,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 113,
+          "line": 139,
           "column": 15
         }
       ]
@@ -2469,6 +2503,18 @@
         }
       ]
     },
+    "5ae4ffd43a31a0ac": {
+      "source": "仅子 Agent",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 240,
+          "column": 14
+        }
+      ]
+    },
     "5b17f59d33bde39e": {
       "source": "错误：{error}",
       "kind": "template",
@@ -2736,7 +2782,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 534,
+          "line": 536,
           "column": 43
         }
       ]
@@ -2824,6 +2870,18 @@
           "file": "features/home/metrics/HomeMetrics.tsx",
           "line": 156,
           "column": 46
+        }
+      ]
+    },
+    "66cb67714e5c9dba": {
+      "source": "选择模型别名及拦截规则生效的请求类型。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 279,
+          "column": 16
         }
       ]
     },
@@ -3039,7 +3097,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 152,
+          "line": 178,
           "column": 15
         }
       ]
@@ -3087,7 +3145,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 529,
+          "line": 531,
           "column": 43
         }
       ]
@@ -3241,7 +3299,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 463,
+          "line": 465,
           "column": 21
         }
       ]
@@ -4087,7 +4145,7 @@
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 176,
+          "line": 202,
           "column": 31
         },
         {
@@ -4293,8 +4351,8 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 289,
-          "column": 30
+          "line": 375,
+          "column": 32
         }
       ]
     },
@@ -4305,7 +4363,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 200,
+          "line": 253,
           "column": 22
         }
       ]
@@ -4816,7 +4874,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 217,
+          "line": 270,
           "column": 39
         }
       ]
@@ -4940,6 +4998,30 @@
           "file": "features/plugins/PluginManagementPage.tsx",
           "line": 100,
           "column": 11
+        }
+      ]
+    },
+    "c597bff16f190b10": {
+      "source": "子 Agent 调用",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 286,
+          "column": 24
+        }
+      ]
+    },
+    "c5ea73d1fe9e41f2": {
+      "source": "仅常规聊天",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 243,
+          "column": 14
         }
       ]
     },
@@ -5225,7 +5307,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 247,
+          "line": 331,
           "column": 22
         }
       ]
@@ -5400,8 +5482,13 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 272,
+          "line": 356,
           "column": 30
+        },
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 357,
+          "column": 35
         }
       ]
     },
@@ -5586,12 +5673,12 @@
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 211,
+          "line": 264,
           "column": 24
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 217,
+          "line": 270,
           "column": 28
         }
       ]
@@ -5838,6 +5925,18 @@
         }
       ]
     },
+    "e6addfb90f0364e3": {
+      "source": "未启用任何范围",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 245,
+          "column": 12
+        }
+      ]
+    },
     "e77e3d58b0dcffaa": {
       "source": "耗时",
       "kind": "text",
@@ -5903,7 +6002,7 @@
       "refs": [
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 202,
+          "line": 255,
           "column": 16
         }
       ]
@@ -6090,7 +6189,7 @@
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 85,
+          "line": 97,
           "column": 30
         }
       ]
@@ -6167,6 +6266,18 @@
           "file": "features/home/overview/OverviewTimeRangeFilter.tsx",
           "line": 122,
           "column": 21
+        }
+      ]
+    },
+    "f5d88d840a3e3c98": {
+      "source": "常规聊天调用",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/settings/SubagentSettingsCard.tsx",
+          "line": 294,
+          "column": 24
         }
       ]
     },
@@ -6536,7 +6647,7 @@
         },
         {
           "file": "features/settings/SubagentSettingsCard.tsx",
-          "line": 176,
+          "line": 202,
           "column": 19
         },
         {

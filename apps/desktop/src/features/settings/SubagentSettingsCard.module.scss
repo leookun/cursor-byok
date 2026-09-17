@@ -29,6 +29,12 @@
   width: min(320px, 50%);
 }
 
+.scopeControls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .value {
   min-width: 0;
   max-width: 70%;

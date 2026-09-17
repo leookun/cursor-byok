@@ -103,13 +103,27 @@ export function SubagentSettingsCard() {
 
   const startEdit = useCallback(() => {
     if (!settings) return;
-    setDraft({ ...settings, model_aliases: { ...settings.model_aliases } });
+    setDraft({
+      ...settings,
+      apply_to_subagents: settings.apply_to_subagents ?? true,
+      apply_to_normal_chats: settings.apply_to_normal_chats ?? false,
+      model_aliases: { ...settings.model_aliases },
+    });
     setNewAliasKey("");
     setEditing(true);
   }, [settings]);
 
   const cancelEdit = useCallback(() => {
-    setDraft(settings ? { ...settings, model_aliases: { ...settings.model_aliases } } : null);
+    setDraft(
+      settings
+        ? {
+            ...settings,
+            apply_to_subagents: settings.apply_to_subagents ?? true,
+            apply_to_normal_chats: settings.apply_to_normal_chats ?? false,
+            model_aliases: { ...settings.model_aliases },
+          }
+        : null,
+    );
     setNewAliasKey("");
     setEditing(false);
   }, [settings]);
@@ -212,9 +226,20 @@ export function SubagentSettingsCard() {
   }
 
   const displayData = editing ? draft : settings;
-  const isEnabled = displayData?.enabled ?? true;
+  const isEnabled = displayData?.enabled ?? false;
   const targetModel = displayData?.target_model_id ?? "";
   const aliases = displayData?.model_aliases ?? {};
+  const applyToSubagents = displayData?.apply_to_subagents ?? true;
+  const applyToNormalChats = displayData?.apply_to_normal_chats ?? false;
+
+  const scopeLabel =
+    applyToSubagents && applyToNormalChats
+      ? t("子 Agent 与常规聊天")
+      : applyToSubagents
+        ? t("仅子 Agent")
+        : applyToNormalChats
+          ? t("仅常规聊天")
+          : t("未启用任何范围");
 
   return (
     <TitledCard title={t("子 Agent 路由与模型别名")} action={action}>
@@ -240,6 +265,37 @@ export function SubagentSettingsCard() {
             <span className={styles.value}>
               {isEnabled ? t("已启用") : t("已禁用")}
             </span>
+          )}
+        </div>
+
+        <div className={styles.row}>
+          <div className={styles.details}>
+            <strong>{t("应用范围")}</strong>
+            <small>
+              {t("选择模型别名及拦截规则生效的请求类型。")}
+            </small>
+          </div>
+          {editing && draft ? (
+            <div className={styles.scopeControls}>
+              <Checkbox
+                checked={draft.apply_to_subagents}
+                label={t("子 Agent 调用")}
+                disabled={saving}
+                onChange={(checked) =>
+                  setDraft({ ...draft, apply_to_subagents: checked })
+                }
+              />
+              <Checkbox
+                checked={draft.apply_to_normal_chats}
+                label={t("常规聊天调用")}
+                disabled={saving}
+                onChange={(checked) =>
+                  setDraft({ ...draft, apply_to_normal_chats: checked })
+                }
+              />
+            </div>
+          ) : (
+            <span className={styles.value}>{scopeLabel}</span>
           )}
         </div>
 

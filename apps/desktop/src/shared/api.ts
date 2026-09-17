@@ -172,6 +172,8 @@ export interface SubagentRoutingSettings {
   enabled: boolean;
   target_model_id: string;
   model_aliases: Record<string, string>;
+  apply_to_subagents: boolean;
+  apply_to_normal_chats: boolean;
 }
 
 export type PluginRuntimeState = "uninitialized" | "initializing" | "ready" | "failed" | "unsupported";

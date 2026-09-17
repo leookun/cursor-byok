@@ -67,8 +67,8 @@ impl DecodedAppend {
         let is_subagent = request.subagent_type_name.is_some()
             || headers.contains_key("x-parent-request-id");
 
-        // 1. In parent requests, rewrite subagent model overrides
-        if !is_subagent {
+        // 1. In parent requests, rewrite subagent model overrides (only if apply_to_subagents is enabled)
+        if !is_subagent && settings.apply_to_subagents {
             let target_hash = if !settings.target_model_id.trim().is_empty() {
                 store.resolve_model_hash(&settings.target_model_id).await?
             } else {
@@ -110,7 +110,18 @@ impl DecodedAppend {
             }
         }
 
-        // 2. Identify the currently requested model
+        // 2. Identify whether the current request qualifies for model rewriting based on scope
+        let qualifies_for_rewrite = if is_subagent {
+            settings.apply_to_subagents
+        } else {
+            settings.apply_to_normal_chats
+        };
+
+        if !qualifies_for_rewrite {
+            return Ok(());
+        }
+
+        // 3. Identify the currently requested model
         let current_model = request
             .requested_model
             .as_ref()
@@ -377,6 +388,13 @@ mod tests {
     #[tokio::test]
     async fn explore_subagent_intercepted_and_routed_to_byok_model() {
         let (_dir, store, expected_hash) = test_store_with_model().await;
+        store
+            .set_subagent_routing_settings(SubagentRoutingSettings {
+                enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         let mut decoded = DecodedAppend {
             request_id: "test-req-1".into(),
             seqno: 1,
@@ -410,6 +428,13 @@ mod tests {
     #[tokio::test]
     async fn subagent_header_intercepted_and_routed_to_byok_model() {
         let (_dir, store, expected_hash) = test_store_with_model().await;
+        store
+            .set_subagent_routing_settings(SubagentRoutingSettings {
+                enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         let mut decoded = DecodedAppend {
             request_id: "test-req-2".into(),
             seqno: 1,
@@ -440,6 +465,8 @@ mod tests {
     async fn model_alias_intercepted_for_regular_request() {
         let (_dir, store, expected_hash) = test_store_with_model().await;
         let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = true;
+        settings.apply_to_normal_chats = true;
         settings
             .model_aliases
             .insert("composer-2.5-fast".into(), expected_hash.clone());
@@ -473,6 +500,13 @@ mod tests {
     #[tokio::test]
     async fn parent_request_subagent_overrides_rewritten() {
         let (_dir, store, expected_hash) = test_store_with_model().await;
+        store
+            .set_subagent_routing_settings(SubagentRoutingSettings {
+                enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         let mut decoded = DecodedAppend {
             request_id: "test-req-4".into(),
             seqno: 1,
@@ -560,7 +594,9 @@ mod tests {
     async fn blank_alias_falls_back_to_byok_model() {
         let (_dir, store, expected_hash) = test_store_with_model().await;
         // Default settings has "default" with an empty string target
-        let settings = SubagentRoutingSettings::default();
+        let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = true;
+        settings.apply_to_normal_chats = true;
         store.set_subagent_routing_settings(settings).await.unwrap();
 
         let mut decoded = DecodedAppend {
@@ -591,6 +627,13 @@ mod tests {
     #[tokio::test]
     async fn parent_request_injects_missing_general_purpose_and_explore_overrides() {
         let (_dir, store, expected_hash) = test_store_with_model().await;
+        store
+            .set_subagent_routing_settings(SubagentRoutingSettings {
+                enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         let mut decoded = DecodedAppend {
             request_id: "test-req-7".into(),
             seqno: 1,
@@ -641,6 +684,7 @@ mod tests {
     async fn plugin_model_id_resolves_and_routes_subagent() {
         let (_dir, store, _hash) = test_store_with_model().await;
         let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = true;
         settings.target_model_id = "plugin:dev.example/codex/gpt-test".into();
         store.set_subagent_routing_settings(settings).await.unwrap();
 
@@ -671,5 +715,135 @@ mod tests {
             decoded.model_id(),
             Some("plugin:dev.example/codex/gpt-test")
         );
+    }
+
+    #[tokio::test]
+    async fn normal_chat_not_intercepted_when_apply_to_normal_chats_disabled() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = true;
+        settings.apply_to_subagents = true;
+        settings.apply_to_normal_chats = false;
+        settings
+            .model_aliases
+            .insert("gemini-3.8-flash".into(), expected_hash.clone());
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-scope-normal".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "gemini-3.8-flash".into(),
+                            ..Default::default()
+                        }),
+                        subagent_model_overrides: vec![],
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        // The normal chat model is NOT intercepted
+        assert_eq!(decoded.model_id(), Some("gemini-3.8-flash"));
+
+        // But subagent overrides in the parent request ARE injected because apply_to_subagents is true
+        let Some(agent::agent_client_message::Message::RunRequest(req)) =
+            decoded.message.message.as_ref()
+        else {
+            panic!("expected RunRequest");
+        };
+        assert!(req
+            .subagent_model_overrides
+            .iter()
+            .any(|o| o.subagent_type == "generalPurpose"));
+    }
+
+    #[tokio::test]
+    async fn subagent_not_intercepted_when_apply_to_subagents_disabled() {
+        let (_dir, store, expected_hash) = test_store_with_model().await;
+        let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = true;
+        settings.apply_to_subagents = false;
+        settings.apply_to_normal_chats = true;
+        settings
+            .model_aliases
+            .insert("composer-2.5-fast".into(), expected_hash.clone());
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-scope-subagent".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        subagent_type_name: Some("explore".into()),
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "composer-2.5-fast".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        // Subagent request is NOT intercepted because apply_to_subagents is false
+        assert_eq!(decoded.model_id(), Some("composer-2.5-fast"));
+    }
+
+    #[tokio::test]
+    async fn parent_request_subagent_overrides_not_injected_when_apply_to_subagents_disabled() {
+        let (_dir, store, _hash) = test_store_with_model().await;
+        let mut settings = SubagentRoutingSettings::default();
+        settings.enabled = true;
+        settings.apply_to_subagents = false;
+        settings.apply_to_normal_chats = true;
+        store.set_subagent_routing_settings(settings).await.unwrap();
+
+        let mut decoded = DecodedAppend {
+            request_id: "test-req-no-override-injection".into(),
+            seqno: 1,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(agent::RequestedModel {
+                            model_id: "gemini-3.8-flash".into(),
+                            ..Default::default()
+                        }),
+                        subagent_model_overrides: vec![],
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+
+        let headers = HeaderMap::new();
+        decoded
+            .resolve_subagent_and_model_aliases(&store, &headers)
+            .await
+            .unwrap();
+
+        let Some(agent::agent_client_message::Message::RunRequest(req)) =
+            decoded.message.message.as_ref()
+        else {
+            panic!("expected RunRequest");
+        };
+        // When apply_to_subagents is false, parent request does NOT inject subagent overrides
+        assert!(req.subagent_model_overrides.is_empty());
     }
 }

@@ -171,12 +171,16 @@ impl CommitSettings {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct SubagentRoutingSettings {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub target_model_id: String,
     #[serde(default = "default_model_aliases")]
     pub model_aliases: std::collections::BTreeMap<String, String>,
+    #[serde(default = "default_true")]
+    pub apply_to_subagents: bool,
+    #[serde(default)]
+    pub apply_to_normal_chats: bool,
 }
 
 fn default_model_aliases() -> std::collections::BTreeMap<String, String> {
@@ -190,9 +194,11 @@ fn default_model_aliases() -> std::collections::BTreeMap<String, String> {
 impl Default for SubagentRoutingSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             target_model_id: String::new(),
             model_aliases: default_model_aliases(),
+            apply_to_subagents: true,
+            apply_to_normal_chats: false,
         }
     }
 }
@@ -726,23 +732,23 @@ mod tests {
         let store = Store::connect(&url).await.unwrap();
 
         let defaults = store.subagent_routing_settings().await.unwrap();
-        assert!(defaults.enabled);
+        assert!(!defaults.enabled);
+        assert!(defaults.apply_to_subagents);
+        assert!(!defaults.apply_to_normal_chats);
         assert!(defaults.target_model_id.is_empty());
         assert!(defaults.model_aliases.contains_key("composer-2.5-fast"));
 
         let mut custom = defaults.clone();
+        custom.enabled = true;
+        custom.apply_to_normal_chats = true;
         custom.target_model_id = "test-hash-123".into();
         custom
             .model_aliases
             .insert("composer-2.5-fast".into(), "test-hash-123".into());
-        let saved = store.set_subagent_routing_settings(custom).await.unwrap();
-        assert_eq!(saved.target_model_id, "test-hash-123");
+        let saved = store.set_subagent_routing_settings(custom.clone()).await.unwrap();
+        assert_eq!(saved, custom);
 
         let reloaded = store.subagent_routing_settings().await.unwrap();
-        assert_eq!(reloaded.target_model_id, "test-hash-123");
-        assert_eq!(
-            reloaded.model_aliases.get("composer-2.5-fast").unwrap(),
-            "test-hash-123"
-        );
+        assert_eq!(reloaded, custom);
     }
 }
