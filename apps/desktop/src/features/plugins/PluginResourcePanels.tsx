@@ -221,6 +221,9 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
       onRefresh={(item) => void run(`refresh:${item.id}`, async () => {
         await api.refreshPluginResource(plugin.id, resource.type, item.id);
       })}
+      onSetEnabled={(item, enabled) => void run(`enabled:${item.id}`, async () => {
+        await api.setPluginResourceEnabled(plugin.id, resource.type, item.id, enabled);
+      })}
       onDelete={(item) => void run(`delete:${item.id}`, async () => {
         await api.deletePluginResource(plugin.id, resource.type, item.id);
       })}
@@ -330,11 +333,12 @@ function ModelManagementModal({ provider, busy, onClose, onSubmit }: {
   </Modal>;
 }
 
-function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
+function ResourceList({ resource, busy, onAction, onRefresh, onSetEnabled, onDelete }: {
   resource: PluginResourceDescriptor;
   busy: boolean;
   onAction: (item: PluginResourceView, action: PluginResourceAction) => void;
   onRefresh: (item: PluginResourceView) => void;
+  onSetEnabled: (item: PluginResourceView, enabled: boolean) => void;
   onDelete: (item: PluginResourceView) => void;
 }) {
   const { locale } = useI18n();
@@ -363,6 +367,7 @@ function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
           disabled={busy}
           onAction={(action) => onAction(item, action)}
           onRefresh={() => onRefresh(item)}
+          onSetEnabled={(enabled) => onSetEnabled(item, enabled)}
           onDelete={() => onDelete(item)}
         />)}
         {visible.length === 0 && <span className={styles.empty}>{t("还没有资源，请先添加。")}</span>}
@@ -376,13 +381,14 @@ function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
   </FormField>;
 }
 
-function ResourceRow({ item, actions, canRefresh, disabled, onAction, onRefresh, onDelete }: {
+function ResourceRow({ item, actions, canRefresh, disabled, onAction, onRefresh, onSetEnabled, onDelete }: {
   item: PluginResourceView;
   actions: PluginResourceAction[];
   canRefresh: boolean;
   disabled: boolean;
   onAction: (action: PluginResourceAction) => void;
   onRefresh: () => void;
+  onSetEnabled: (enabled: boolean) => void;
   onDelete: () => void;
 }) {
   const { locale } = useI18n();
@@ -399,6 +405,9 @@ function ResourceRow({ item, actions, canRefresh, disabled, onAction, onRefresh,
     <div className={styles.actions}>
       <StateBadge state={item.state} />
       {actions.map((action) => <Button key={action.id} size="small" disabled={disabled} onClick={() => onAction(action)}>{pluginText(action.displayName, locale)}</Button>)}
+      <Button size="small" disabled={disabled} onClick={() => onSetEnabled(item.state.status === "disabled")}>
+        {item.state.status === "disabled" ? t("启用") : t("停用")}
+      </Button>
       {canRefresh && <Button size="small" disabled={disabled} onClick={onRefresh}>{t("刷新")}</Button>}
       <Button size="small" disabled={disabled} onClick={onDelete}>{t("删除")}</Button>
     </div>
@@ -481,6 +490,9 @@ function formatActionDate(value: number, locale: string) {
 }
 
 function StateBadge({ state }: { state: PluginResourceView["state"] }) {
+  if (state.status === "disabled") {
+    return <span className={styles.disabled}>{t("已停用")}</span>;
+  }
   if (state.status === "cooling") {
     return <span className={styles.cooling} title={state.message ?? undefined}>{t("冷却中")}</span>;
   }

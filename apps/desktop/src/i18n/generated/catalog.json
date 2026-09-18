@@ -47,7 +47,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 266,
+          "line": 269,
           "column": 39
         }
       ]
@@ -78,7 +78,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 372,
+          "line": 377,
           "column": 16
         }
       ]
@@ -116,7 +116,7 @@
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 176,
+          "line": 178,
           "column": 10
         },
         {
@@ -148,7 +148,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 223,
+          "line": 225,
           "column": 23
         }
       ]
@@ -311,12 +311,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 266,
+          "line": 269,
           "column": 93
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 328,
+          "line": 331,
           "column": 72
         }
       ]
@@ -674,12 +674,12 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 173,
+          "line": 175,
           "column": 10
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 205,
+          "line": 207,
           "column": 16
         }
       ]
@@ -824,7 +824,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 452,
+          "line": 461,
           "column": 14
         }
       ]
@@ -911,7 +911,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 426,
+          "line": 435,
           "column": 50
         }
       ]
@@ -1115,12 +1115,12 @@
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 165,
+          "line": 167,
           "column": 78
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 212,
+          "line": 214,
           "column": 21
         },
         {
@@ -1309,7 +1309,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 403,
+          "line": 412,
           "column": 68
         }
       ]
@@ -1321,7 +1321,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 474,
+          "line": 483,
           "column": 28
         }
       ]
@@ -1333,7 +1333,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 488,
+          "line": 500,
           "column": 81
         }
       ]
@@ -1345,12 +1345,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 355,
+          "line": 359,
           "column": 32
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 355,
+          "line": 359,
           "column": 56
         }
       ]
@@ -1546,7 +1546,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 307,
+          "line": 310,
           "column": 106
         },
         {
@@ -1693,7 +1693,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 423,
+          "line": 432,
           "column": 82
         }
       ]
@@ -1903,7 +1903,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 162,
+          "line": 164,
           "column": 8
         },
         {
@@ -2051,12 +2051,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 471,
+          "line": 480,
           "column": 30
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 490,
+          "line": 502,
           "column": 42
         }
       ]
@@ -2070,6 +2070,18 @@
           "file": "features/models/CursorModelEditor.tsx",
           "line": 212,
           "column": 41
+        }
+      ]
+    },
+    "4e6fd0e28c55860b": {
+      "source": "停用",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 409,
+          "column": 55
         }
       ]
     },
@@ -2244,7 +2256,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 183,
+          "line": 185,
           "column": 26
         }
       ]
@@ -2377,7 +2389,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 454,
+          "line": 463,
           "column": 21
         }
       ]
@@ -2491,7 +2503,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 272,
+          "line": 275,
           "column": 102
         }
       ]
@@ -2637,7 +2649,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 300,
+          "line": 303,
           "column": 12
         }
       ]
@@ -2649,7 +2661,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 528,
+          "line": 529,
           "column": 43
         }
       ]
@@ -2988,7 +3000,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 523,
+          "line": 524,
           "column": 43
         }
       ]
@@ -3118,7 +3130,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 395,
+          "line": 401,
           "column": 13
         }
       ]
@@ -3266,7 +3278,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 274,
+          "line": 277,
           "column": 33
         }
       ]
@@ -3341,7 +3353,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 373,
+          "line": 378,
           "column": 110
         },
         {
@@ -3593,7 +3605,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 274,
+          "line": 277,
           "column": 20
         }
       ]
@@ -3639,7 +3651,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 473,
+          "line": 482,
           "column": 25
         }
       ]
@@ -3677,7 +3689,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 419,
+          "line": 428,
           "column": 111
         }
       ]
@@ -3963,12 +3975,12 @@
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 167,
+          "line": 169,
           "column": 36
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 211,
+          "line": 213,
           "column": 22
         },
         {
@@ -4182,6 +4194,18 @@
         }
       ]
     },
+    "a8c3698b5b8c485d": {
+      "source": "已停用",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 494,
+          "column": 47
+        }
+      ]
+    },
     "a98585871c5313ff": {
       "source": "显示名称",
       "kind": "text",
@@ -4211,7 +4235,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 308,
+          "line": 311,
           "column": 107
         },
         {
@@ -4314,7 +4338,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 402,
+          "line": 411,
           "column": 84
         },
         {
@@ -4338,7 +4362,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 435,
+          "line": 444,
           "column": 84
         }
       ]
@@ -4350,7 +4374,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 57,
+          "line": 59,
           "column": 63
         },
         {
@@ -4603,7 +4627,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 215,
+          "line": 217,
           "column": 14
         },
         {
@@ -4632,7 +4656,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 485,
+          "line": 497,
           "column": 81
         }
       ]
@@ -4810,7 +4834,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 368,
+          "line": 373,
           "column": 66
         }
       ]
@@ -4875,7 +4899,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 371,
+          "line": 376,
           "column": 102
         },
         {
@@ -4921,7 +4945,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 312,
+          "line": 315,
           "column": 37
         }
       ]
@@ -5126,7 +5150,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 268,
+          "line": 271,
           "column": 32
         }
       ]
@@ -5212,7 +5236,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 322,
+          "line": 325,
           "column": 22
         }
       ]
@@ -5236,7 +5260,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 147,
+          "line": 149,
           "column": 15
         }
       ]
@@ -5342,7 +5366,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 462,
+          "line": 471,
           "column": 11
         }
       ]
@@ -5577,12 +5601,12 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 187,
+          "line": 189,
           "column": 24
         },
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 195,
+          "line": 197,
           "column": 24
         }
       ]
@@ -5659,7 +5683,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 268,
+          "line": 271,
           "column": 43
         }
       ]
@@ -5729,7 +5753,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 428,
+          "line": 437,
           "column": 100
         }
       ]
@@ -5870,7 +5894,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 434,
+          "line": 443,
           "column": 84
         }
       ]
@@ -5938,8 +5962,13 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 312,
+          "line": 315,
           "column": 69
+        },
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 409,
+          "column": 45
         }
       ]
     },
@@ -6120,7 +6149,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 304,
+          "line": 307,
           "column": 18
         }
       ]
@@ -6313,7 +6342,7 @@
       "refs": [
         {
           "file": "features/settings/CommitSettingsCard.tsx",
-          "line": 167,
+          "line": 169,
           "column": 24
         },
         {

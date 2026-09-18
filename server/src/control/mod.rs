@@ -181,6 +181,10 @@ pub fn api_router(service: ControlService) -> Router {
             post(plugins::refresh_resource),
         )
         .route(
+            "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/{resource_id}/enabled",
+            put(plugins::set_resource_enabled),
+        )
+        .route(
             "/__byok-api__/api/plugins/{plugin_id}/providers/{provider_id}/models/sync",
             post(plugins::sync_models),
         )

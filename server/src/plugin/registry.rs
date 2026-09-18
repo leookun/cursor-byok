@@ -19,7 +19,10 @@ use super::{
     },
     oauth_callback::{self, CallbackHandle, CallbackOutcome, CallbackRequest},
     runtime::PluginRuntime,
-    state::{now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, StoredModel},
+    state::{
+        now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, ResourceState,
+        StoredModel,
+    },
     wire,
     worker::{PluginWorker, WorkerStreamItem},
 };
@@ -957,6 +960,20 @@ impl PluginRegistry {
             .await
     }
 
+    /// 手动启用/停用资源;停用后 select_resource 会跳过该资源。
+    pub async fn set_resource_enabled(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        self.inner
+            .state
+            .set_resource_enabled(plugin_id, resource_type, resource_id, enabled)
+            .await
+    }
+
     pub async fn remove(&self, plugin_id: &str) -> Result<()> {
         if let Some(worker) = self.inner.workers.lock().await.remove(plugin_id) {
             worker.stop().await;
@@ -1186,7 +1203,8 @@ impl PluginRegistry {
         Ok(models.len())
     }
 
-    /// 第一版选择策略:按创建顺序取首个可用资源;冷却到期视为可用。
+    /// 选择本轮调用使用的资源:优先首个就绪资源;全部不可用时取最早恢复的
+    /// 冷却资源兜底;失效或手动停用的资源不参与调用。
     async fn select_resource(
         &self,
         plugin_id: &str,
@@ -1198,13 +1216,13 @@ impl PluginRegistry {
                 "plugin '{plugin_id}' has no '{resource_type}' resource; add one first"
             )));
         }
-        let now = now_ms();
-        records
-            .iter()
-            .find(|record| record.state.is_ready(now))
-            .or_else(|| records.first())
+        pick_resource_record(&records, now_ms())
             .cloned()
-            .ok_or_else(|| Error::Provider("no plugin resource is available".into()))
+            .ok_or_else(|| {
+                Error::Provider(format!(
+                    "plugin '{plugin_id}' has no available '{resource_type}' resource"
+                ))
+            })
     }
 
     async fn find_record(
@@ -1371,4 +1389,78 @@ fn find_resource<'a>(
                 entry.manifest.id
             ))
         })
+}
+
+/// 在资源列表中挑选调用目标:首个就绪资源优先;否则取最早恢复的冷却资源。
+/// 失效与手动停用的资源永不参与。
+fn pick_resource_record(records: &[ResourceRecord], now_ms: i64) -> Option<&ResourceRecord> {
+    if let Some(record) = records.iter().find(|record| record.state.is_ready(now_ms)) {
+        return Some(record);
+    }
+    records
+        .iter()
+        .filter_map(|record| match &record.state {
+            ResourceState::Cooling { retry_at_ms, .. } => {
+                Some((retry_at_ms.unwrap_or(i64::MAX), record))
+            }
+            _ => None,
+        })
+        .min_by_key(|(retry_at, _)| *retry_at)
+        .map(|(_, record)| record)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(id: &str, state: ResourceState) -> ResourceRecord {
+        ResourceRecord {
+            id: id.to_owned(),
+            key: id.to_owned(),
+            private_data: serde_json::json!({}),
+            state,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn picks_the_first_ready_resource_and_skips_disabled() {
+        let records = vec![
+            record("a", ResourceState::Disabled),
+            record("b", ResourceState::Invalid { message: None }),
+            record("c", ResourceState::Ready),
+        ];
+        assert_eq!(pick_resource_record(&records, 100).unwrap().id, "c");
+    }
+
+    #[test]
+    fn falls_back_to_the_earliest_cooling_resource() {
+        let records = vec![
+            record(
+                "a",
+                ResourceState::Cooling {
+                    retry_at_ms: Some(900),
+                    message: None,
+                },
+            ),
+            record(
+                "b",
+                ResourceState::Cooling {
+                    retry_at_ms: Some(500),
+                    message: None,
+                },
+            ),
+        ];
+        assert_eq!(pick_resource_record(&records, 100).unwrap().id, "b");
+    }
+
+    #[test]
+    fn returns_none_when_only_invalid_or_disabled_resources_remain() {
+        let records = vec![
+            record("a", ResourceState::Invalid { message: None }),
+            record("b", ResourceState::Disabled),
+        ];
+        assert!(pick_resource_record(&records, 100).is_none());
+    }
 }
