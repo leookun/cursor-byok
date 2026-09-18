@@ -211,6 +211,10 @@
   color: var(--vscode-errorForeground, #f48771) !important;
 }
 
+.disabled {
+  color: var(--vscode-descriptionForeground, #9d9d9d) !important;
+}
+
 .success {
   color: var(--vscode-testing-iconPassed, #73c991);
   font-size: type.$font-size-xs;

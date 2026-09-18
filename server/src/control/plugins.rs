@@ -114,6 +114,21 @@ pub async fn delete_resource(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn set_resource_enabled(
+    State(service): State<ControlService>,
+    Path((plugin_id, resource_type, resource_id)): Path<(String, String, String)>,
+    Json(input): Json<serde_json::Value>,
+) -> Result<StatusCode> {
+    let enabled = input
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| crate::Error::Config("enabled must be a boolean".into()))?;
+    service
+        .plugin_set_resource_enabled(&plugin_id, &resource_type, &resource_id, enabled)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn sync_models(
     State(service): State<ControlService>,
     Path((plugin_id, provider_id)): Path<(String, String)>,

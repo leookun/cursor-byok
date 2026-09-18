@@ -266,6 +266,18 @@ impl ControlService {
             .await
     }
 
+    pub async fn plugin_set_resource_enabled(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        self.plugins
+            .set_resource_enabled(plugin_id, resource_type, resource_id, enabled)
+            .await
+    }
+
     pub async fn remove_plugin_configuration(&self, plugin_id: &str) -> Result<()> {
         self.plugins.remove(plugin_id).await
     }

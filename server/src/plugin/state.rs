@@ -19,15 +19,17 @@ pub enum ResourceState {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
     },
+    /// 用户手动停用;只能由控制层启停,插件 patch 不得覆盖。
+    Disabled,
 }
 
 impl ResourceState {
-    /// 冷却到期后自动恢复可用。
+    /// 冷却到期后自动恢复可用;失效与手动停用不可调用。
     pub fn is_ready(&self, now_ms: i64) -> bool {
         match self {
             Self::Ready => true,
             Self::Cooling { retry_at_ms, .. } => retry_at_ms.is_some_and(|at| at <= now_ms),
-            Self::Invalid { .. } => false,
+            Self::Invalid { .. } | Self::Disabled => false,
         }
     }
 }
@@ -71,6 +73,7 @@ fn state_json(state: &ResourceState) -> serde_json::Value {
             "status": "invalid",
             "message": message,
         }),
+        ResourceState::Disabled => serde_json::json!({ "status": "disabled" }),
     }
 }
 
@@ -297,8 +300,34 @@ impl PluginStateStore {
             record.private_data = private_data;
         }
         if let Some(state) = patch.state {
-            record.state = state.into();
+            // 手动停用是宿主态:插件刷新/调用的状态回写不得恢复它。
+            if !matches!(record.state, ResourceState::Disabled) {
+                record.state = state.into();
+            }
         }
+        record.updated_at_ms = now_ms();
+        self.save_resources(plugin_id, resource_type, &records)
+            .await
+    }
+
+    /// 手动启用/停用资源;停用优先于插件上报的 ready/cooling/invalid。
+    pub async fn set_resource_enabled(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        let mut records = self.resources(plugin_id, resource_type).await?;
+        let record = records
+            .iter_mut()
+            .find(|record| record.id == resource_id)
+            .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
+        record.state = if enabled {
+            ResourceState::Ready
+        } else {
+            ResourceState::Disabled
+        };
         record.updated_at_ms = now_ms();
         self.save_resources(plugin_id, resource_type, &records)
             .await
@@ -473,6 +502,58 @@ mod tests {
         let records = store.resources("dev.example", "account").await.unwrap();
         assert!(!records[0].state.is_ready(100));
         assert!(records[0].state.is_ready(300), "cooling expires over time");
+    }
+
+    #[tokio::test]
+    async fn disabled_state_survives_plugin_patches_and_reenables() {
+        let (_root, store) = store();
+        store
+            .upsert_resources(
+                "dev.example",
+                "account",
+                vec![ResourceDraft {
+                    key: "acct-1".into(),
+                    private_data: serde_json::json!({"token":"one"}),
+                    state: None,
+                }],
+            )
+            .await
+            .unwrap();
+        let id = store.resources("dev.example", "account").await.unwrap()[0]
+            .id
+            .clone();
+
+        store
+            .set_resource_enabled("dev.example", "account", &id, false)
+            .await
+            .unwrap();
+        let records = store.resources("dev.example", "account").await.unwrap();
+        assert!(matches!(records[0].state, ResourceState::Disabled));
+        assert!(!records[0].state.is_ready(0));
+
+        // 插件在停用期间回写 ready(如手动刷新)不得解除停用。
+        store
+            .apply_patch(
+                "dev.example",
+                "account",
+                &id,
+                ResourcePatch {
+                    private_data: Some(serde_json::json!({"token":"two"})),
+                    state: Some(ResourceStateInput::Ready),
+                },
+            )
+            .await
+            .unwrap();
+        let records = store.resources("dev.example", "account").await.unwrap();
+        assert!(matches!(records[0].state, ResourceState::Disabled));
+        assert_eq!(records[0].private_data["token"], "two");
+
+        store
+            .set_resource_enabled("dev.example", "account", &id, true)
+            .await
+            .unwrap();
+        let records = store.resources("dev.example", "account").await.unwrap();
+        assert!(records[0].state.is_ready(0));
     }
 
     #[tokio::test]
