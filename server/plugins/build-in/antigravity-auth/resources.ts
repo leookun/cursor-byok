@@ -20,6 +20,17 @@ import { CLIENT_ID, CLIENT_SECRET } from "./google_oauth.ts";
 export const RESOURCE_TYPE = "antigravity-account";
 
 const REFRESH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const RETRIEVE_QUOTA_SUMMARY_PATH = "/v1internal:retrieveUserQuotaSummary";
+
+/** 已知通用配额桶的展示名;未知桶回退上游 displayName 或 bucketId。 */
+const QUOTA_BUCKET_LABELS: Record<string, string> = {
+  "gemini-5h": "Gemini (5h)",
+  "gemini-weekly": "Gemini (Weekly)",
+  "3p-5h": "Claude (5h)",
+  "3p-weekly": "Claude (Weekly)",
+};
+
+const QUOTA_BUCKET_ORDER = ["gemini-5h", "gemini-weekly", "3p-5h", "3p-weekly"];
 
 async function fetchText(
   network: PluginContext["network"] | undefined,
@@ -39,11 +50,21 @@ export type QuotaMetric = {
   resetAtMs: number | null;
 };
 
+/** retrieveUserQuotaSummary 返回的通用配额桶(5h / Weekly)。 */
+export type QuotaBucket = {
+  remainingPercent: number;
+  resetAtMs: number | null;
+  /** 上游 displayName;已知桶由固定映射提供展示名。 */
+  label: string | null;
+};
+
 export type AccountQuota = {
   planLabel: string | null;
   limitReached: boolean;
   coolingUntilMs: number | null;
   updatedAtMs: number;
+  /** 通用配额桶(bucketId -> 桶);缺失时展示回退 claude/gemini。 */
+  buckets?: Record<string, QuotaBucket> | null;
   claude?: QuotaMetric | null;
   gemini?: QuotaMetric | null;
 };
@@ -112,6 +133,80 @@ export async function queryAccountQuota(
 ): Promise<{ quota: AccountQuota | null; projectId: string }> {
   const { projectId, planLabel } = await fetchAccountProjectAndTier(accessToken, network);
 
+  // 优先获取官方 IDE 口径的通用配额桶(5h / Weekly);失败时回退模型级推导。
+  const buckets = await fetchQuotaSummaryBuckets(accessToken, projectId, network);
+  const modelQuota = buckets ? null : await fetchModelQuota(accessToken, projectId, network);
+
+  return {
+    projectId,
+    quota: {
+      planLabel,
+      limitReached: false,
+      coolingUntilMs: null,
+      updatedAtMs: Date.now(),
+      buckets,
+      claude: modelQuota?.claude ?? null,
+      gemini: modelQuota?.gemini ?? null,
+    },
+  };
+}
+
+/** 调用 v1internal:retrieveUserQuotaSummary 获取通用配额桶(daily 优先,与官方 IDE 一致)。 */
+async function fetchQuotaSummaryBuckets(
+  accessToken: string,
+  projectId: string,
+  network: PluginContext["network"],
+): Promise<Record<string, QuotaBucket> | null> {
+  for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
+    try {
+      const response = await network.fetch(`${endpoint}${RETRIEVE_QUOTA_SUMMARY_PATH}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          accept: "application/json",
+          "user-agent": ANTIGRAVITY_USER_AGENT,
+          ...ANTIGRAVITY_CLIENT_HEADERS,
+        },
+        body: JSON.stringify({ project: projectId }),
+      });
+      if (response.status < 200 || response.status >= 300) continue;
+      const root = object(JSON.parse(response.body));
+      const groups = Array.isArray(root?.groups) ? root.groups : [];
+      const buckets: Record<string, QuotaBucket> = {};
+      for (const group of groups) {
+        const list = object(group)?.buckets;
+        if (!Array.isArray(list)) continue;
+        for (const raw of list) {
+          const bucket = object(raw);
+          const bucketId = text(bucket?.bucketId);
+          const fraction = typeof bucket?.remainingFraction === "number"
+            ? bucket.remainingFraction
+            : null;
+          if (!bucketId || fraction === null) continue;
+          const resetTime = text(bucket?.resetTime);
+          const parsedReset = resetTime ? Date.parse(resetTime) : NaN;
+          buckets[bucketId] = {
+            remainingPercent: Math.max(0, Math.min(100, Math.round(fraction * 100))),
+            resetAtMs: Number.isFinite(parsedReset) ? parsedReset : null,
+            label: text(bucket?.displayName),
+          };
+        }
+      }
+      if (Object.keys(buckets).length > 0) return buckets;
+    } catch {
+      // Continue next endpoint
+    }
+  }
+  return null;
+}
+
+/** 从 fetchAvailableModels 的模型级 quotaInfo 推导 Claude / Gemini 剩余(回退路径)。 */
+async function fetchModelQuota(
+  accessToken: string,
+  projectId: string,
+  network: PluginContext["network"],
+): Promise<{ claude: QuotaMetric | null; gemini: QuotaMetric | null } | null> {
   for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
     try {
       const response = await network.fetch(`${endpoint}/v1internal:fetchAvailableModels`, {
@@ -160,36 +255,18 @@ export async function queryAccountQuota(
       }
 
       return {
-        projectId,
-        quota: {
-          planLabel,
-          limitReached: false,
-          coolingUntilMs: null,
-          updatedAtMs: Date.now(),
-          claude: claudeFraction !== null
-            ? { remainingPercent: Math.round(claudeFraction * 100), resetAtMs: claudeResetAtMs }
-            : null,
-          gemini: geminiFraction !== null
-            ? { remainingPercent: Math.round(geminiFraction * 100), resetAtMs: geminiResetAtMs }
-            : null,
-        },
+        claude: claudeFraction !== null
+          ? { remainingPercent: Math.round(claudeFraction * 100), resetAtMs: claudeResetAtMs }
+          : null,
+        gemini: geminiFraction !== null
+          ? { remainingPercent: Math.round(geminiFraction * 100), resetAtMs: geminiResetAtMs }
+          : null,
       };
     } catch {
       // Continue next endpoint
     }
   }
-
-  return {
-    projectId,
-    quota: {
-      planLabel,
-      limitReached: false,
-      coolingUntilMs: null,
-      updatedAtMs: Date.now(),
-      claude: null,
-      gemini: null,
-    },
-  };
+  return null;
 }
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -318,22 +395,14 @@ export function quotaExhaustedPatch(
   error?: string,
   nowMs = Date.now(),
 ): ResourcePatch {
-  let retryAfterMs = 60 * 1000;
-  if (error) {
-    const match = error.match(/retry(?:_after|\s+after)?\s*[:=]?\s*(\d+)/i);
-    if (match?.[1]) {
-      const parsed = Number(match[1]);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        retryAfterMs = parsed > 10_000_000 ? parsed - nowMs : parsed * 1000;
-      }
-    }
-  }
+  const retryAfterMs = parseQuotaRetryDelayMs(error, nowMs) ?? 60 * 1000;
   const coolingUntilMs = nowMs + Math.max(5000, retryAfterMs);
   const quota: AccountQuota = {
     planLabel: data.quota?.planLabel ?? "Antigravity / Gemini",
     limitReached: true,
     coolingUntilMs,
     updatedAtMs: nowMs,
+    buckets: data.quota?.buckets ?? null,
     claude: data.quota?.claude ?? null,
     gemini: data.quota?.gemini ?? null,
   };
@@ -343,32 +412,116 @@ export function quotaExhaustedPatch(
   };
 }
 
+/** 从上游错误文本解析冷却时长(毫秒);无法解析时返回 null。 */
+function parseQuotaRetryDelayMs(error: string | undefined, nowMs: number): number | null {
+  if (!error) return null;
+
+  // "retry_after: 54" / "retry after 54" / "Please retry in 54.9s"
+  const retryMatch = error.match(
+    /retry(?:_after|\s+after|\s+in)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\b/i,
+  );
+  if (retryMatch?.[1]) {
+    const value = Number(retryMatch[1]);
+    if (Number.isFinite(value) && value > 0) {
+      // 超大数值视为绝对时间戳(毫秒)
+      if (value > 10_000_000) return Math.round(value - nowMs);
+      return Math.round(value * durationUnitMs(retryMatch[2]));
+    }
+  }
+
+  // Google RetryInfo: "retryDelay": "54s"
+  const delayMatch = error.match(/retrydelay\D{0,4}(\d+(?:\.\d+)?)\s*(ms|s|m|h)?/i);
+  if (delayMatch?.[1]) {
+    const value = Number(delayMatch[1]);
+    if (Number.isFinite(value) && value > 0) {
+      return Math.round(value * durationUnitMs(delayMatch[2]));
+    }
+  }
+
+  // "quota will reset after 4h54m36s"
+  const compoundMatch = error.match(
+    /(?:reset\s+after|resets?\s+in)\s+(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m)?\s*(?:(\d+(?:\.\d+)?)\s*s)?/i,
+  );
+  if (compoundMatch && (compoundMatch[1] || compoundMatch[2] || compoundMatch[3])) {
+    const seconds = Number(compoundMatch[1] ?? 0) * 3600 +
+      Number(compoundMatch[2] ?? 0) * 60 +
+      Number(compoundMatch[3] ?? 0);
+    if (seconds > 0) return Math.round(seconds * 1000);
+  }
+
+  return null;
+}
+
+function durationUnitMs(unit: string | undefined): number {
+  switch ((unit ?? "s").toLowerCase()) {
+    case "ms":
+      return 1;
+    case "m":
+      return 60_000;
+    case "h":
+      return 3_600_000;
+    default:
+      return 1_000;
+  }
+}
+
 export function presentAccount(resource: ResourceSnapshot): ResourceView {
   const data = accountData(resource);
-  const metrics: ResourceMetric[] = [];
-  if (data.quota?.claude) {
-    metrics.push({
-      id: "claude",
-      label: { "en-US": "Claude", "zh-CN": "Claude" },
-      unit: "percent",
-      value: data.quota.claude.remainingPercent,
-      ...(data.quota.claude.resetAtMs ? { resetAtMs: data.quota.claude.resetAtMs } : {}),
-    });
-  }
-  if (data.quota?.gemini) {
-    metrics.push({
-      id: "gemini",
-      label: { "en-US": "Gemini", "zh-CN": "Gemini" },
-      unit: "percent",
-      value: data.quota.gemini.remainingPercent,
-      ...(data.quota.gemini.resetAtMs ? { resetAtMs: data.quota.gemini.resetAtMs } : {}),
-    });
-  }
+  const metrics = accountMetrics(data.quota);
   return {
     displayName: data.displayName,
     ...(data.quota?.planLabel ? { description: data.quota.planLabel } : {}),
     ...(metrics.length > 0 ? { metrics } : {}),
   };
+}
+
+/** 通用配额桶优先展示;缺失时回退模型级推导的 Claude / Gemini。 */
+function accountMetrics(quota: AccountQuota | null | undefined): ResourceMetric[] {
+  const buckets = quota?.buckets ?? null;
+  if (buckets && Object.keys(buckets).length > 0) {
+    return orderedBucketEntries(buckets).map(([bucketId, bucket]) => {
+      const label = QUOTA_BUCKET_LABELS[bucketId] ?? bucket.label ?? bucketId;
+      return {
+        id: bucketId,
+        label: { "en-US": label, "zh-CN": label },
+        unit: "percent" as const,
+        value: bucket.remainingPercent,
+        ...(bucket.resetAtMs ? { resetAtMs: bucket.resetAtMs } : {}),
+      };
+    });
+  }
+  const metrics: ResourceMetric[] = [];
+  if (quota?.claude) {
+    metrics.push({
+      id: "claude",
+      label: { "en-US": "Claude", "zh-CN": "Claude" },
+      unit: "percent",
+      value: quota.claude.remainingPercent,
+      ...(quota.claude.resetAtMs ? { resetAtMs: quota.claude.resetAtMs } : {}),
+    });
+  }
+  if (quota?.gemini) {
+    metrics.push({
+      id: "gemini",
+      label: { "en-US": "Gemini", "zh-CN": "Gemini" },
+      unit: "percent",
+      value: quota.gemini.remainingPercent,
+      ...(quota.gemini.resetAtMs ? { resetAtMs: quota.gemini.resetAtMs } : {}),
+    });
+  }
+  return metrics;
+}
+
+function orderedBucketEntries(
+  buckets: Record<string, QuotaBucket>,
+): Array<[string, QuotaBucket]> {
+  const known = QUOTA_BUCKET_ORDER
+    .filter((bucketId) => bucketId in buckets)
+    .map((bucketId): [string, QuotaBucket] => [bucketId, buckets[bucketId]]);
+  const unknown = Object.entries(buckets)
+    .filter(([bucketId]) => !QUOTA_BUCKET_ORDER.includes(bucketId))
+    .sort(([left], [right]) => left.localeCompare(right));
+  return [...known, ...unknown];
 }
 
 export async function refreshAccount(
