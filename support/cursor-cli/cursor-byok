@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$(uname -s)" != Darwin ]]; then
+  echo 'This entry point supports macOS. On Windows use cursor-byok.ps1.' >&2
+  exit 1
+fi
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+version_root="$HOME/.local/share/cursor-agent/versions"
+selected=''
+for candidate in "$version_root"/*; do
+  name="${candidate##*/}"
+  if [[ -d "$candidate" && "$name" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]{2}-[0-9]{2}-[0-9]{2})?-[a-f0-9]+$ && -x "$candidate/node" && -f "$candidate/index.js" ]]; then
+    if [[ -z "$selected" || "$candidate" > "$selected" ]]; then
+      selected="$candidate"
+    fi
+  fi
+done
+if [[ -z "$selected" ]]; then
+  echo 'Install the official macOS Cursor CLI first: https://cursor.com/docs/cli/installation' >&2
+  exit 1
+fi
+exec "$selected/node" --disable-warning=ExperimentalWarning "$script_dir/launcher.cjs" "$@"

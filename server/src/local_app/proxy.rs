@@ -162,6 +162,8 @@ fn is_local_path(path: &str) -> bool {
             | "/aiserver.v1.AiService/AvailableDocs"
             | "/aiserver.v1.DashboardService/GetEffectiveUserPlugins"
             | "/aiserver.v1.DashboardService/GetUserPrivacyMode"
+            | "/aiserver.v1.DashboardService/GetTeamReposOrEmptyIfNotInTeam"
+            | "/aiserver.v1.DashboardService/GetTeamAdminSettingsOrEmptyIfNotInTeam"
             | "/agent.v1.AgentService/UpdateConversationMetadata"
             | "/aiserver.v1.AiService/GetServerConfig"
             | "/aiserver.v1.ServerConfigService/GetServerConfig"
@@ -211,6 +213,8 @@ mod tests {
             "/aiserver.v1.AiService/AvailableDocs",
             "/aiserver.v1.DashboardService/GetEffectiveUserPlugins",
             "/aiserver.v1.DashboardService/GetUserPrivacyMode",
+            "/aiserver.v1.DashboardService/GetTeamReposOrEmptyIfNotInTeam",
+            "/aiserver.v1.DashboardService/GetTeamAdminSettingsOrEmptyIfNotInTeam",
             "/aiserver.v1.AuthService/GetUserMeta",
             "/agent.v1.AgentService/UpdateConversationMetadata",
             "/auth/full_stripe_profile",
