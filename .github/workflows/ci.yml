@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches:
@@ -10,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -63,6 +64,20 @@ jobs:
       - name: Check types and production build
         working-directory: apps/desktop
         run: npm run check
+
+  plugins:
+    name: Built-in plugins
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check and test Antigravity
+        working-directory: server/plugins/build-in/antigravity-auth
+        run: |
+          deno check main.ts
+          deno test --allow-read --allow-env
 
   desktop-rust:
     name: Desktop Rust (${{ matrix.os }})

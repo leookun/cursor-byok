@@ -57,6 +57,7 @@ type PortableUpdateInfo = {
 };
 
 export async function checkForUpdate(): Promise<AppUpdate | null> {
+  if (import.meta.env.VITE_APP_UPDATES_ENABLED === "false") return null;
   if (desktopPlatform() === "windows") {
     const update = await invoke<PortableUpdateInfo | null>("check_portable_update");
     if (!update) return null;
