@@ -334,6 +334,7 @@
   "ba6403d22876d626": "冷却中",
   "baff6c144180b185": "连通性测试完成：成功 {successful}，失败 {failed}",
   "bb2b7736433ae867": "Cursor 追踪",
+  "bb4e1ee4a6ae46df": "调用记录 {calls} 条 · 追踪记录 {traces} 条",
   "bb7efdcb6af6e805": "默认暗色",
   "bda62ce1d5e4ace9": "可以告诉我们原因",
   "bda74b5674b6a57d": "初始化插件",

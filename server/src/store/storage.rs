@@ -1,5 +1,4 @@
-//! Persists content-addressed blobs and their edges.
-//! Storage accounting and cleanup for disposable observability data.
+//! Row accounting and cleanup for disposable observability data.
 
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +8,6 @@ use super::Store;
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct StatisticsStorage {
-    pub bytes: i64,
     pub call_count: i64,
     pub trace_count: i64,
 }
@@ -24,39 +22,13 @@ pub enum StatisticsStorageScope {
 
 impl Store {
     pub async fn statistics_storage(&self) -> Result<StatisticsStorage> {
-        let (bytes, call_count, trace_count) = sqlx::query_as::<_, (i64, i64, i64)>(
-            r#"
-            SELECT
-                COALESCE((
-                    SELECT SUM(
-                        LENGTH(call_id) + LENGTH(run_id) + LENGTH(conversation_id) +
-                        LENGTH(provider_type) + LENGTH(provider_url) + LENGTH(request_type) +
-                        LENGTH(request_url) + LENGTH(model_id) + LENGTH(display_name) +
-                        LENGTH(status) + COALESCE(LENGTH(finish_reason), 0) +
-                        COALESCE(LENGTH(usage_json), 0) + COALESCE(LENGTH(error_kind), 0) +
-                        COALESCE(LENGTH(error_message), 0) + 256
-                    ) FROM llm_calls
-                ), 0) +
-                COALESCE((SELECT SUM(LENGTH(headers_json) + LENGTH(body_json) + 24) FROM llm_call_requests), 0) +
-                COALESCE((SELECT SUM(LENGTH(data) + 24) FROM llm_call_response_chunks), 0) +
-                COALESCE((
-                    SELECT SUM(
-                        LENGTH(request_id) + COALESCE(LENGTH(conversation_id), 0) +
-                        LENGTH(route) + COALESCE(LENGTH(model_id), 0) + LENGTH(status) +
-                        COALESCE(LENGTH(error_message), 0) + 96
-                    ) FROM cursor_run_traces
-                ), 0) +
-                COALESCE((SELECT SUM(LENGTH(artifact_type) + LENGTH(source) + LENGTH(metadata_json) + 48) FROM cursor_run_trace_artifacts), 0) +
-                COALESCE((SELECT SUM(LENGTH(data)) FROM blobs WHERE blob_id IN (SELECT blob_id FROM cursor_run_trace_artifacts)), 0),
-                (SELECT COUNT(*) FROM llm_calls),
-                (SELECT COUNT(*) FROM cursor_run_traces)
-            "#,
+        let (call_count, trace_count) = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT (SELECT COUNT(*) FROM llm_calls), (SELECT COUNT(*) FROM cursor_run_traces)",
         )
         .fetch_one(&self.pool)
         .await?;
 
         Ok(StatisticsStorage {
-            bytes,
             call_count,
             trace_count,
         })

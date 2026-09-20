@@ -115,7 +115,6 @@ export interface PortSettings {
 }
 
 export interface StatisticsStorage {
-  bytes: number;
   call_count: number;
   trace_count: number;
 }
