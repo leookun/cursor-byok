@@ -2,6 +2,8 @@
 
 Push `feat/antigravity-models-and-quota` to `zhanpoint/cursor-byok` to build and publish a Beta release automatically:
 
+For a newly forked repository, first open its Actions page and select **I understand my workflows, go ahead and enable them**. Workflow API status can already say `active` while this repository-level fork switch still blocks all runs. Push after enabling it; earlier push events are not replayed.
+
 ```text
 Branch push
   -> Prepare a draft for the exact pushed commit
