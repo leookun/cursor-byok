@@ -446,7 +446,7 @@ mod tests {
         assert!(created.enabled, "new models are published by default");
 
         let hidden = store
-            .set_models_enabled(&[created.model_hash.clone()], false)
+            .set_models_enabled(std::slice::from_ref(&created.model_hash), false)
             .await
             .unwrap();
         assert_eq!(hidden.len(), 1);
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(hidden[0].model_hash, created.model_hash);
 
         let published = store
-            .set_models_enabled(&[created.model_hash.clone()], true)
+            .set_models_enabled(std::slice::from_ref(&created.model_hash), true)
             .await
             .unwrap();
         assert!(published[0].enabled);

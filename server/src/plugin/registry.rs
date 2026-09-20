@@ -1521,6 +1521,23 @@ fn refresh_interval(resource: &ResourceDefinition) -> Option<Duration> {
         .map(Duration::from_millis)
 }
 
+fn find_resource<'a>(
+    entry: &'a PluginEntry,
+    resource_type: &str,
+) -> Result<&'a ResourceDefinition> {
+    entry
+        .definition
+        .resources
+        .iter()
+        .find(|resource| resource.resource_type == resource_type)
+        .ok_or_else(|| {
+            Error::RunNotFound(format!(
+                "plugin '{}' resource type {resource_type}",
+                entry.manifest.id
+            ))
+        })
+}
+
 #[cfg(test)]
 mod refresh_tests {
     use super::{refresh_interval, wait_for_refresh, ResourceDefinition};
@@ -1552,21 +1569,4 @@ mod refresh_tests {
         shutdown.cancel();
         assert!(!wait_for_refresh(Instant::now() + Duration::from_secs(60), &shutdown).await);
     }
-}
-
-fn find_resource<'a>(
-    entry: &'a PluginEntry,
-    resource_type: &str,
-) -> Result<&'a ResourceDefinition> {
-    entry
-        .definition
-        .resources
-        .iter()
-        .find(|resource| resource.resource_type == resource_type)
-        .ok_or_else(|| {
-            Error::RunNotFound(format!(
-                "plugin '{}' resource type {resource_type}",
-                entry.manifest.id
-            ))
-        })
 }

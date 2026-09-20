@@ -18,13 +18,13 @@ jobs:
   prepare:
     name: Prepare release
     if: github.ref_type == 'tag' || github.repository == 'zhanpoint/cursor-byok'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       should_publish: ${{ steps.release.outputs.should_publish }}
       version: ${{ steps.version.outputs.version }}
       release_id: ${{ steps.release.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -134,7 +134,7 @@ jobs:
       VITE_APP_UPDATES_ENABLED: ${{ github.ref_type == 'tag' && 'true' || 'false' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'linux-x86_64'
@@ -152,7 +152,7 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -246,9 +246,9 @@ jobs:
     name: Publish GitHub Release
     needs: [prepare, publish]
     if: needs.prepare.outputs.should_publish == 'true' && needs.publish.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         if: github.ref_type == 'tag'
