@@ -49,9 +49,8 @@ fn open_terminal_with_command(command: String) -> tauri::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
-            .args(["/C", "start", "cmd", "/K", &command])
-            .spawn()?;
+        use std::os::windows::process::CommandExt;
+        Command::new("cmd").args(["/K"]).raw_arg(&command).spawn()?;
         Ok(())
     }
     #[cfg(target_os = "linux")]
