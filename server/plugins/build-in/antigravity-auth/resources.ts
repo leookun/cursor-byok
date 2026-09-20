@@ -7,13 +7,13 @@ import type {
   ResourceMetric,
   ResourcePatch,
   ResourceSnapshot,
-  ResourceState,
   ResourceView,
 } from "cursor-byok:resource";
 import {
-  ANTIGRAVITY_CLIENT_HEADERS,
   ANTIGRAVITY_ENDPOINTS,
-  ANTIGRAVITY_USER_AGENT,
+  ANTIGRAVITY_OAUTH_USER_AGENT,
+  ANTIGRAVITY_SANDBOX_ENDPOINT,
+  antigravityRequestHeaders,
 } from "./models.ts";
 import { CLIENT_ID, CLIENT_SECRET } from "./google_oauth.ts";
 
@@ -34,18 +34,21 @@ async function fetchText(
   return { status: response.status, body: await response.text() };
 }
 
-export type QuotaMetric = {
+type QuotaWindow = "5h" | "weekly";
+
+type QuotaBucket = {
+  window: QuotaWindow;
   remainingPercent: number;
   resetAtMs: number | null;
 };
 
-export type AccountQuota = {
+type QuotaPoolId = "gemini" | "claude-gpt";
+type QuotaPool = { id: QuotaPoolId; buckets: QuotaBucket[] };
+
+type AccountQuota = {
   planLabel: string | null;
-  limitReached: boolean;
-  coolingUntilMs: number | null;
-  updatedAtMs: number;
-  claude?: QuotaMetric | null;
-  gemini?: QuotaMetric | null;
+  pools: QuotaPool[];
+  stale?: boolean;
 };
 
 export type AccountData = {
@@ -57,7 +60,7 @@ export type AccountData = {
   quota: AccountQuota | null;
 };
 
-export type CredentialCandidate = {
+type CredentialCandidate = {
   accessToken: string;
   refreshToken: string | null;
   displayName: string | null;
@@ -66,128 +69,209 @@ export type CredentialCandidate = {
   quota?: AccountQuota | null;
 };
 
-export async function fetchAccountProjectAndTier(
+async function fetchAccountProjectAndTier(
   accessToken: string,
   network: PluginContext["network"],
-): Promise<{ projectId: string; planLabel: string }> {
-  for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
-    try {
-      const assistRes = await network.fetch(`${endpoint}/v1internal:loadCodeAssist`, {
+): Promise<{ projectId: string | null; planLabel: string | null }> {
+  try {
+    const response = await network.fetch(
+      `${ANTIGRAVITY_SANDBOX_ENDPOINT}/v1internal:loadCodeAssist`,
+      {
         method: "POST",
         headers: {
           authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
-          "user-agent": ANTIGRAVITY_USER_AGENT,
-          ...ANTIGRAVITY_CLIENT_HEADERS,
+          "user-agent": ANTIGRAVITY_OAUTH_USER_AGENT,
         },
         body: JSON.stringify({ metadata: { ideType: "ANTIGRAVITY" } }),
-      });
-      if (assistRes.status >= 200 && assistRes.status < 300) {
-        const body = object(JSON.parse(assistRes.body));
-        const project = text(body?.cloudaicompanionProject);
-        const paid = object(body?.paidTier);
-        const current = object(body?.currentTier);
-        const tierName = text(paid?.name) ?? text(paid?.id) ?? text(current?.name) ??
-          text(current?.id);
-        let planLabel = "FREE";
-        if (tierName) {
-          const lower = tierName.toLowerCase();
-          if (lower.includes("ultra")) planLabel = "ULTRA";
-          else if (
-            lower.includes("pro") || lower.includes("premium") || lower.includes("advanced")
-          ) planLabel = "PRO";
-        }
-        return { projectId: project ?? "bamboo-precept-lgxtn", planLabel };
+      },
+    );
+    if (response.status >= 200 && response.status < 300) {
+      const body = object(JSON.parse(response.body));
+      if (body) {
+        return {
+          projectId: text(body.cloudaicompanionProject),
+          planLabel: subscriptionTier(body),
+        };
       }
-    } catch {
-      // Continue next endpoint
+    }
+  } catch {
+    // Model discovery can still succeed without a project ID.
+  }
+  return { projectId: null, planLabel: null };
+}
+
+function tierName(value: unknown): string | null {
+  const tier = object(value);
+  return text(tier?.name) ?? text(tier?.id);
+}
+
+function subscriptionTier(body: Record<string, unknown>): string | null {
+  const paid = tierName(body.paidTier);
+  if (paid) return paid;
+
+  const ineligible = Array.isArray(body.ineligibleTiers) && body.ineligibleTiers.length > 0;
+  if (!ineligible) return tierName(body.currentTier);
+
+  const allowed = Array.isArray(body.allowedTiers) ? body.allowedTiers : [];
+  const defaultTier = allowed.map(object).find((tier) => tier?.isDefault === true);
+  const fallback = tierName(defaultTier);
+  return fallback ? `${fallback} (Restricted)` : null;
+}
+
+const QUOTA_SUMMARY_PATH = "/v1internal:retrieveUserQuotaSummary";
+
+function quotaWindow(bucket: Record<string, unknown>): QuotaWindow | null {
+  const source = [
+    text(bucket.window),
+    text(bucket.bucketId),
+    text(bucket.id),
+    text(bucket.displayName),
+    text(bucket.description),
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (source.includes("week")) return "weekly";
+  if (/\b5\s*(?:h|hour)/.test(source) || source.includes("five hour")) return "5h";
+  return null;
+}
+
+function poolId(
+  group: Record<string, unknown>,
+  bucket: Record<string, unknown>,
+): QuotaPoolId | null {
+  // Use only explicit upstream identifiers and labels. Unknown groups remain unclassified.
+  const source = [
+    text(group.id),
+    text(group.groupId),
+    text(group.name),
+    text(group.displayName),
+    text(group.description),
+    text(bucket.displayName),
+    text(bucket.description),
+    text(bucket.bucketId),
+    text(bucket.id),
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (source.includes("gemini")) return "gemini";
+  if (source.includes("claude") || /\bgpt\b/.test(source) || source.includes("gpt-")) {
+    return "claude-gpt";
+  }
+  return null;
+}
+
+function percent(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.min(1, Math.max(0, value)) * 100)
+    : null;
+}
+
+export function parseQuotaPools(payload: unknown): QuotaPool[] {
+  const root = object(payload);
+  const groups = Array.isArray(root?.groups) ? root.groups : [];
+  const pools = new Map<QuotaPoolId, Map<QuotaWindow, QuotaBucket>>();
+  const ambiguous = new Set<string>();
+  for (const rawGroup of groups) {
+    const group = object(rawGroup);
+    if (!group || !Array.isArray(group.buckets)) continue;
+    for (const rawBucket of group.buckets) {
+      const bucket = object(rawBucket);
+      if (!bucket) continue;
+      const id = poolId(group, bucket);
+      const window = quotaWindow(bucket);
+      const remainingPercent = percent(bucket.remainingFraction);
+      if (!id || !window || remainingPercent === null) continue;
+      const reset = text(bucket.resetTime);
+      const resetAtMs = reset && Number.isFinite(Date.parse(reset)) ? Date.parse(reset) : null;
+      const entries = pools.get(id) ?? new Map<QuotaWindow, QuotaBucket>();
+      const key = `${id}:${window}`;
+      const previous = entries.get(window);
+      if (ambiguous.has(key)) continue;
+      if (
+        previous &&
+        (previous.remainingPercent !== remainingPercent || previous.resetAtMs !== resetAtMs)
+      ) {
+        entries.delete(window);
+        ambiguous.add(key);
+      } else {
+        entries.set(window, { window, remainingPercent, resetAtMs });
+      }
+      pools.set(id, entries);
     }
   }
-  return { projectId: "bamboo-precept-lgxtn", planLabel: "FREE" };
+  return [...pools.entries()].map(([id, buckets]) => ({
+    id,
+    buckets: (["5h", "weekly"] as QuotaWindow[]).flatMap((window) => {
+      const bucket = buckets.get(window);
+      return bucket ? [bucket] : [];
+    }),
+  }));
+}
+
+function mergeQuotaPools(current: QuotaPool[], previous: QuotaPool[] | undefined): {
+  pools: QuotaPool[];
+  stale: boolean;
+} {
+  const merged = new Map<QuotaPoolId, Map<QuotaWindow, QuotaBucket>>();
+  for (const pool of current) {
+    merged.set(pool.id, new Map(pool.buckets.map((bucket) => [bucket.window, bucket])));
+  }
+  let stale = false;
+  for (const pool of previous ?? []) {
+    const entries = merged.get(pool.id) ?? new Map<QuotaWindow, QuotaBucket>();
+    for (const bucket of pool.buckets) {
+      if (!entries.has(bucket.window)) {
+        entries.set(bucket.window, bucket);
+        stale = true;
+      }
+    }
+    if (entries.size > 0) merged.set(pool.id, entries);
+  }
+  return {
+    pools: (["gemini", "claude-gpt"] as QuotaPoolId[]).flatMap((id) => {
+      const buckets = merged.get(id);
+      return buckets ? [{ id, buckets: [...buckets.values()] }] : [];
+    }),
+    stale,
+  };
+}
+
+async function fetchQuotaSummary(
+  accessToken: string,
+  projectId: string | null,
+  network: PluginContext["network"],
+): Promise<QuotaPool[] | null> {
+  for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
+    try {
+      const response = await network.fetch(`${endpoint}${QUOTA_SUMMARY_PATH}`, {
+        method: "POST",
+        headers: antigravityRequestHeaders(accessToken),
+        body: projectId ? JSON.stringify({ project: projectId }) : JSON.stringify({}),
+      });
+      if (response.status < 200 || response.status >= 300) {
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) return null;
+        continue;
+      }
+      return parseQuotaPools(JSON.parse(response.body));
+    } catch {
+      // Continue with the next endpoint.
+    }
+  }
+  return null;
 }
 
 export async function queryAccountQuota(
   accessToken: string,
   network: PluginContext["network"],
-): Promise<{ quota: AccountQuota | null; projectId: string }> {
+  previous: AccountQuota | null = null,
+): Promise<{ quota: AccountQuota; projectId: string | null }> {
   const { projectId, planLabel } = await fetchAccountProjectAndTier(accessToken, network);
-
-  for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
-    try {
-      const response = await network.fetch(`${endpoint}/v1internal:fetchAvailableModels`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${accessToken}`,
-          "content-type": "application/json",
-          accept: "application/json",
-          "user-agent": ANTIGRAVITY_USER_AGENT,
-          ...ANTIGRAVITY_CLIENT_HEADERS,
-        },
-        body: JSON.stringify({ project: projectId }),
-      });
-      if (response.status < 200 || response.status >= 300) continue;
-      const root = object(JSON.parse(response.body));
-      const models = object(root?.models);
-      if (!models) continue;
-
-      let claudeFraction: number | null = null;
-      let claudeResetAtMs: number | null = null;
-      let geminiFraction: number | null = null;
-      let geminiResetAtMs: number | null = null;
-
-      for (const [key, value] of Object.entries(models)) {
-        const info = object(value);
-        const quota = object(info?.quotaInfo);
-        const fraction = typeof quota?.remainingFraction === "number"
-          ? quota.remainingFraction
-          : null;
-        const resetTime = text(quota?.resetTime);
-        const resetAtMs = resetTime ? Date.parse(resetTime) : null;
-        if (fraction === null) continue;
-
-        const k = key.toLowerCase();
-        if (k.includes("claude") || k.includes("sonnet") || k.includes("opus")) {
-          if (claudeFraction === null || fraction < claudeFraction) {
-            claudeFraction = fraction;
-            claudeResetAtMs = resetAtMs;
-          }
-        } else if (k.includes("gemini") || k.includes("flash") || k.includes("pro")) {
-          if (geminiFraction === null || fraction < geminiFraction) {
-            geminiFraction = fraction;
-            geminiResetAtMs = resetAtMs;
-          }
-        }
-      }
-
-      return {
-        projectId,
-        quota: {
-          planLabel,
-          limitReached: false,
-          coolingUntilMs: null,
-          updatedAtMs: Date.now(),
-          claude: claudeFraction !== null
-            ? { remainingPercent: Math.round(claudeFraction * 100), resetAtMs: claudeResetAtMs }
-            : null,
-          gemini: geminiFraction !== null
-            ? { remainingPercent: Math.round(geminiFraction * 100), resetAtMs: geminiResetAtMs }
-            : null,
-        },
-      };
-    } catch {
-      // Continue next endpoint
-    }
-  }
+  const summary = await fetchQuotaSummary(accessToken, projectId, network);
+  const merged = mergeQuotaPools(summary ?? [], previous?.pools);
 
   return {
     projectId,
     quota: {
       planLabel,
-      limitReached: false,
-      coolingUntilMs: null,
-      updatedAtMs: Date.now(),
-      claude: null,
-      gemini: null,
+      pools: merged.pools,
+      ...(summary === null || merged.stale ? { stale: true } : {}),
     },
   };
 }
@@ -219,7 +303,7 @@ function claim(payload: Record<string, unknown> | null, key: string): string | n
   return payload ? text(payload[key]) : null;
 }
 
-export function isJwtExpired(token: string, bufferSeconds = 300): boolean {
+function isJwtExpired(token: string, bufferSeconds = 300): boolean {
   if (token.startsWith("AIza") || !token.includes(".")) return false;
   const payload = decodeJwtPayload(token);
   if (!payload) return false;
@@ -245,7 +329,7 @@ async function tokenFingerprint(token: string): Promise<string> {
   ).join("");
 }
 
-export async function accountIdentity(
+async function accountIdentity(
   token: string,
   providedDisplayName?: string | null,
 ): Promise<{ key: string; displayName: string }> {
@@ -269,7 +353,7 @@ export async function credentialDraft(credential: CredentialCandidate): Promise<
     accessToken: credential.accessToken,
     refreshToken: credential.refreshToken,
     displayName: credential.displayName ?? identity.displayName,
-    projectId: credential.projectId ?? "bamboo-precept-lgxtn",
+    projectId: credential.projectId ?? null,
     expiresAtMs: credential.expiresAtMs ??
       (credential.refreshToken ? Date.now() + 3500 * 1000 : null),
     quota: credential.quota ?? null,
@@ -285,88 +369,44 @@ export function accountData(resource: ResourceSnapshot): AccountData {
     accessToken,
     refreshToken: text(data?.refreshToken),
     displayName: text(data?.displayName) ?? "Antigravity account",
-    projectId: text(data?.projectId) ?? "bamboo-precept-lgxtn",
+    projectId: text(data?.projectId),
     expiresAtMs: typeof data?.expiresAtMs === "number" ? data.expiresAtMs : null,
     quota: (data?.quota ?? null) as AccountQuota | null,
   };
 }
 
-export function accountHeaders(data: AccountData): Record<string, string> {
-  return {
-    authorization: `Bearer ${data.accessToken}`,
-    accept: "application/json",
-    "user-agent": ANTIGRAVITY_USER_AGENT,
-    ...ANTIGRAVITY_CLIENT_HEADERS,
-  };
-}
-
-export function quotaState(quota: AccountQuota | null, nowMs = Date.now()): ResourceState {
-  if (!quota || !quota.limitReached) return { status: "ready" };
-  const coolingUntil = quota.coolingUntilMs;
-  if (coolingUntil !== null && coolingUntil > nowMs) {
-    return {
-      status: "cooling",
-      retryAtMs: coolingUntil,
-      message: "Antigravity rate limit reached; cooling down",
-    };
-  }
-  return { status: "ready" };
-}
-
-export function quotaExhaustedPatch(
-  data: AccountData,
-  error?: string,
-  nowMs = Date.now(),
-): ResourcePatch {
-  let retryAfterMs = 60 * 1000;
-  if (error) {
-    const match = error.match(/retry(?:_after|\s+after)?\s*[:=]?\s*(\d+)/i);
-    if (match?.[1]) {
-      const parsed = Number(match[1]);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        retryAfterMs = parsed > 10_000_000 ? parsed - nowMs : parsed * 1000;
-      }
-    }
-  }
-  const coolingUntilMs = nowMs + Math.max(5000, retryAfterMs);
-  const quota: AccountQuota = {
-    planLabel: data.quota?.planLabel ?? "Antigravity / Gemini",
-    limitReached: true,
-    coolingUntilMs,
-    updatedAtMs: nowMs,
-    claude: data.quota?.claude ?? null,
-    gemini: data.quota?.gemini ?? null,
-  };
-  return {
-    privateData: { ...data, quota } as unknown as JsonValue,
-    state: quotaState(quota, nowMs),
-  };
-}
-
 export function presentAccount(resource: ResourceSnapshot): ResourceView {
   const data = accountData(resource);
-  const metrics: ResourceMetric[] = [];
-  if (data.quota?.claude) {
-    metrics.push({
-      id: "claude",
-      label: { "en-US": "Claude", "zh-CN": "Claude" },
-      unit: "percent",
-      value: data.quota.claude.remainingPercent,
-      ...(data.quota.claude.resetAtMs ? { resetAtMs: data.quota.claude.resetAtMs } : {}),
-    });
-  }
-  if (data.quota?.gemini) {
-    metrics.push({
-      id: "gemini",
-      label: { "en-US": "Gemini", "zh-CN": "Gemini" },
-      unit: "percent",
-      value: data.quota.gemini.remainingPercent,
-      ...(data.quota.gemini.resetAtMs ? { resetAtMs: data.quota.gemini.resetAtMs } : {}),
-    });
-  }
+  const labels: Record<QuotaPoolId, { "en-US": string; "zh-CN": string }> = {
+    gemini: { "en-US": "Gemini", "zh-CN": "Gemini" },
+    "claude-gpt": { "en-US": "Claude / GPT", "zh-CN": "Claude / GPT" },
+  };
+  const metrics: ResourceMetric[] = (data.quota?.pools ?? []).flatMap((pool) =>
+    pool.buckets.map((bucket) => ({
+      id: `pool:${pool.id}:${bucket.window}`,
+      label: {
+        "en-US": `${labels[pool.id]["en-US"]} · ${bucket.window === "5h" ? "5-hour" : "Weekly"}`,
+        "zh-CN": `${labels[pool.id]["zh-CN"]} · ${bucket.window === "5h" ? "5 小时" : "每周"}`,
+      },
+      unit: "percent" as const,
+      value: bucket.remainingPercent,
+      ...(bucket.resetAtMs ? { resetAtMs: bucket.resetAtMs } : {}),
+    }))
+  );
   return {
     displayName: data.displayName,
-    ...(data.quota?.planLabel ? { description: data.quota.planLabel } : {}),
+    ...(data.quota?.stale
+      ? {
+        description: {
+          "en-US": `${
+            data.quota.planLabel ?? "Antigravity"
+          } · Quota refresh was incomplete; showing last known values`,
+          "zh-CN": `${data.quota.planLabel ?? "Antigravity"} · 配额刷新不完整，显示上次已知值`,
+        },
+      }
+      : data.quota?.planLabel
+      ? { description: data.quota.planLabel }
+      : {}),
     ...(metrics.length > 0 ? { metrics } : {}),
   };
 }
@@ -378,7 +418,7 @@ export async function refreshAccount(
   const data = accountData(resource);
   let accessToken = data.accessToken;
   let refreshToken = data.refreshToken;
-  let projectId = data.projectId ?? "bamboo-precept-lgxtn";
+  let projectId = data.projectId ?? null;
   let expiresAtMs = data.expiresAtMs ?? null;
 
   if (refreshToken) {
@@ -387,6 +427,7 @@ export async function refreshAccount(
       headers: {
         accept: "application/json",
         "content-type": "application/x-www-form-urlencoded",
+        "user-agent": ANTIGRAVITY_OAUTH_USER_AGENT,
       },
       body: new URLSearchParams({
         client_id: CLIENT_ID,
@@ -421,7 +462,7 @@ export async function refreshAccount(
   }
 
   // Fetch real-time quota and project ID
-  const result = await queryAccountQuota(accessToken, context.network);
+  const result = await queryAccountQuota(accessToken, context.network, data.quota);
   projectId = result.projectId || projectId;
 
   const updatedData: AccountData = {

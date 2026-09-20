@@ -149,16 +149,198 @@
   gap: 12px;
   padding: 12px;
 
-  > div:first-child {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
   span {
     color: var(--vscode-descriptionForeground);
     font-size: type.$font-size-xs;
+  }
+}
+
+.providerRow > div:first-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.resourceRow {
+  flex-direction: column;
+  align-items: stretch;
+
+  > .resourceHeader {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: nowrap;
+  }
+}
+
+.resourceIdentity {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.resourceNameAndState {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  strong {
+    min-width: 0;
+  }
+
+  > span { flex-shrink: 0; }
+}
+
+.quotaGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quotaGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quotaGroupTitle {
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+}
+
+.quotaGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quotaPeriodToggle {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.quotaEmpty {
+  padding: 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  text-align: center;
+}
+
+.quotaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.quotaMetric {
+  min-width: 0;
+  padding: 6px 8px;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 4px;
+}
+
+.quotaMetricHeader,
+.quotaMeta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quotaMetricHeader {
+  justify-content: space-between;
+}
+
+.quotaName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quotaMeta,
+.quotaValue {
+  flex: 0 0 auto;
+  color: var(--vscode-foreground) !important;
+  font-size: type.$font-size-xs;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.quotaMeta span {
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  white-space: nowrap;
+}
+
+.quotaTrack {
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  background: var(--vscode-sideBar-border);
+  border-radius: 999px;
+}
+
+.quotaFill {
+  display: block;
+  height: 100%;
+  background: var(--vscode-testing-iconPassed, #73c991);
+  border-radius: inherit;
+}
+
+.quotaReset {
+  display: block;
+  margin-top: 5px;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+}
+
+.resourceOperations {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.resourceActionButtons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 460px) {
+  .resourceRow > .resourceHeader { flex-wrap: wrap; }
+
+  .quotaGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .resourceOperations {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .resourceActionButtons {
+    margin-left: auto;
   }
 }
 

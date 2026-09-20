@@ -26,6 +26,13 @@ pub struct ModelOrder {
     pub model_hashes: Vec<String>,
 }
 
+/// 分组开关的批量发布开关:关闭后这些模型不再出现在 Cursor 模型选择栏。
+#[derive(Deserialize)]
+pub struct SetModelsEnabled {
+    pub model_hashes: Vec<String>,
+    pub enabled: bool,
+}
+
 pub async fn list(State(service): State<ControlService>) -> Result<Json<Vec<ModelConfig>>> {
     Ok(Json(service.models().await?))
 }
@@ -45,6 +52,17 @@ pub async fn reorder(
     Json(input): Json<ModelOrder>,
 ) -> Result<Json<Vec<ModelConfig>>> {
     Ok(Json(service.reorder_models(&input.model_hashes).await?))
+}
+
+pub async fn set_enabled(
+    State(service): State<ControlService>,
+    Json(input): Json<SetModelsEnabled>,
+) -> Result<Json<Vec<ModelConfig>>> {
+    Ok(Json(
+        service
+            .set_models_enabled(&input.model_hashes, input.enabled)
+            .await?,
+    ))
 }
 
 pub async fn remove(

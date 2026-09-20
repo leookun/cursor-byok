@@ -2,6 +2,8 @@ name: Release desktop app
 
 on:
   push:
+    branches:
+      - feat/antigravity-models-and-quota
     tags:
       - "v*"
 
@@ -15,12 +17,14 @@ concurrency:
 jobs:
   prepare:
     name: Prepare release
-    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag' || github.repository == 'zhanpoint/cursor-byok'
+    runs-on: ubuntu-24.04
     outputs:
       should_publish: ${{ steps.release.outputs.should_publish }}
       version: ${{ steps.version.outputs.version }}
+      release_id: ${{ steps.release.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -35,6 +39,7 @@ jobs:
           fi
 
       - name: Verify updater signing key
+        if: github.ref_type == 'tag'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         shell: bash
@@ -53,12 +58,15 @@ jobs:
           cargo_version=$(sed -n '/^version = / { s/version = "\([^"]*\)"/\1/p; q; }' apps/desktop/src-tauri/Cargo.toml)
           test "${version}" = "${package_version}"
           test "${version}" = "${cargo_version}"
-          test "${GITHUB_REF_TYPE}" = "tag"
-          test "${GITHUB_REF_NAME}" = "v${version}"
           git fetch origin main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
-            echo "Release tag must point to a commit contained in origin/main" >&2
-            exit 1
+          if [[ "${GITHUB_REF_TYPE}" = "tag" ]]; then
+            test "${GITHUB_REF_NAME}" = "v${version}"
+            if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+              echo "Release tag must point to a commit contained in origin/main" >&2
+              exit 1
+            fi
+          else
+            version="${version%%-*}-beta.${GITHUB_RUN_NUMBER}"
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -74,12 +82,31 @@ jobs:
             echo "Version ${VERSION} is already published; nothing to do."
             echo "should_publish=false" >> "${GITHUB_OUTPUT}"
           else
+            if [[ "${state}" != "draft" ]]; then
+              notes="Build of ${GITHUB_SHA}. Download the installer for your platform."
+              if [[ "${GITHUB_REF_TYPE}" = "branch" ]]; then
+                notes="Beta build of feat/antigravity-models-and-quota at ${GITHUB_SHA}. Download the installer for your platform. Automatic updates are disabled; install newer branch releases manually."
+              fi
+              gh release create "v${VERSION}" --draft --target "${GITHUB_SHA}" \
+                --title "Cursor BYOK v${VERSION}" \
+                --prerelease=false --notes "${notes}"
+            fi
+            release_id=$(gh release view "v${VERSION}" --json databaseId --jq .databaseId)
+            echo "release_id=${release_id}" >> "${GITHUB_OUTPUT}"
             echo "should_publish=true" >> "${GITHUB_OUTPUT}"
           fi
 
+  checks:
+    name: Release checks
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   publish:
     name: Publish (${{ matrix.platform }})
-    needs: prepare
+    needs: [prepare, checks]
     if: needs.prepare.outputs.should_publish == 'true'
     strategy:
       fail-fast: false
@@ -103,9 +130,11 @@ jobs:
             target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.os }}
+    env:
+      VITE_APP_UPDATES_ENABLED: ${{ github.ref_type == 'tag' && 'true' || 'false' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'linux-x86_64'
@@ -123,7 +152,7 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -133,6 +162,20 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
+      - name: Configure branch installer version
+        if: github.ref_type == 'branch'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            writeFileSync("apps/desktop/branch-release.json", JSON.stringify({
+              version: process.env.VERSION,
+              bundle: { createUpdaterArtifacts: false }
+            }));
+          '
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -141,16 +184,13 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ contains(matrix.platform, 'macos') && '-' || '' }}
         with:
           projectPath: apps/desktop
-          tagName: v__VERSION__
-          releaseName: Cursor BYOK v__VERSION__
+          releaseId: ${{ needs.prepare.outputs.release_id }}
           releaseBody: ${{ contains(needs.prepare.outputs.version, '-') && 'Beta release. Download the installer for your platform from the assets below.' || 'Download the installer for your platform from the assets below.' }}
-          releaseDraft: true
-          prerelease: false
-          uploadUpdaterJson: true
-          args: ${{ matrix.args }}
+          uploadUpdaterJson: ${{ github.ref_type == 'tag' }}
+          args: ${{ matrix.args }} ${{ github.ref_type == 'branch' && '--config branch-release.json' || '' }}
 
       - name: Package legacy Linux updater asset
-        if: matrix.platform == 'linux-x86_64'
+        if: github.ref_type == 'tag' && matrix.platform == 'linux-x86_64'
         shell: bash
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -159,7 +199,7 @@ jobs:
           tar -czf "legacy-update/cursor-byok-${VERSION}-linux-amd64.tar.gz" -C target/release cursor-byok-desktop
 
       - name: Package and sign legacy Windows updater asset
-        if: matrix.platform == 'windows-x86_64'
+        if: github.ref_type == 'tag' && matrix.platform == 'windows-x86_64'
         shell: pwsh
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -181,7 +221,7 @@ jobs:
           }
 
       - name: Package legacy macOS updater asset
-        if: contains(matrix.platform, 'macos')
+        if: github.ref_type == 'tag' && contains(matrix.platform, 'macos')
         shell: bash
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -196,6 +236,7 @@ jobs:
           cp "${archive}" "legacy-update/cursor-byok-${VERSION}-${legacy_platform}.tar.gz"
 
       - uses: actions/upload-artifact@v4
+        if: github.ref_type == 'tag'
         with:
           name: legacy-update-${{ matrix.platform }}
           path: legacy-update/*
@@ -205,17 +246,19 @@ jobs:
     name: Publish GitHub Release
     needs: [prepare, publish]
     if: needs.prepare.outputs.should_publish == 'true' && needs.publish.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
+        if: github.ref_type == 'tag'
         with:
           pattern: legacy-update-*
           path: legacy-update
           merge-multiple: true
 
       - name: Generate legacy update manifest
+        if: github.ref_type == 'tag'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -227,6 +270,7 @@ jobs:
             --notes "Cursor BYOK v${VERSION}"
 
       - name: Generate signed Windows portable update manifest
+        if: github.ref_type == 'tag'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -241,17 +285,14 @@ jobs:
             --output legacy-update/portable-latest.json
 
       - name: Normalize Tauri updater download URLs
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
         run: |
           mkdir -p tauri-update
-          release_id=$(
-            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-              --jq ".[] | select(.tag_name == \"v${VERSION}\") | .id"
-          )
-          test -n "${release_id}"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > tauri-update/release.json
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > tauri-update/release.json
           asset_id=$(node -p 'require("./tauri-update/release.json").assets.find(({ name }) => name === "latest.json")?.id ?? ""')
           test -n "${asset_id}"
           gh api \
@@ -265,12 +306,14 @@ jobs:
             --version "${VERSION}"
 
       - name: Upload normalized Tauri updater manifest
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: gh release upload "v${VERSION}" tauri-update/latest.json --clobber
 
       - name: Upload legacy updater assets
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}

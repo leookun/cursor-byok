@@ -251,7 +251,7 @@ pub async fn available_models(
     Extension(proxy): Extension<CursorProxy>,
     request: Request<Body>,
 ) -> Result<Response<Body>> {
-    let models = registry.store().models().await?;
+    let models = published_models(registry.store().models().await?);
     let plugin_models = match registry.plugins() {
         Some(plugins) => plugins.configured_models().await,
         None => Vec::new(),
@@ -286,7 +286,7 @@ pub async fn usable_models(
     Extension(proxy): Extension<CursorProxy>,
     request: Request<Body>,
 ) -> Result<Response<Body>> {
-    let models = registry.store().models().await?;
+    let models = published_models(registry.store().models().await?);
     let plugin_models = match registry.plugins() {
         Some(plugins) => plugins.configured_models().await,
         None => Vec::new(),
@@ -316,7 +316,7 @@ pub async fn usable_models(
 pub async fn default_model_for_cli(
     State(registry): State<TransportRegistry>,
 ) -> Result<Response<Body>> {
-    let models = registry.store().models().await?;
+    let models = published_models(registry.store().models().await?);
     let plugin_models = configured_plugin_models(&registry).await;
     Ok(local_response(
         agent::GetDefaultModelForCliResponse {
@@ -327,7 +327,7 @@ pub async fn default_model_for_cli(
 }
 
 pub async fn default_model(State(registry): State<TransportRegistry>) -> Result<Response<Body>> {
-    let models = registry.store().models().await?;
+    let models = published_models(registry.store().models().await?);
     let plugin_models = configured_plugin_models(&registry).await;
     Ok(local_response(
         default_model_response(&models, &plugin_models).encode_to_vec(),
@@ -337,11 +337,17 @@ pub async fn default_model(State(registry): State<TransportRegistry>) -> Result<
 pub async fn default_model_nudge(
     State(registry): State<TransportRegistry>,
 ) -> Result<Response<Body>> {
-    let models = registry.store().models().await?;
+    let models = published_models(registry.store().models().await?);
     let plugin_models = configured_plugin_models(&registry).await;
     Ok(local_response(
         default_model_nudge_response(&models, &plugin_models).encode_to_vec(),
     ))
+}
+
+/// 只有启用中的模型才发布到 Cursor 的模型目录。分组开关批量切换 `enabled`,
+/// 因此这里是「关闭分组后模型从 Cursor 模型选择栏消失」的唯一生效点。
+fn published_models(models: Vec<ModelConfig>) -> Vec<ModelConfig> {
+    models.into_iter().filter(|model| model.enabled).collect()
 }
 
 async fn configured_plugin_models(registry: &TransportRegistry) -> Vec<PluginModelDescriptor> {
@@ -778,6 +784,7 @@ mod tests {
             sort_order: 0,
             display_name: "Local Model".into(),
             group_name: None,
+            enabled: true,
             model_type: ModelType::OpenAi,
             base_url: "https://provider.example/v1/chat/completions".into(),
             use_full_url: true,
@@ -858,5 +865,25 @@ mod tests {
             nudge.models_with_no_default_switch,
             vec!["local-model-hash"]
         );
+    }
+
+    /// 关闭的模型不进入 Cursor 的模型目录,因此也不会成为默认模型。
+    #[test]
+    fn disabled_models_are_not_published_to_cursor() {
+        let published = published_models(vec![
+            ModelConfig {
+                enabled: false,
+                ..model()
+            },
+            model(),
+        ]);
+        assert_eq!(published.len(), 1);
+        assert!(published[0].enabled);
+
+        let none = published_models(vec![ModelConfig {
+            enabled: false,
+            ..model()
+        }]);
+        assert!(default_model_details(&none, &[]).is_none());
     }
 }

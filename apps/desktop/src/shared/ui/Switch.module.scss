@@ -25,4 +25,18 @@
   }
 
   &[data-checked] span { transform: translateX(16px); }
+
+  &.small {
+    width: 30px;
+    height: 18px;
+
+    span {
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+    }
+
+    &[data-checked] span { transform: translateX(12px); }
+  }
 }

@@ -7,12 +7,12 @@ members = [
 ]
 resolver = "2"
 
-# Keep local Rust builds compact. Full dependency debug info and incremental
-# object caches dominate target/ in this workspace, while line tables for our
-# own crates are enough for normal backtraces and source-level debugging.
+# Keep dependency debug info compact, while retaining incremental artifacts
+# for local development so editing our large Rust crates does not rebuild them
+# from scratch. Test builds still avoid incremental object caches.
 [profile.dev]
 debug = 1
-incremental = false
+incremental = true
 
 [profile.dev.package."*"]
 debug = 0

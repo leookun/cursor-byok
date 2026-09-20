@@ -5,6 +5,7 @@ import type {
   ResourceDraft,
 } from "cursor-byok:resource";
 import { credentialDraft, queryAccountQuota } from "./resources.ts";
+import { ANTIGRAVITY_OAUTH_USER_AGENT } from "./models.ts";
 import {
   CLIENT_ID,
   CLIENT_SECRET,
@@ -45,7 +46,7 @@ function parseSession(value: JsonValue): Session {
   return { createdAtMs };
 }
 
-async function begin(
+function begin(
   input: { redirectUri: string; state: string; codeChallenge: string },
   _context: PluginContext,
 ): Promise<OAuth2AuthorizationCodeBegin> {
@@ -59,12 +60,13 @@ async function begin(
     code_challenge_method: "S256",
     access_type: "offline",
     prompt: "consent",
+    include_granted_scopes: "true",
   });
-  return {
+  return Promise.resolve({
     session: { createdAtMs: Date.now() },
     authorizationUrl: `${GOOGLE_AUTHORIZATION_URL}?${authParams.toString()}`,
     expiresAtMs: Date.now() + AUTHORIZATION_LIFETIME_MS,
-  };
+  });
 }
 
 async function complete(
@@ -78,6 +80,7 @@ async function complete(
     headers: {
       accept: "application/json",
       "content-type": "application/x-www-form-urlencoded",
+      "user-agent": ANTIGRAVITY_OAUTH_USER_AGENT,
     },
     body: new URLSearchParams({
       client_id: CLIENT_ID,
@@ -101,7 +104,7 @@ async function complete(
   let displayName = text(tokenBody.email);
   try {
     const userInfoResponse = await context.network.fetch(
-      "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+      "https://www.googleapis.com/oauth2/v2/userinfo",
       {
         method: "GET",
         headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
@@ -114,25 +117,16 @@ async function complete(
     // Account identity has a token fingerprint fallback.
   }
 
-  let projectId = "bamboo-precept-lgxtn";
-  let quota = null;
-  try {
-    const result = await queryAccountQuota(accessToken, context.network);
-    projectId = result.projectId;
-    quota = result.quota;
-  } catch {
-    // Quota can be refreshed after the account has been persisted.
-  }
-
+  const result = await queryAccountQuota(accessToken, context.network);
   const expiresIn = typeof tokenBody.expires_in === "number" ? tokenBody.expires_in : null;
   return [
     await credentialDraft({
       accessToken,
       refreshToken: text(tokenBody.refresh_token),
       displayName: displayName ?? "Google Antigravity",
-      projectId,
+      projectId: result.projectId,
       expiresAtMs: expiresIn === null ? null : Date.now() + expiresIn * 1000,
-      quota,
+      quota: result.quota,
     }),
   ];
 }

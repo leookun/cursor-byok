@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [lib]
-name = "cursor_byok_desktop"
+name = "cursor_byok_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
