@@ -104,6 +104,11 @@ impl PluginRuntime {
         Self::new(config::managed_data_dir()?.join("plugins").join("runtime"))
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(root: PathBuf) -> Result<Self> {
+        Self::new(root)
+    }
+
     fn new(root: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&root)?;
         #[cfg(unix)]
