@@ -188,7 +188,11 @@ impl CursorHarness {
             .transpose()?
             .unwrap_or(false);
         if !settings_applied {
-            process::terminate_cursor().await?;
+            // Terminating Cursor only makes the freshly written http.proxy take effect
+            // sooner; it is optional, so a failed probe or kill must not block takeover.
+            if let Err(error) = process::terminate_cursor().await {
+                tracing::warn!(%error, "could not terminate Cursor before applying proxy settings");
+            }
         }
         if proxy.running() {
             if let Some(url) = proxy.url() {
