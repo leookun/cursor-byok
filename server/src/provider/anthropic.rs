@@ -119,6 +119,7 @@ impl Provider for AnthropicProvider {
             let mut thinking_signatures = std::collections::HashMap::<usize, String>::new();
             let mut thinking_blocks = Vec::new();
             let mut finish = None;
+            let mut refused = false;
             let mut saw_tool = false;
             let mut terminal = false;
             let mut final_usage = None::<Usage>;
@@ -208,7 +209,9 @@ impl Provider for AnthropicProvider {
                         if let Some(usage) = value.get("usage") {
                             merge_usage(final_usage.get_or_insert_default(), anthropic_usage(usage));
                         }
-                        finish = match value.pointer("/delta/stop_reason").and_then(Value::as_str) {
+                        let stop_reason = value.pointer("/delta/stop_reason").and_then(Value::as_str);
+                        refused |= stop_reason == Some("refusal");
+                        finish = match stop_reason {
                             Some("tool_use") => Some(FinishReason::ToolUse),
                             Some("max_tokens" | "model_context_window_exceeded") => Some(FinishReason::Length),
                             Some("end_turn" | "stop_sequence" | "pause_turn" | "refusal") => Some(FinishReason::Stop),
@@ -234,13 +237,7 @@ impl Provider for AnthropicProvider {
                         if let Some(usage) = final_usage {
                             yield ModelEvent::Usage(usage);
                         }
-                        let finish = match finish {
-                            Some(FinishReason::Length) => FinishReason::Length,
-                            _ if saw_tool => FinishReason::ToolUse,
-                            Some(finish) => finish,
-                            None => FinishReason::Stop,
-                        };
-                        yield ModelEvent::Done(finish);
+                        yield ModelEvent::Done(collapse_anthropic_finish(finish, saw_tool, refused));
                     }
                     _ => {}
                 }
@@ -259,13 +256,7 @@ impl Provider for AnthropicProvider {
                 }
                 if let Some(usage) = final_usage { yield ModelEvent::Usage(usage); }
                 terminal = true;
-                let finish = match finish {
-                    Some(FinishReason::Length) => FinishReason::Length,
-                    _ if saw_tool => FinishReason::ToolUse,
-                    Some(finish) => finish,
-                    None => FinishReason::Stop,
-                };
-                yield ModelEvent::Done(finish);
+                yield ModelEvent::Done(collapse_anthropic_finish(finish, saw_tool, refused));
             }
             if !terminal {
                 Err(Error::Provider("Anthropic stream ended without message_stop".into()))?;
@@ -502,9 +493,81 @@ fn anthropic_usage(value: &Value) -> Usage {
     }
 }
 
+/// Collapses the reported stop reason against the blocks actually streamed.
+///
+/// Observed tool calls outrank an ordinary stop, because Anthropic reports
+/// `end_turn` alongside `tool_use` blocks and those calls are meant to run. A
+/// refusal is the exception: the model declined the turn, so any tool blocks it
+/// streamed alongside the refusal must not be executed.
+fn collapse_anthropic_finish(
+    finish: Option<FinishReason>,
+    saw_tool: bool,
+    refused: bool,
+) -> FinishReason {
+    match finish {
+        Some(FinishReason::Length) => FinishReason::Length,
+        _ if refused => FinishReason::Stop,
+        _ if saw_tool => FinishReason::ToolUse,
+        Some(finish) => finish,
+        None => FinishReason::Stop,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refusal_never_executes_the_tool_blocks_it_streamed() {
+        assert_eq!(
+            collapse_anthropic_finish(Some(FinishReason::Stop), true, true),
+            FinishReason::Stop
+        );
+        assert_eq!(
+            collapse_anthropic_finish(None, true, true),
+            FinishReason::Stop
+        );
+    }
+
+    #[test]
+    fn observed_tool_blocks_still_outrank_an_ordinary_stop() {
+        assert_eq!(
+            collapse_anthropic_finish(Some(FinishReason::Stop), true, false),
+            FinishReason::ToolUse
+        );
+        assert_eq!(
+            collapse_anthropic_finish(None, true, false),
+            FinishReason::ToolUse
+        );
+        assert_eq!(
+            collapse_anthropic_finish(Some(FinishReason::ToolUse), true, false),
+            FinishReason::ToolUse
+        );
+    }
+
+    #[test]
+    fn a_truncated_response_stays_truncated() {
+        assert_eq!(
+            collapse_anthropic_finish(Some(FinishReason::Length), true, false),
+            FinishReason::Length
+        );
+        assert_eq!(
+            collapse_anthropic_finish(Some(FinishReason::Length), true, true),
+            FinishReason::Length
+        );
+    }
+
+    #[test]
+    fn a_stop_without_tool_blocks_is_unchanged() {
+        assert_eq!(
+            collapse_anthropic_finish(Some(FinishReason::Stop), false, false),
+            FinishReason::Stop
+        );
+        assert_eq!(
+            collapse_anthropic_finish(None, false, false),
+            FinishReason::Stop
+        );
+    }
 
     #[test]
     fn cached_tokens_are_included_once_in_anthropic_context_input() {
