@@ -1,6 +1,10 @@
 //! Owns reusable outbound HTTP clients configured from persisted proxy settings.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use tokio::sync::RwLock;
 
@@ -10,6 +14,15 @@ use crate::{
 };
 
 const LOCAL_NO_PROXY: &str = "localhost,127.0.0.0/8,::1";
+
+/// How often cached clients re-check the effective proxy configuration.
+///
+/// reqwest resolves the OS system proxy once when a `Client` is built and
+/// freezes it into the connector, so a running process never notices when the
+/// user toggles a system-wide proxy (e.g. Clash). Comparing a cheap
+/// fingerprint on this interval lets stale clients be rebuilt within seconds
+/// instead of surviving until the next process restart.
+const FINGERPRINT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 pub struct NetworkClients {
@@ -22,6 +35,9 @@ struct ClientCache {
     default: Option<reqwest::Client>,
     cursor: Option<reqwest::Client>,
     provider: Option<(Duration, reqwest::Client)>,
+    /// Fingerprint of the proxy configuration the cached clients were built
+    /// with, and when the fingerprint was last recomputed.
+    fingerprint: Option<(u64, Instant)>,
 }
 
 impl NetworkClients {
@@ -33,6 +49,7 @@ impl NetworkClients {
     }
 
     pub async fn default_client(&self) -> Result<reqwest::Client> {
+        self.invalidate_if_proxy_changed().await;
         if let Some(client) = self.cache.read().await.default.clone() {
             return Ok(client);
         }
@@ -46,6 +63,7 @@ impl NetworkClients {
     }
 
     pub async fn cursor_client(&self) -> Result<reqwest::Client> {
+        self.invalidate_if_proxy_changed().await;
         if let Some(client) = self.cache.read().await.cursor.clone() {
             return Ok(client);
         }
@@ -62,6 +80,7 @@ impl NetworkClients {
     }
 
     pub async fn provider_client(&self, timeout: Duration) -> Result<reqwest::Client> {
+        self.invalidate_if_proxy_changed().await;
         if let Some((_, client)) = self
             .cache
             .read()
@@ -90,6 +109,128 @@ impl NetworkClients {
 
     pub async fn invalidate(&self) {
         *self.cache.write().await = ClientCache::default();
+    }
+
+    /// Drops cached clients when the effective proxy configuration changed
+    /// since they were built. Rate-limited to one fingerprint computation per
+    /// `FINGERPRINT_CHECK_INTERVAL`; fingerprint read failures keep the
+    /// current cache rather than flushing it spuriously.
+    async fn invalidate_if_proxy_changed(&self) {
+        {
+            let cache = self.cache.read().await;
+            if let Some((_, checked_at)) = cache.fingerprint {
+                if checked_at.elapsed() < FINGERPRINT_CHECK_INTERVAL {
+                    return;
+                }
+            }
+        }
+        let Some(fingerprint) = proxy_fingerprint(&self.store).await else {
+            return;
+        };
+        let mut cache = self.cache.write().await;
+        match cache.fingerprint {
+            Some((cached, _)) if cached == fingerprint => {
+                cache.fingerprint = Some((fingerprint, Instant::now()));
+            }
+            previous => {
+                if previous.is_some() {
+                    tracing::info!("proxy configuration changed; rebuilding cached HTTP clients");
+                }
+                *cache = ClientCache {
+                    fingerprint: Some((fingerprint, Instant::now())),
+                    ..ClientCache::default()
+                };
+            }
+        }
+    }
+}
+
+/// Hashes everything that influences how outbound clients route requests:
+/// the persisted custom proxy settings and, on macOS, the live system proxy
+/// (the same HTTP/HTTPS entries hyper-util's `Matcher::from_system` freezes
+/// into each reqwest client at build time).
+async fn proxy_fingerprint(store: &Store) -> Option<u64> {
+    let settings = store.proxy_settings_secret().await.ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    settings.mode.is_custom().hash(&mut hasher);
+    if settings.mode.is_custom() {
+        settings.address.hash(&mut hasher);
+        settings.auth_enabled.hash(&mut hasher);
+        settings.username.hash(&mut hasher);
+        settings.password.hash(&mut hasher);
+    }
+    #[cfg(target_os = "macos")]
+    macos::hash_system_proxy(&mut hasher);
+    Some(hasher.finish())
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::hash::Hasher;
+
+    use system_configuration::core_foundation::base::CFType;
+    use system_configuration::core_foundation::dictionary::CFDictionary;
+    use system_configuration::core_foundation::number::CFNumber;
+    use system_configuration::core_foundation::string::{CFString, CFStringRef};
+    use system_configuration::dynamic_store::SCDynamicStoreBuilder;
+    use system_configuration::sys::schema_definitions::{
+        kSCPropNetProxiesHTTPEnable, kSCPropNetProxiesHTTPPort, kSCPropNetProxiesHTTPProxy,
+        kSCPropNetProxiesHTTPSEnable, kSCPropNetProxiesHTTPSPort, kSCPropNetProxiesHTTPSProxy,
+    };
+
+    pub fn hash_system_proxy(hasher: &mut impl Hasher) {
+        let Some(store) = SCDynamicStoreBuilder::new("cursor-byok").build() else {
+            return;
+        };
+        let Some(proxies) = store.get_proxies() else {
+            return;
+        };
+        unsafe {
+            hash_setting(
+                &proxies,
+                kSCPropNetProxiesHTTPEnable,
+                kSCPropNetProxiesHTTPProxy,
+                kSCPropNetProxiesHTTPPort,
+                hasher,
+            );
+            hash_setting(
+                &proxies,
+                kSCPropNetProxiesHTTPSEnable,
+                kSCPropNetProxiesHTTPSProxy,
+                kSCPropNetProxiesHTTPSPort,
+                hasher,
+            );
+        }
+    }
+
+    fn hash_setting(
+        proxies: &CFDictionary<CFString, CFType>,
+        enable_key: CFStringRef,
+        host_key: CFStringRef,
+        port_key: CFStringRef,
+        hasher: &mut impl Hasher,
+    ) {
+        let enabled = proxies
+            .find(enable_key)
+            .and_then(|flag| flag.downcast::<CFNumber>())
+            .and_then(|flag| flag.to_i32())
+            .unwrap_or(0);
+        hasher.write_i32(enabled);
+        if enabled == 1 {
+            if let Some(host) = proxies
+                .find(host_key)
+                .and_then(|host| host.downcast::<CFString>())
+            {
+                hasher.write(host.to_string().as_bytes());
+            }
+            if let Some(port) = proxies
+                .find(port_key)
+                .and_then(|port| port.downcast::<CFNumber>())
+                .and_then(|port| port.to_i32())
+            {
+                hasher.write_i32(port);
+            }
+        }
     }
 }
 
