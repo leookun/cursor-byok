@@ -130,8 +130,27 @@ pub async fn add(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let message: KnowledgeBaseAddRequest = connect::decode_unary(&body)?;
+    tracing::info!(
+        title = %message.title,
+        knowledge = %message.knowledge,
+        git_origin = %message.git_origin,
+        composer_id = ?message.composer_id,
+        "KB add request"
+    );
     let _guard = service.inner.lock.lock().await;
     let store = &service.inner.store;
+
+    if store.is_blocked(&message.knowledge, &message.title) {
+        tracing::warn!(
+            title = %message.title,
+            knowledge = %message.knowledge,
+            "KB add blocked by .blocklist; not storing, not forwarding upstream"
+        );
+        return proto(KnowledgeBaseAddResponse {
+            success: true,
+            id: "blocked".into(),
+        });
+    }
 
     if sync::replay(&upstream, &parts.headers, store).await? {
         match proxy::forward_buffered(&upstream, Request::from_parts(parts, Body::from(body))).await
@@ -239,8 +258,25 @@ pub async fn update(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let message: KnowledgeBaseUpdateRequest = connect::decode_unary(&body)?;
+    tracing::info!(
+        id = %message.id,
+        title = %message.title,
+        knowledge = %message.knowledge,
+        "KB update request"
+    );
     let _guard = service.inner.lock.lock().await;
     let store = &service.inner.store;
+
+    if store.is_blocked(&message.knowledge, &message.title) {
+        tracing::warn!(
+            id = %message.id,
+            title = %message.title,
+            knowledge = %message.knowledge,
+            "KB update blocked by .blocklist; not storing, not forwarding upstream"
+        );
+        let _ = store.remove(&message.id);
+        return proto(KnowledgeBaseUpdateResponse { success: true });
+    }
 
     if sync::replay(&upstream, &parts.headers, store).await? {
         match proxy::forward_buffered(&upstream, Request::from_parts(parts, Body::from(body))).await
@@ -295,6 +331,7 @@ pub async fn remove(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let message: KnowledgeBaseRemoveRequest = connect::decode_unary(&body)?;
+    tracing::info!(id = %message.id, "KB remove request");
     let _guard = service.inner.lock.lock().await;
     let store = &service.inner.store;
 
