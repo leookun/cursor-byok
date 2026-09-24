@@ -1,0 +1,15 @@
+{
+  "apiVersion": 1,
+  "id": "dev.cursorbyok.plugins.opencode-auth",
+  "name": "OpenCode",
+  "version": "0.1.0",
+  "author": "@czpGhost",
+  "minAppVersion": "0.1.0",
+  "icon": "assets/opencode.svg",
+  "entry": "main.ts",
+  "permissions": {
+    "network": [
+      "opencode.ai"
+    ]
+  }
+}

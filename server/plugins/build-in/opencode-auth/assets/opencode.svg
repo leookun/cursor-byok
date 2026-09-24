@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Adapted from lobehub/lobe-icons (MIT): packages/static-svg/icons/opencode.svg.
+     Black rounded tile keeps the white glyph legible in both light and dark themes. -->
+<svg width="230" height="230" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <title>opencode</title>
+  <rect width="24" height="24" rx="5" fill="#000000"/>
+  <path fill="#FFFFFF" fill-rule="evenodd"
+    d="M16 6H8v12h8V6zm4 16H4V2h16v20z"/>
+</svg>
