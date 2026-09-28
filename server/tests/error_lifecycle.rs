@@ -601,8 +601,8 @@ async fn parent_request_does_not_need_to_resolve_to_an_active_run() {
     assert_run_starts_without_parent_dependency(
         "finished-parent-request",
         Some(TransportParent {
-            request_id: "already-finished-parent".into(),
-            tool_call_id: "original-tool-call".into(),
+            request_id: Some("already-finished-parent".into()),
+            tool_call_id: Some("original-tool-call".into()),
         }),
         None,
     )
