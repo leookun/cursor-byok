@@ -25,6 +25,7 @@ pub struct App {
     router: axum::Router,
     registry: TransportRegistry,
     harness: CursorHarness,
+    scheduler_plugins: PluginRegistry,
     store: Store,
 }
 
@@ -60,6 +61,7 @@ impl App {
             plugins.clone(),
             crate::config::managed_data_dir()?.join("rules"),
         );
+        let scheduler_plugins = plugins.clone();
         let control = control::ControlService::new(
             store.clone(),
             provider,
@@ -83,6 +85,7 @@ impl App {
             router,
             registry,
             harness,
+            scheduler_plugins,
             store,
             config,
         })
@@ -133,6 +136,8 @@ impl App {
         self.registry.web_cache().set_service_addr(address);
         self.harness.set_backend_addr(address);
         tracing::info!(%address, "cursor server listening");
+        let scheduler_plugins = self.scheduler_plugins;
+        let scheduler = scheduler_plugins.spawn_automation_scheduler(shutdown.clone());
         let registry = self.registry;
         let harness = self.harness;
         let graceful = shutdown.clone();
@@ -161,6 +166,8 @@ impl App {
                 }
             }
         }
+        shutdown.cancel();
+        let _ = scheduler.await;
         Ok(())
     }
 }

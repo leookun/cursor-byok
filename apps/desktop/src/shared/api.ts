@@ -260,6 +260,16 @@ export interface PluginResourceActionResult {
   title: PluginLocalizedText;
   description: PluginLocalizedText | null;
   cards: PluginResourceActionCard[];
+  succeeded: boolean;
+}
+
+export interface PluginAutomationDescriptor {
+  actionId: string;
+  kind: string;
+  enabled: boolean;
+  lastRunAtMs: number | null;
+  lastRunSucceeded: boolean | null;
+  lastRunFailed: boolean | null;
 }
 
 export interface PluginResourceDescriptor {
@@ -269,7 +279,9 @@ export interface PluginResourceDescriptor {
   import: PluginImportDescriptor | null;
   canRefresh: boolean;
   canRemove: boolean;
+  export: { enabled: boolean };
   actions: PluginResourceAction[];
+  automations: PluginAutomationDescriptor[];
   resources: PluginResourceView[];
 }
 
@@ -510,6 +522,7 @@ export const api = {
   importPluginResources: (pluginId: string, resourceType: string, files: PluginImportFile[]) => request<PluginImportResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/import`, { method: "POST", body: JSON.stringify(files) }),
   refreshPluginResource: (pluginId: string, resourceType: string, resourceId: string) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/refresh`, { method: "POST" }),
   pluginResourceAction: (pluginId: string, resourceType: string, resourceId: string, actionId: string, input: unknown = {}) => request<PluginResourceActionResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/actions/${encodeURIComponent(actionId)}`, { method: "POST", body: JSON.stringify(input) }),
+  setPluginResourceAutomationEnabled: (pluginId: string, resourceType: string, actionId: string, enabled: boolean) => request<PluginAutomationDescriptor>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/automations/${encodeURIComponent(actionId)}`, { method: "PUT", body: JSON.stringify({ enabled }) }),
   deletePluginResource: (pluginId: string, resourceType: string, resourceId: string) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`, { method: "DELETE" }),
   syncPluginModels: (pluginId: string, providerId: string) => request<{ models: number }>(`/plugins/${encodeURIComponent(pluginId)}/providers/${encodeURIComponent(providerId)}/models/sync`, { method: "POST" }),
   setPluginModelEnabled: (pluginId: string, providerId: string, modelId: string, enabled: boolean) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/providers/${encodeURIComponent(providerId)}/models/enabled`, { method: "PUT", body: JSON.stringify({ modelId, enabled }) }),

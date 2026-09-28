@@ -128,6 +128,7 @@ impl PluginWorker {
         params: serde_json::Value,
         cancellation: CancellationToken,
     ) -> Result<serde_json::Value> {
+        let timeout_cancellation = cancellation.clone();
         let mut items = self
             .invoke_streaming(method, params, cancellation, None)
             .await?;
@@ -145,10 +146,13 @@ impl PluginWorker {
         .await;
         match result {
             Ok(result) => result,
-            Err(_) => Err(Error::Provider(format!(
-                "plugin '{}' invocation timed out",
-                self.inner.plugin_id
-            ))),
+            Err(_) => {
+                timeout_cancellation.cancel();
+                Err(Error::Provider(format!(
+                    "plugin '{}' invocation timed out",
+                    self.inner.plugin_id
+                )))
+            }
         }
     }
 
@@ -519,7 +523,12 @@ impl HostContext {
             .as_ref()
             .map(|state| state.cancellation.clone())
             .unwrap_or_default();
-        let recorder = invocation.and_then(|state| state.claim_recorder());
+        let sensitive = params.get("sensitive").and_then(serde_json::Value::as_bool) == Some(true);
+        let recorder = if sensitive {
+            None
+        } else {
+            invocation.and_then(|state| state.claim_recorder())
+        };
         if let Some(recorder) = &recorder {
             let (headers, body) = recorded_network_request(params)?;
             recorder.request(headers, &body).await?;
@@ -765,6 +774,7 @@ mod tests {
             "url": "https://example.com/v1/responses",
             "method": "POST",
             "headers": {
+                "X-Refresh-Token": "refresh-secret",
                 "Authorization": "Bearer secret",
                 "X-Api-Key": "secret-key",
                 "Cookie": "session=secret",
@@ -888,5 +898,22 @@ mod tests {
         assert_eq!(summary.response_bytes, response.len() as i64);
         assert_eq!(summary.stream_event_count, 1);
         assert!(!summary.detailed);
+    }
+
+    #[tokio::test]
+    async fn sensitive_plugin_network_call_does_not_claim_recorder() {
+        let (_directory, store, recorder) = recorder(true, "sensitive-plugin").await;
+        let host = host_with_recorder(store.clone(), recorder.clone()).await;
+        let mut params = network_params();
+        params["sensitive"] = serde_json::Value::Bool(true);
+
+        let (_, _, observed) = host.request("invocation", &params).await.unwrap();
+
+        assert!(observed.is_none());
+        assert!(store
+            .llm_call_request("sensitive-plugin")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

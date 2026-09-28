@@ -7,8 +7,8 @@ use axum::{
 
 use crate::{
     plugin::{
-        ImportResponse, OAuthBeginResponse, OAuthPollResponse, PluginDescriptor,
-        PluginRuntimeStatus,
+        ImportResponse, OAuthBeginResponse, OAuthPollResponse, PluginAutomationDescriptor,
+        PluginDescriptor, PluginRuntimeStatus,
     },
     Result,
 };
@@ -100,6 +100,22 @@ pub async fn action(
     Ok(Json(
         service
             .plugin_resource_action(&plugin_id, &resource_type, &resource_id, &action_id, input)
+            .await?,
+    ))
+}
+
+pub async fn set_automation_enabled(
+    State(service): State<ControlService>,
+    Path((plugin_id, resource_type, action_id)): Path<(String, String, String)>,
+    Json(input): Json<serde_json::Value>,
+) -> Result<Json<PluginAutomationDescriptor>> {
+    let enabled = input
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| crate::Error::Config("enabled must be a boolean".into()))?;
+    Ok(Json(
+        service
+            .plugin_set_resource_automation_enabled(&plugin_id, &resource_type, &action_id, enabled)
             .await?,
     ))
 }

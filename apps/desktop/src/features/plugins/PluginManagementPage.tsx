@@ -143,7 +143,9 @@ function PluginCard({ plugin, onOpen }: {
   const modelCount = plugin.providers.reduce((count, provider) => count + provider.models.length, 0);
   const subtitle = plugin.providers.map((provider) => pluginText(provider.displayName, locale)).join(" · ") || plugin.id;
   const importResource = plugin.resources.find((resource) => resource.import);
-  const exportResource = plugin.resources.find((resource) => resource.resources.length > 0);
+  const exportResource = plugin.resources.find((resource) =>
+    resource.resources.length > 0 && resource.export?.enabled === true
+  );
 
   const importFiles = async (files: FileList | null) => {
     if (!files?.length || !importResource) return;

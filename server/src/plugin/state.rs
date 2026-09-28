@@ -206,12 +206,70 @@ impl StoredModel {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredAutomation {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub last_run_at_ms: Option<i64>,
+    /// Local calendar date of the last completed run. Kept beside the
+    /// timestamp so daily due checks remain stable across restarts.
+    #[serde(default)]
+    pub last_run_date: Option<String>,
+    #[serde(default)]
+    pub last_run_succeeded: Option<bool>,
+    #[serde(default)]
+    pub last_run_failed: Option<bool>,
+}
+
+impl StoredAutomation {
+    pub fn with_default(default_enabled: bool) -> Self {
+        Self {
+            enabled: default_enabled,
+            last_run_at_ms: None,
+            last_run_date: None,
+            last_run_succeeded: None,
+            last_run_failed: None,
+        }
+    }
+
+    fn normalize(&mut self) {
+        if self.last_run_date.is_none() {
+            self.last_run_date = self.last_run_at_ms.and_then(local_date);
+        }
+        if self.last_run_succeeded.is_some() || self.last_run_failed.is_some() {
+            let succeeded = self.last_run_succeeded.unwrap_or(false);
+            self.last_run_succeeded = Some(succeeded);
+            self.last_run_failed = Some(!succeeded);
+        }
+    }
+
+    pub fn is_due(&self, now_ms: i64) -> bool {
+        let last_run_date = self
+            .last_run_date
+            .clone()
+            .or_else(|| self.last_run_at_ms.and_then(local_date));
+        match (last_run_date, local_date(now_ms)) {
+            (Some(last), Some(today)) => last != today,
+            _ => true,
+        }
+    }
+}
+
+/// Return the host-local calendar date for a Unix millisecond timestamp.
+pub fn local_date(timestamp_ms: i64) -> Option<String> {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms)
+        .map(|value| value.with_timezone(&chrono::Local).date_naive().to_string())
+}
+
 /// 资源与模型目录的核心存储,构建在插件私有 JSON 文件之上。
 #[derive(Clone)]
 pub struct PluginStateStore {
     data: PluginDataStore,
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct UpsertOutcome {
     pub added: usize,
     pub updated: usize,
@@ -243,42 +301,44 @@ impl PluginStateStore {
         resource_type: &str,
         drafts: Vec<ResourceDraft>,
     ) -> Result<UpsertOutcome> {
-        let mut records = self.resources(plugin_id, resource_type).await?;
         let now = now_ms();
-        let mut outcome = UpsertOutcome {
-            added: 0,
-            updated: 0,
-        };
-        for draft in drafts {
-            if draft.key.trim().is_empty() {
-                return Err(Error::Protocol("plugin resource draft requires key".into()));
-            }
-            let state = draft
-                .state
-                .map_or(ResourceState::Ready, ResourceState::from);
-            match records.iter_mut().find(|record| record.key == draft.key) {
-                Some(existing) => {
-                    existing.private_data = draft.private_data;
-                    existing.state = state;
-                    existing.updated_at_ms = now;
-                    outcome.updated += 1;
+        self.data
+            .update_with_result(plugin_id, &resource_key(resource_type), move |value| {
+                let mut records = decode_resources(value)?;
+                let mut outcome = UpsertOutcome {
+                    added: 0,
+                    updated: 0,
+                };
+                for draft in drafts {
+                    if draft.key.trim().is_empty() {
+                        return Err(Error::Protocol("plugin resource draft requires key".into()));
+                    }
+                    let state = draft
+                        .state
+                        .map_or(ResourceState::Ready, ResourceState::from);
+                    match records.iter_mut().find(|record| record.key == draft.key) {
+                        Some(existing) => {
+                            existing.private_data = draft.private_data;
+                            existing.state = state;
+                            existing.updated_at_ms = now;
+                            outcome.updated += 1;
+                        }
+                        None => {
+                            records.push(ResourceRecord {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                key: draft.key,
+                                private_data: draft.private_data,
+                                state,
+                                created_at_ms: now,
+                                updated_at_ms: now,
+                            });
+                            outcome.added += 1;
+                        }
+                    }
                 }
-                None => {
-                    records.push(ResourceRecord {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        key: draft.key,
-                        private_data: draft.private_data,
-                        state,
-                        created_at_ms: now,
-                        updated_at_ms: now,
-                    });
-                    outcome.added += 1;
-                }
-            }
-        }
-        self.save_resources(plugin_id, resource_type, &records)
-            .await?;
-        Ok(outcome)
+                Ok((serde_json::to_value(records)?, outcome))
+            })
+            .await
     }
 
     pub async fn apply_patch(
@@ -288,20 +348,24 @@ impl PluginStateStore {
         resource_id: &str,
         patch: ResourcePatch,
     ) -> Result<()> {
-        let mut records = self.resources(plugin_id, resource_type).await?;
-        let record = records
-            .iter_mut()
-            .find(|record| record.id == resource_id)
-            .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
-        if let Some(private_data) = patch.private_data {
-            record.private_data = private_data;
-        }
-        if let Some(state) = patch.state {
-            record.state = state.into();
-        }
-        record.updated_at_ms = now_ms();
-        self.save_resources(plugin_id, resource_type, &records)
+        self.data
+            .update_with(plugin_id, &resource_key(resource_type), move |value| {
+                let mut records = decode_resources(value)?;
+                let record = records
+                    .iter_mut()
+                    .find(|record| record.id == resource_id)
+                    .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
+                if let Some(private_data) = patch.private_data {
+                    record.private_data = private_data;
+                }
+                if let Some(state) = patch.state {
+                    record.state = state.into();
+                }
+                record.updated_at_ms = now_ms();
+                serde_json::to_value(records).map_err(Into::into)
+            })
             .await
+            .map(|_| ())
     }
 
     pub async fn remove_resource(
@@ -310,15 +374,17 @@ impl PluginStateStore {
         resource_type: &str,
         resource_id: &str,
     ) -> Result<ResourceRecord> {
-        let mut records = self.resources(plugin_id, resource_type).await?;
-        let index = records
-            .iter()
-            .position(|record| record.id == resource_id)
-            .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
-        let removed = records.remove(index);
-        self.save_resources(plugin_id, resource_type, &records)
-            .await?;
-        Ok(removed)
+        self.data
+            .update_with_result(plugin_id, &resource_key(resource_type), |value| {
+                let mut records = decode_resources(value)?;
+                let index = records
+                    .iter()
+                    .position(|record| record.id == resource_id)
+                    .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
+                let removed = records.remove(index);
+                Ok((serde_json::to_value(records)?, removed))
+            })
+            .await
     }
 
     pub async fn models(&self, plugin_id: &str, provider_id: &str) -> Result<Vec<StoredModel>> {
@@ -377,23 +443,87 @@ impl PluginStateStore {
             .await
     }
 
-    pub async fn clear(&self, plugin_id: &str) -> Result<()> {
-        self.data.clear(plugin_id).await
-    }
-
-    async fn save_resources(
+    pub async fn automation(
         &self,
         plugin_id: &str,
         resource_type: &str,
-        records: &[ResourceRecord],
-    ) -> Result<()> {
-        self.data
-            .update(
+        action_id: &str,
+        default_enabled: bool,
+    ) -> Result<StoredAutomation> {
+        let value = self
+            .data
+            .read(plugin_id, &automation_key(resource_type, action_id))
+            .await?;
+        let mut state = if value.is_null() {
+            StoredAutomation::with_default(default_enabled)
+        } else {
+            serde_json::from_value(value)?
+        };
+        state.normalize();
+        Ok(state)
+    }
+
+    pub async fn set_automation_enabled(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        action_id: &str,
+        enabled: bool,
+        default_enabled: bool,
+    ) -> Result<StoredAutomation> {
+        let value = self
+            .data
+            .update_with(
                 plugin_id,
-                &resource_key(resource_type),
-                &serde_json::to_value(records)?,
+                &automation_key(resource_type, action_id),
+                |value| {
+                    let mut state = if value.is_null() {
+                        StoredAutomation::with_default(default_enabled)
+                    } else {
+                        serde_json::from_value(value)?
+                    };
+                    state.enabled = enabled;
+                    state.normalize();
+                    Ok(serde_json::to_value(&state)?)
+                },
             )
-            .await
+            .await?;
+        Ok(serde_json::from_value(value)?)
+    }
+
+    pub async fn record_automation_run(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        action_id: &str,
+        succeeded: bool,
+        ran_at_ms: i64,
+        default_enabled: bool,
+    ) -> Result<StoredAutomation> {
+        let value = self
+            .data
+            .update_with(
+                plugin_id,
+                &automation_key(resource_type, action_id),
+                |value| {
+                    let mut state = if value.is_null() {
+                        StoredAutomation::with_default(default_enabled)
+                    } else {
+                        serde_json::from_value(value)?
+                    };
+                    state.last_run_at_ms = Some(ran_at_ms);
+                    state.last_run_date = local_date(ran_at_ms);
+                    state.last_run_succeeded = Some(succeeded);
+                    state.last_run_failed = Some(!succeeded);
+                    Ok(serde_json::to_value(&state)?)
+                },
+            )
+            .await?;
+        Ok(serde_json::from_value(value)?)
+    }
+
+    pub async fn clear(&self, plugin_id: &str) -> Result<()> {
+        self.data.clear(plugin_id).await
     }
 }
 
@@ -404,6 +534,13 @@ pub fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+fn decode_resources(value: serde_json::Value) -> Result<Vec<ResourceRecord>> {
+    if value.is_null() {
+        Ok(Vec::new())
+    } else {
+        Ok(serde_json::from_value(value)?)
+    }
+}
 fn resource_key(resource_type: &str) -> String {
     format!("resources-{resource_type}")
 }
@@ -412,6 +549,9 @@ fn model_key(provider_id: &str) -> String {
     format!("models-{provider_id}")
 }
 
+fn automation_key(resource_type: &str, action_id: &str) -> String {
+    format!("automation-{resource_type}-{action_id}")
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,6 +616,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_resource_mutations_do_not_lose_records_or_patches() {
+        let (_root, store) = store();
+        let first = store
+            .upsert_resources(
+                "dev.example",
+                "account",
+                vec![ResourceDraft {
+                    key: "acct-1".into(),
+                    private_data: serde_json::json!({"token":"one"}),
+                    state: None,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.added, 1);
+        let id = store.resources("dev.example", "account").await.unwrap()[0]
+            .id
+            .clone();
+        let (patch, import) = tokio::join!(
+            store.apply_patch(
+                "dev.example",
+                "account",
+                &id,
+                ResourcePatch {
+                    private_data: None,
+                    state: Some(ResourceStateInput::Invalid { message: None }),
+                },
+            ),
+            store.upsert_resources(
+                "dev.example",
+                "account",
+                vec![ResourceDraft {
+                    key: "acct-2".into(),
+                    private_data: serde_json::json!({"token":"two"}),
+                    state: None,
+                }],
+            ),
+        );
+        patch.unwrap();
+        import.unwrap();
+        let records = store.resources("dev.example", "account").await.unwrap();
+        assert_eq!(records.len(), 2);
+        let patched = records.iter().find(|record| record.id == id).unwrap();
+        assert!(matches!(patched.state, ResourceState::Invalid { .. }));
+    }
+
+    #[tokio::test]
     async fn replaces_model_catalogs() {
         let (_root, store) = store();
         let model = StoredModel::from_definition(&serde_json::json!({
@@ -493,5 +680,55 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert!(models[0].images);
         assert_eq!(models[0].private_data["reasoningEfforts"][0], "low");
+    }
+
+    #[tokio::test]
+    async fn persists_automation_state_and_records_failures() {
+        let (_root, store) = store();
+        let initial = store
+            .automation("dev.example", "account", "check-in", true)
+            .await
+            .unwrap();
+        assert!(initial.enabled);
+        assert_eq!(initial.last_run_at_ms, None);
+        assert_eq!(initial.last_run_succeeded, None);
+        assert_eq!(initial.last_run_failed, None);
+
+        let state = store
+            .set_automation_enabled("dev.example", "account", "check-in", false, true)
+            .await
+            .unwrap();
+        assert!(!state.enabled);
+        let state = store
+            .record_automation_run("dev.example", "account", "check-in", false, 42, true)
+            .await
+            .unwrap();
+        assert_eq!(state.last_run_at_ms, Some(42));
+        assert_eq!(state.last_run_succeeded, Some(false));
+        assert_eq!(state.last_run_failed, Some(true));
+
+        let reloaded = store
+            .automation("dev.example", "account", "check-in", true)
+            .await
+            .unwrap();
+        assert_eq!(reloaded.last_run_at_ms, Some(42));
+        assert_eq!(reloaded.last_run_succeeded, Some(false));
+        assert_eq!(reloaded.last_run_failed, Some(true));
+    }
+
+    #[test]
+    fn daily_due_uses_local_date_and_treats_failures_as_complete() {
+        let today_ms = chrono::Local::now().timestamp_millis();
+        assert!(StoredAutomation::with_default(false).is_due(today_ms));
+        let today = StoredAutomation {
+            enabled: true,
+            last_run_at_ms: Some(today_ms),
+            last_run_date: local_date(today_ms),
+            last_run_succeeded: Some(false),
+            last_run_failed: Some(true),
+        };
+        assert!(!today.is_due(today_ms + 60_000));
+        let yesterday_ms = (chrono::Local::now() - chrono::Duration::days(1)).timestamp_millis();
+        assert!(today.is_due(yesterday_ms));
     }
 }

@@ -15,6 +15,8 @@ export type NetworkRequestInit = {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  /** Do not persist request/response payloads for credential exchanges. */
+  sensitive?: boolean;
 };
 
 export type NetworkResponse = {
@@ -104,10 +106,20 @@ export function __descriptor(definition: ProviderPluginDefinition) {
         displayName: action.displayName,
         description: action.description ?? null,
         target: action.target ?? "resource",
+        automation: action.automation
+          ? {
+            kind: action.automation.kind,
+            defaultEnabled: action.automation.defaultEnabled ?? false,
+            hidden: action.automation.hidden ?? false,
+          }
+          : null,
         destructive: action.destructive ?? false,
       })),
       canRefresh: resource.refresh !== undefined,
       canRemove: resource.remove !== undefined,
+      // Absent means the pre-policy behavior (export available); a plugin opts
+      // out by declaring `export: { enabled: false }`.
+      export: { enabled: resource.export?.enabled !== false },
     })),
   };
 }

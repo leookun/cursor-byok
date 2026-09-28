@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
 
 use async_stream::try_stream;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -12,14 +12,17 @@ use super::{
     catalog::{PluginCatalog, PluginEntry},
     data::PluginDataStore,
     descriptor::{
-        parse_model_id, PluginDescriptor, PluginModelDescriptor, PluginProviderDescriptor,
-        PluginResourceDescriptor, PluginResourceView, ProviderDefinition, ResourceActionResponse,
-        ResourceActionResult, ResourceDefinition, ResourcePresentation, OAUTH2_ADD_METHOD,
-        OAUTH2_AUTHORIZATION_CODE_ADD_METHOD,
+        parse_model_id, PluginAutomationDescriptor, PluginDescriptor, PluginModelDescriptor,
+        PluginProviderDescriptor, PluginResourceDescriptor, PluginResourceView, ProviderDefinition,
+        ResourceActionResponse, ResourceActionResult, ResourceDefinition, ResourcePresentation,
+        OAUTH2_ADD_METHOD, OAUTH2_AUTHORIZATION_CODE_ADD_METHOD,
     },
     oauth_callback::{self, CallbackHandle, CallbackOutcome, CallbackRequest},
     runtime::PluginRuntime,
-    state::{now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, StoredModel},
+    state::{
+        now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, ResourceStateInput,
+        StoredAutomation, StoredModel,
+    },
     wire,
     worker::{PluginWorker, WorkerStreamItem},
 };
@@ -44,8 +47,13 @@ struct RegistryInner {
     runtime: PluginRuntime,
     catalog: PluginCatalog,
     state: PluginStateStore,
+    automation_gate: Mutex<()>,
+    /// Serializes every path that can write plugin state, so plugin removal
+    /// cannot race an in-flight action, refresh, or model sync.
+    resource_mutation_gate: Mutex<()>,
     entries: RwLock<Option<Vec<PluginEntry>>>,
     workers: Mutex<HashMap<String, Arc<PluginWorker>>>,
+    resource_action_locks: Mutex<HashMap<(String, String, String), Arc<Mutex<()>>>>,
     oauth_sessions: Mutex<HashMap<String, OAuthSession>>,
 }
 
@@ -125,11 +133,28 @@ pub struct ImportResponse {
     pub model_sync_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AutomationRunSummary {
+    pub(crate) actions: usize,
+    pub(crate) records: usize,
+    pub(crate) succeeded: usize,
+    pub(crate) failed: usize,
+    pub(crate) errors: Vec<String>,
+}
+
 /// 路由分支在建立 Recorder 时需要的插件模型元数据。
 #[derive(Clone, Debug)]
 pub struct PluginInvocationPlan {
     pub model: PluginModelDescriptor,
     pub request_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ModelListResult {
+    models: Vec<serde_json::Value>,
+    #[serde(default)]
+    patch: Option<ResourcePatch>,
 }
 
 impl PluginRegistry {
@@ -141,7 +166,10 @@ impl PluginRegistry {
                 runtime,
                 catalog: PluginCatalog::managed(app_version)?,
                 state: PluginStateStore::new(data),
+                automation_gate: Mutex::new(()),
+                resource_mutation_gate: Mutex::new(()),
                 entries: RwLock::new(None),
+                resource_action_locks: Mutex::new(HashMap::new()),
                 workers: Mutex::new(HashMap::new()),
                 oauth_sessions: Mutex::new(HashMap::new()),
             }),
@@ -793,7 +821,12 @@ impl PluginRegistry {
     ) -> Result<serde_json::Value> {
         let executable = self.executable()?;
         let entry = self.find_entry(&executable, plugin_id).await?;
-        find_resource(&entry, resource_type)?;
+        let resource = find_resource(&entry, resource_type)?;
+        if !resource.export.enabled {
+            return Err(Error::Config(format!(
+                "plugin '{plugin_id}' resource '{resource_type}' does not permit credential export"
+            )));
+        }
         let records = self.inner.state.resources(plugin_id, resource_type).await?;
         Ok(serde_json::json!({
             "accounts": records
@@ -817,6 +850,11 @@ impl PluginRegistry {
                 "plugin '{plugin_id}' resource '{resource_type}' does not support refresh"
             )));
         }
+        let _mutation = self.inner.resource_mutation_gate.lock().await;
+        let lock = self
+            .resource_action_lock(plugin_id, resource_type, resource_id)
+            .await;
+        let _guard = lock.lock().await;
         let record = self
             .find_record(plugin_id, resource_type, resource_id)
             .await?;
@@ -864,11 +902,39 @@ impl PluginRegistry {
                 "plugin '{plugin_id}' resource action '{action_id}' has an invalid target"
             )));
         }
+        self.invoke_resource_action(
+            &entry,
+            &executable,
+            resource_type,
+            resource_id,
+            action_id,
+            input,
+            CancellationToken::new(),
+        )
+        .await
+        .map(|(response, _)| response)
+    }
+
+    async fn invoke_resource_action(
+        &self,
+        entry: &PluginEntry,
+        executable: &Path,
+        resource_type: &str,
+        resource_id: &str,
+        action_id: &str,
+        input: serde_json::Value,
+        cancellation: CancellationToken,
+    ) -> Result<(serde_json::Value, bool)> {
+        let _mutation = self.inner.resource_mutation_gate.lock().await;
+        let lock = self
+            .resource_action_lock(&entry.manifest.id, resource_type, resource_id)
+            .await;
+        let _guard = lock.lock().await;
         let record = self
-            .find_record(plugin_id, resource_type, resource_id)
+            .find_record(&entry.manifest.id, resource_type, resource_id)
             .await?;
         let value = self
-            .worker(&entry, &executable)
+            .worker(entry, executable)
             .await
             .invoke(
                 "resource.action",
@@ -878,17 +944,65 @@ impl PluginRegistry {
                     "resource": record.snapshot(resource_type),
                     "input": input,
                 }),
-                CancellationToken::new(),
+                cancellation,
             )
             .await?;
         let result: ResourceActionResult = serde_json::from_value(value)?;
+        let succeeded = result.succeeded
+            && !matches!(
+                result.patch.as_ref().and_then(|patch| patch.state.as_ref()),
+                Some(ResourceStateInput::Invalid { .. })
+            );
         if let Some(patch) = result.patch.clone() {
             self.inner
                 .state
-                .apply_patch(plugin_id, resource_type, resource_id, patch)
+                .apply_patch(&entry.manifest.id, resource_type, resource_id, patch)
                 .await?;
         }
-        Ok(serde_json::to_value(ResourceActionResponse::from(result))?)
+        Ok((
+            serde_json::to_value(ResourceActionResponse::from(result))?,
+            succeeded,
+        ))
+    }
+
+    async fn resource_action_lock(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+    ) -> Arc<Mutex<()>> {
+        self.inner
+            .resource_action_locks
+            .lock()
+            .await
+            .entry((
+                plugin_id.to_owned(),
+                resource_type.to_owned(),
+                resource_id.to_owned(),
+            ))
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    async fn clear_resource_action_lock(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        expected: &Arc<Mutex<()>>,
+    ) {
+        let mut locks = self.inner.resource_action_locks.lock().await;
+        let key = (
+            plugin_id.to_owned(),
+            resource_type.to_owned(),
+            resource_id.to_owned(),
+        );
+        if locks
+            .get(&key)
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
+            locks.remove(&key);
+        }
     }
 
     pub async fn delete_resource(
@@ -900,6 +1014,10 @@ impl PluginRegistry {
         let executable = self.executable()?;
         let entry = self.find_entry(&executable, plugin_id).await?;
         let resource = find_resource(&entry, resource_type)?;
+        let lock = self
+            .resource_action_lock(plugin_id, resource_type, resource_id)
+            .await;
+        let _guard = lock.lock().await;
         let record = self
             .find_record(plugin_id, resource_type, resource_id)
             .await?;
@@ -925,6 +1043,8 @@ impl PluginRegistry {
             .state
             .remove_resource(plugin_id, resource_type, resource_id)
             .await?;
+        self.clear_resource_action_lock(plugin_id, resource_type, resource_id, &lock)
+            .await;
         Ok(())
     }
 
@@ -958,10 +1078,242 @@ impl PluginRegistry {
     }
 
     pub async fn remove(&self, plugin_id: &str) -> Result<()> {
+        if let Some(executable) = self.inner.runtime.executable() {
+            self.find_entry(&executable, plugin_id).await?;
+        }
+        let _automation = self.inner.automation_gate.lock().await;
+        // Drain in-flight resource writes before clearing: an action, refresh,
+        // or model sync that finishes afterwards would recreate what we drop.
+        let _mutation = self.inner.resource_mutation_gate.lock().await;
         if let Some(worker) = self.inner.workers.lock().await.remove(plugin_id) {
             worker.stop().await;
         }
-        self.inner.state.clear(plugin_id).await
+        let result = self.inner.state.clear(plugin_id).await;
+        self.inner
+            .resource_action_locks
+            .lock()
+            .await
+            .retain(|(current, _, _), _| current != plugin_id);
+        result
+    }
+    pub async fn set_resource_automation_enabled(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        action_id: &str,
+        enabled: bool,
+    ) -> Result<PluginAutomationDescriptor> {
+        let _automation = self.inner.automation_gate.lock().await;
+        let executable = self.executable()?;
+        let entry = self.find_entry(&executable, plugin_id).await?;
+        let action = find_automation_action(&entry, resource_type, action_id)?;
+        let metadata = action
+            .automation
+            .as_ref()
+            .expect("automation action has metadata");
+        let state = self
+            .inner
+            .state
+            .set_automation_enabled(
+                plugin_id,
+                resource_type,
+                action_id,
+                enabled,
+                metadata.default_enabled,
+            )
+            .await?;
+        Ok(PluginAutomationDescriptor::from_state(
+            action_id,
+            &metadata.kind,
+            &state,
+        ))
+    }
+
+    pub(crate) async fn run_due_automations(
+        &self,
+        cancellation: CancellationToken,
+    ) -> Result<AutomationRunSummary> {
+        let Some(executable) = self.inner.runtime.executable() else {
+            return Ok(AutomationRunSummary::default());
+        };
+        let _automation = self.inner.automation_gate.lock().await;
+        self.run_due_automations_locked(&executable, &cancellation)
+            .await
+    }
+
+    async fn run_due_automations_locked(
+        &self,
+        executable: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<AutomationRunSummary> {
+        let mut summary = AutomationRunSummary::default();
+        for entry in self.entries(executable).await {
+            for resource in &entry.definition.resources {
+                let records = match self
+                    .inner
+                    .state
+                    .resources(&entry.manifest.id, &resource.resource_type)
+                    .await
+                {
+                    Ok(records) => records,
+                    Err(error) => {
+                        tracing::warn!(
+                            plugin = %entry.manifest.id,
+                            resource_type = %resource.resource_type,
+                            %error,
+                            "failed to load resources for plugin automation"
+                        );
+                        summary.errors.push(error.to_string());
+                        continue;
+                    }
+                };
+                if records.is_empty() {
+                    continue;
+                }
+                for action in &resource.actions {
+                    let Some(metadata) = &action.automation else {
+                        continue;
+                    };
+                    if metadata.kind != "daily" || action.target != "resource" || action.destructive
+                    {
+                        tracing::warn!(
+                            plugin = %entry.manifest.id,
+                            resource_type = %resource.resource_type,
+                            action_id = %action.id,
+                            "ignoring invalid plugin automation declaration"
+                        );
+                        summary.errors.push(format!(
+                            "plugin '{}' action '{}' has an invalid automation declaration",
+                            entry.manifest.id, action.id
+                        ));
+                        continue;
+                    }
+                    let state = match self
+                        .inner
+                        .state
+                        .automation(
+                            &entry.manifest.id,
+                            &resource.resource_type,
+                            &action.id,
+                            metadata.default_enabled,
+                        )
+                        .await
+                    {
+                        Ok(state) => state,
+                        Err(error) => {
+                            tracing::warn!(
+                                plugin = %entry.manifest.id,
+                                resource_type = %resource.resource_type,
+                                action_id = %action.id,
+                                %error,
+                                "failed to load plugin automation state"
+                            );
+                            summary.errors.push(error.to_string());
+                            continue;
+                        }
+                    };
+                    let due_at_ms = now_ms();
+                    if !state.enabled || !state.is_due(due_at_ms) {
+                        continue;
+                    }
+                    if cancellation.is_cancelled() {
+                        continue;
+                    }
+                    let still_enabled = self
+                        .inner
+                        .state
+                        .automation(
+                            &entry.manifest.id,
+                            &resource.resource_type,
+                            &action.id,
+                            metadata.default_enabled,
+                        )
+                        .await
+                        .is_ok_and(|current| current.enabled && current.is_due(now_ms()));
+                    if !still_enabled {
+                        continue;
+                    }
+                    summary.actions += 1;
+                    let mut succeeded = 0usize;
+                    let mut failed = 0usize;
+                    for record in &records {
+                        match self
+                            .invoke_resource_action(
+                                &entry,
+                                executable,
+                                &resource.resource_type,
+                                &record.id,
+                                &action.id,
+                                serde_json::Value::Null,
+                                cancellation.clone(),
+                            )
+                            .await
+                        {
+                            Ok((_, true)) => succeeded += 1,
+                            Ok((_, false)) => failed += 1,
+                            Err(error) => {
+                                failed += 1;
+                                summary.errors.push(error.to_string());
+                            }
+                        }
+                    }
+                    summary.records += records.len();
+                    summary.succeeded += succeeded;
+                    summary.failed += failed;
+                    let recorded = self
+                        .inner
+                        .state
+                        .record_automation_run(
+                            &entry.manifest.id,
+                            &resource.resource_type,
+                            &action.id,
+                            failed == 0,
+                            now_ms(),
+                            metadata.default_enabled,
+                        )
+                        .await;
+                    if let Err(error) = recorded {
+                        tracing::warn!(
+                            plugin = %entry.manifest.id,
+                            resource_type = %resource.resource_type,
+                            action_id = %action.id,
+                            %error,
+                            "failed to record plugin automation result"
+                        );
+                        summary.failed += 1;
+                        summary.errors.push(error.to_string());
+                    }
+                }
+            }
+        }
+        Ok(summary)
+    }
+
+    pub fn spawn_automation_scheduler(
+        self,
+        shutdown: CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30 * 60));
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        match self.run_due_automations(shutdown.clone()).await {
+                            Ok(summary) if summary.actions > 0 => tracing::debug!(
+                                actions = summary.actions,
+                                records = summary.records,
+                                succeeded = summary.succeeded,
+                                failed = summary.failed,
+                                "daily plugin automations evaluated"
+                            ),
+                            Ok(_) => {}
+                            Err(error) => tracing::warn!(%error, "daily plugin automation evaluation failed"),
+                        }
+                    }
+                    _ = shutdown.cancelled() => break,
+                }
+            }
+        })
     }
 
     async fn descriptor(&self, entry: &PluginEntry, executable: &Path) -> PluginDescriptor {
@@ -1009,14 +1361,41 @@ impl PluginRegistry {
             let views = self
                 .present_resources(entry, executable, definition, &records)
                 .await;
+            let mut automations = Vec::new();
+            for action in &definition.actions {
+                let Some(metadata) = &action.automation else {
+                    continue;
+                };
+                if metadata.kind != "daily" || action.target != "resource" || metadata.hidden {
+                    continue;
+                }
+                let state = self
+                    .inner
+                    .state
+                    .automation(
+                        plugin_id,
+                        &definition.resource_type,
+                        &action.id,
+                        metadata.default_enabled,
+                    )
+                    .await
+                    .unwrap_or_else(|_| StoredAutomation::with_default(metadata.default_enabled));
+                automations.push(PluginAutomationDescriptor::from_state(
+                    &action.id,
+                    &metadata.kind,
+                    &state,
+                ));
+            }
             resources.push(PluginResourceDescriptor {
                 resource_type: definition.resource_type.clone(),
                 display_name: definition.display_name.clone(),
                 add: definition.add.clone(),
                 import: definition.import.clone(),
                 actions: definition.actions.clone(),
+                automations,
                 can_refresh: definition.can_refresh,
                 can_remove: definition.can_remove,
+                export: definition.export.clone(),
                 resources: views,
             });
         }
@@ -1162,13 +1541,34 @@ impl PluginRegistry {
                 CancellationToken::new(),
             )
             .await?;
-        let definitions = value
-            .as_array()
-            .ok_or_else(|| Error::Protocol("plugin models.list must return an array".into()))?;
+        let result: ModelListResult = if value.is_array() {
+            ModelListResult {
+                models: serde_json::from_value(value)?,
+                patch: None,
+            }
+        } else {
+            serde_json::from_value(value)?
+        };
+        let definitions = result.models;
+        if let (Some(patch), Some(resource_type), Some(resource_snapshot)) = (
+            result.patch,
+            provider.resource_type.as_deref(),
+            resource.as_ref(),
+        ) {
+            let resource_id = resource_snapshot
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| Error::Protocol("models.list resource is missing id".into()))?;
+            let _mutation = self.inner.resource_mutation_gate.lock().await;
+            self.inner
+                .state
+                .apply_patch(plugin_id, resource_type, resource_id, patch)
+                .await?;
+        }
         let mut models = Vec::with_capacity(definitions.len());
         let mut seen = std::collections::HashSet::new();
         for definition in definitions {
-            let model = StoredModel::from_definition(definition)?;
+            let model = StoredModel::from_definition(&definition)?;
             if seen.insert(model.id.clone()) {
                 models.push(model);
             }
@@ -1371,4 +1771,41 @@ fn find_resource<'a>(
                 entry.manifest.id
             ))
         })
+}
+
+fn find_automation_action<'a>(
+    entry: &'a PluginEntry,
+    resource_type: &str,
+    action_id: &str,
+) -> Result<&'a super::descriptor::ResourceActionDefinition> {
+    let resource = find_resource(entry, resource_type)?;
+    let action = resource
+        .actions
+        .iter()
+        .find(|action| action.id == action_id)
+        .ok_or_else(|| {
+            Error::Config(format!(
+                "plugin '{}' resource '{resource_type}' does not define action '{action_id}'",
+                entry.manifest.id
+            ))
+        })?;
+    let metadata = action.automation.as_ref().ok_or_else(|| {
+        Error::Config(format!(
+            "plugin '{}' action '{action_id}' is not an automation",
+            entry.manifest.id
+        ))
+    })?;
+    if metadata.kind != "daily" {
+        return Err(Error::Config(format!(
+            "plugin '{}' action '{action_id}' uses unsupported automation kind '{}'",
+            entry.manifest.id, metadata.kind
+        )));
+    }
+    if action.target != "resource" {
+        return Err(Error::Config(format!(
+            "plugin '{}' action '{action_id}' automation must target a resource",
+            entry.manifest.id
+        )));
+    }
+    Ok(action)
 }

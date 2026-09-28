@@ -293,6 +293,48 @@ fn validate_definition(plugin_id: &str, definition: &PluginModuleDefinition) -> 
                 }
             }
         }
+        let mut action_ids = std::collections::HashSet::new();
+        for action in &resource.actions {
+            validate_id(&action.id, "plugin resource action id")?;
+            if !action_ids.insert(action.id.clone()) {
+                return Err(Error::Config(format!(
+                    "plugin '{plugin_id}' resource '{}' contains duplicate action '{}'",
+                    resource.resource_type, action.id
+                )));
+            }
+            if !matches!(action.target.as_str(), "resource" | "card") {
+                return Err(Error::Config(format!(
+                    "plugin '{plugin_id}' resource action '{}' has an invalid target",
+                    action.id
+                )));
+            }
+            if let Some(automation) = &action.automation {
+                if automation.kind.trim().is_empty() {
+                    return Err(Error::Config(format!(
+                        "plugin '{plugin_id}' resource action '{}' automation kind cannot be empty",
+                        action.id
+                    )));
+                }
+                if automation.kind != "daily" {
+                    return Err(Error::Config(format!(
+                        "plugin '{plugin_id}' resource action '{}' uses unsupported automation kind '{}'",
+                        action.id, automation.kind
+                    )));
+                }
+                if action.target != "resource" {
+                    return Err(Error::Config(format!(
+                        "plugin '{plugin_id}' resource action '{}' automation must target a resource",
+                        action.id
+                    )));
+                }
+                if action.destructive {
+                    return Err(Error::Config(format!(
+                        "plugin '{plugin_id}' resource action '{}' automation cannot be destructive",
+                        action.id
+                    )));
+                }
+            }
+        }
     }
     Ok(())
 }

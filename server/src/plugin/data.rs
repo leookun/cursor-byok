@@ -39,16 +39,7 @@ impl PluginDataStore {
         let path = self.path(plugin_id, key)?;
         let lock = self.lock(plugin_id);
         let _guard = lock.lock().await;
-        match tokio::fs::read(&path).await {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(serde_json::Value::Null)
-            }
-            Err(error) => Err(Error::Config(format!(
-                "plugin data read failed at {}: {error}",
-                path.display()
-            ))),
-        }
+        Self::read_locked(&path).await
     }
 
     pub async fn update(
@@ -69,6 +60,69 @@ impl PluginDataStore {
                     path.display()
                 ))
             })
+    }
+
+    /// Atomically read-modify-write one plugin-owned value.
+    pub(super) async fn update_with<F>(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        update: F,
+    ) -> Result<serde_json::Value>
+    where
+        F: FnOnce(serde_json::Value) -> Result<serde_json::Value>,
+    {
+        let path = self.path(plugin_id, key)?;
+        let lock = self.lock(plugin_id);
+        let _guard = lock.lock().await;
+        let value = update(Self::read_locked(&path).await?)?;
+        self.write_locked(&path, key, &value)
+            .await
+            .map_err(|error| {
+                Error::Config(format!(
+                    "plugin data write failed at {}: {error}",
+                    path.display()
+                ))
+            })?;
+        Ok(value)
+    }
+
+    /// Atomically replace one plugin-owned value and return a caller result.
+    pub(super) async fn update_with_result<F, T>(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        update: F,
+    ) -> Result<T>
+    where
+        F: FnOnce(serde_json::Value) -> Result<(serde_json::Value, T)>,
+    {
+        let path = self.path(plugin_id, key)?;
+        let lock = self.lock(plugin_id);
+        let _guard = lock.lock().await;
+        let (value, result) = update(Self::read_locked(&path).await?)?;
+        self.write_locked(&path, key, &value)
+            .await
+            .map_err(|error| {
+                Error::Config(format!(
+                    "plugin data write failed at {}: {error}",
+                    path.display()
+                ))
+            })?;
+        Ok(result)
+    }
+
+    async fn read_locked(path: &Path) -> Result<serde_json::Value> {
+        match tokio::fs::read(path).await {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(serde_json::Value::Null)
+            }
+            Err(error) => Err(Error::Config(format!(
+                "plugin data read failed at {}: {error}",
+                path.display()
+            ))),
+        }
     }
 
     /// 全程使用同步 IO 在阻塞线程完成:tokio 异步文件的关闭是延迟的,
@@ -115,7 +169,13 @@ impl PluginDataStore {
         validate_component(plugin_id, "plugin id")?;
         let lock = self.lock(plugin_id);
         let _guard = lock.lock().await;
-        let path = self.root.join(plugin_id);
+        let path = self
+            .root
+            .join(plugin_id)
+            .parent()
+            .filter(|parent| *parent == self.root)
+            .ok_or_else(|| Error::Config(format!("invalid plugin data path: {plugin_id}")))?
+            .join(plugin_id);
         match tokio::fs::remove_dir_all(&path).await {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -193,6 +253,7 @@ fn transient(error: &std::io::Error) -> bool {
 
 fn validate_component(value: &str, label: &str) -> Result<()> {
     if value.is_empty()
+        || matches!(value, "." | "..")
         || value.len() > 128
         || !value
             .bytes()
@@ -250,5 +311,13 @@ mod tests {
         );
         store.clear("com.example").await.unwrap();
         assert!(store.read("com.example", "state").await.unwrap().is_null());
+    }
+
+    #[tokio::test]
+    async fn rejects_dot_segment_plugin_ids() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PluginDataStore::new(root.path().join("data")).unwrap();
+        assert!(store.clear(".").await.is_err());
+        assert!(store.clear("..").await.is_err());
     }
 }

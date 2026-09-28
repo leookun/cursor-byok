@@ -3,6 +3,7 @@ import {
   api,
   pluginText,
   type PluginAddMethod,
+  type PluginAutomationDescriptor,
   type PluginDescriptor,
   type PluginOAuthBegin,
   type PluginProviderDescriptor,
@@ -23,6 +24,39 @@ import { Switch } from "../../shared/ui/Switch";
 import styles from "./PluginResourcePanels.module.scss";
 
 const PAGE_SIZE = 10;
+const ALL_RESOURCE_ACTION_BUSY_PREFIX = "action-all:";
+
+type ResourceBatchActionItemResult = {
+  id: string;
+  displayName: string;
+  succeeded: boolean;
+  description: PluginResourceActionResult["description"];
+  error: string | null;
+};
+
+type ResourceBatchActionSummary = {
+  action: PluginResourceAction;
+  items: ResourceBatchActionItemResult[];
+};
+
+function resourceBatchBusyKey(resource: PluginResourceDescriptor, action: PluginResourceAction) {
+  return `${ALL_RESOURCE_ACTION_BUSY_PREFIX}${resource.type}:${action.id}`;
+}
+
+function requestPluginResourceAction(
+  pluginId: string,
+  target: { resource: PluginResourceDescriptor; item: PluginResourceView },
+  action: PluginResourceAction,
+  input: unknown,
+) {
+  return api.pluginResourceAction(
+    pluginId,
+    target.resource.type,
+    target.item.id,
+    action.id,
+    input,
+  );
+}
 
 export function PluginAddPanel({ plugin, onConfigured }: { plugin: PluginDescriptor; onConfigured: () => void }) {
   return <div className={styles.panel}>
@@ -146,6 +180,7 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
 }
 
 export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
+  const { locale } = useI18n();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelProviderId, setModelProviderId] = useState<string | null>(null);
@@ -154,7 +189,15 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     item: PluginResourceView;
   } | null>(null);
   const [resourceActionResult, setResourceActionResult] = useState<PluginResourceActionResult | null>(null);
+  const [resourceBatchSummary, setResourceBatchSummary] = useState<ResourceBatchActionSummary | null>(null);
+  const [automationOverrides, setAutomationOverrides] = useState<
+    Record<string, PluginAutomationDescriptor>
+  >({});
   const [resourceActionError, setResourceActionError] = useState<string | null>(null);
+  const [resourceDelete, setResourceDelete] = useState<{
+    resource: PluginResourceDescriptor;
+    item: PluginResourceView;
+  } | null>(null);
   const modelProvider = modelProviderId ? plugin.providers.find((provider) => provider.id === modelProviderId) ?? null : null;
 
   const run = async (key: string, task: () => Promise<void>) => {
@@ -179,13 +222,7 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     setBusy(key);
     setResourceActionError(null);
     try {
-      const result = await api.pluginResourceAction(
-        plugin.id,
-        target.resource.type,
-        target.item.id,
-        action.id,
-        input,
-      );
+      const result = await requestPluginResourceAction(plugin.id, target, action, input);
       setResourceActionResult(result);
       await appStore.refreshPlugins();
     } catch (cause) {
@@ -195,7 +232,80 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     }
   };
 
+  const runAllResourceActions = async (resource: PluginResourceDescriptor, action: PluginResourceAction) => {
+    if (busy !== null) return;
+    const items: ResourceBatchActionItemResult[] = [];
+    setBusy(resourceBatchBusyKey(resource, action));
+    setResourceActionError(null);
+    setResourceBatchSummary(null);
+    try {
+      for (const item of resource.resources) {
+        try {
+          const result = await requestPluginResourceAction(plugin.id, { resource, item }, action, {});
+          items.push({
+            id: item.id,
+            displayName: item.displayName,
+            succeeded: result.succeeded,
+            description: result.succeeded ? result.description : null,
+            error: result.succeeded ? null : result.description
+              ? pluginText(result.description, locale)
+              : t("操作未成功"),
+          });
+        } catch (cause) {
+          items.push({
+            id: item.id,
+            displayName: item.displayName,
+            succeeded: false,
+            description: null,
+            error: errorText(cause),
+          });
+        }
+      }
+      setResourceBatchSummary({ action, items });
+      try {
+        await appStore.refreshPlugins();
+      } catch (cause) {
+        setResourceActionError(errorText(cause));
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateResourceAutomation = async (
+    resource: PluginResourceDescriptor,
+    automation: PluginAutomationDescriptor,
+    enabled: boolean,
+  ) => {
+    const key = `automation:${resource.type}:${automation.actionId}`;
+    if (busy !== null) return;
+    setBusy(key);
+    setError(null);
+    try {
+      const updated = await api.setPluginResourceAutomationEnabled(
+        plugin.id,
+        resource.type,
+        automation.actionId,
+        enabled,
+      );
+      const overrideKey = `${resource.type}:${automation.actionId}`;
+      // Optimistic only: the refreshed descriptor is authoritative, so drop the
+      // override instead of shadowing later scheduler updates indefinitely.
+      setAutomationOverrides((current) => ({ ...current, [overrideKey]: updated }));
+      await appStore.refreshPlugins();
+      setAutomationOverrides((current) => {
+        const { [overrideKey]: _dropped, ...rest } = current;
+        return rest;
+      });
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const openResourceAction = (resource: PluginResourceDescriptor, item: PluginResourceView, action: PluginResourceAction) => {
+    if (busy !== null) return;
     setResourceAction({ resource, item });
     setResourceActionResult(null);
     setResourceActionError(null);
@@ -215,15 +325,16 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     />)}
     {plugin.resources.map((resource) => <ResourceList
       key={resource.type}
+      automationOverrides={automationOverrides}
       resource={resource}
-      busy={busy !== null}
+      busy={busy}
       onAction={(item, action) => openResourceAction(resource, item, action)}
+      onAllAction={(action) => void runAllResourceActions(resource, action)}
+      onAutomationChange={(automation, enabled) => void updateResourceAutomation(resource, automation, enabled)}
       onRefresh={(item) => void run(`refresh:${item.id}`, async () => {
         await api.refreshPluginResource(plugin.id, resource.type, item.id);
       })}
-      onDelete={(item) => void run(`delete:${item.id}`, async () => {
-        await api.deletePluginResource(plugin.id, resource.type, item.id);
-      })}
+      onDelete={(item) => setResourceDelete({ resource, item })}
     />)}
     {error && <span className={styles.error} role="alert">{error}</span>}
     {modelProvider && <ModelManagementModal
@@ -246,6 +357,26 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
       onClose={() => setResourceAction(null)}
       onCardAction={(action, card) => void executeResourceAction(resourceAction, action, { cardId: card.id })}
     />}
+    {resourceBatchSummary && <ResourceBatchActionModal
+      summary={resourceBatchSummary}
+      onClose={() => setResourceBatchSummary(null)}
+    />}
+    {resourceDelete && <ConfirmDialog
+      open
+      title={t("删除资源")}
+      confirmLabel={t("删除")}
+      busy={busy !== null}
+      onCancel={() => setResourceDelete(null)}
+      onConfirm={() => {
+        const target = resourceDelete;
+        setResourceDelete(null);
+        void run(`delete:${target.item.id}`, async () => {
+          await api.deletePluginResource(plugin.id, target.resource.type, target.item.id);
+        });
+      }}
+    >
+      <span>{t("确定要删除 {resource} 吗？此操作无法撤销。", { resource: resourceDelete.item.displayName })}</span>
+    </ConfirmDialog>}
   </div>;
 }
 
@@ -330,16 +461,27 @@ function ModelManagementModal({ provider, busy, onClose, onSubmit }: {
   </Modal>;
 }
 
-function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
+function ResourceList({ resource, automationOverrides, busy, onAction, onAllAction, onAutomationChange, onRefresh, onDelete }: {
   resource: PluginResourceDescriptor;
-  busy: boolean;
+  automationOverrides: Record<string, PluginAutomationDescriptor>;
+  busy: string | null;
   onAction: (item: PluginResourceView, action: PluginResourceAction) => void;
+  onAllAction: (action: PluginResourceAction) => void;
+  onAutomationChange: (automation: PluginAutomationDescriptor, enabled: boolean) => void;
   onRefresh: (item: PluginResourceView) => void;
   onDelete: (item: PluginResourceView) => void;
 }) {
   const { locale } = useI18n();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const resourceActions = resource.actions.filter((action) => action.target === "resource");
+  const onlyResourceAction = resourceActions.length === 1 ? resourceActions[0] : null;
+  const allResourceAction = resource.resources.length > 1
+    && onlyResourceAction !== null
+    && onlyResourceAction.destructive !== true
+    ? onlyResourceAction
+    : null;
+  const allActionRunning = allResourceAction !== null && busy === resourceBatchBusyKey(resource, allResourceAction);
   const filtered = useMemo(
     () => resource.resources.filter((item) => item.displayName.toLowerCase().includes(query.trim().toLowerCase())),
     [resource.resources, query],
@@ -351,16 +493,42 @@ function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
 
   return <FormField label={pluginText(resource.displayName, locale)}>
     <div className={styles.resourceSection}>
-      {resource.resources.length > PAGE_SIZE && <div className={styles.toolbar}>
-        <TextInput aria-label={t("搜索资源")} placeholder={t("搜索资源")} value={query} onChange={(event) => setQuery(event.target.value)} />
+      {(resource.automations ?? []).map((automation) => {
+        const override = automationOverrides[`${resource.type}:${automation.actionId}`];
+        const current = override ?? automation;
+        const action = resource.actions.find((candidate) => candidate.id === current.actionId) ?? null;
+        if (!action) return null;
+        return <Card key={automation.actionId} className={styles.automationCard}>
+          <div className={styles.automationMain}>
+            <strong>{pluginText(action.displayName, locale)}</strong>
+            {action.description && <span>{pluginText(action.description, locale)}</span>}
+            <span>{formatAutomationLastRun(current, locale)}</span>
+          </div>
+          <Switch
+            checked={current.enabled}
+            disabled={busy !== null}
+            label={t("启用 {action}", { action: pluginText(action.displayName, locale) })}
+            onChange={(enabled) => onAutomationChange(automation, enabled)}
+          />
+        </Card>;
+      })}
+      {(resource.resources.length > PAGE_SIZE || allResourceAction) && <div className={styles.toolbar}>
+        {resource.resources.length > PAGE_SIZE && <TextInput aria-label={t("搜索资源")} placeholder={t("搜索资源")} value={query} onChange={(event) => setQuery(event.target.value)} />}
+        {allResourceAction && <Button
+          size="small"
+          disabled={busy !== null}
+          onClick={() => onAllAction(allResourceAction)}
+        >{allActionRunning
+          ? t("全部账号 · 正在执行{action}…", { action: pluginText(allResourceAction.displayName, locale) })
+          : t("全部账号 · {action}", { action: pluginText(allResourceAction.displayName, locale) })}</Button>}
       </div>}
       <div className={styles.resourceList}>
         {visible.map((item) => <ResourceRow
           key={item.id}
           item={item}
-          actions={resource.actions.filter((action) => action.target === "resource")}
+          actions={resourceActions}
           canRefresh={resource.canRefresh}
-          disabled={busy}
+          disabled={busy !== null}
           onAction={(action) => onAction(item, action)}
           onRefresh={() => onRefresh(item)}
           onDelete={() => onDelete(item)}
@@ -465,6 +633,46 @@ function ResourceActionModal({ action, cardAction, result, busy, error, onClose,
   </>;
 }
 
+function ResourceBatchActionModal({ summary, onClose }: {
+  summary: ResourceBatchActionSummary;
+  onClose: () => void;
+}) {
+  const { locale } = useI18n();
+  const successful = summary.items.filter((item) => item.succeeded).length;
+  const failed = summary.items.length - successful;
+  return <Modal
+    compact
+    open
+    title={t("全部账号执行结果：{action}", { action: pluginText(summary.action.displayName, locale) })}
+    onClose={onClose}
+    submitLabel={t("关闭")}
+    onSubmit={onClose}
+  >
+    <div className={styles.actionBody}>
+      <span className={styles.actionDescription}>
+        {t("共 {total} 个账号：成功 {successful}，失败 {failed}", {
+          total: summary.items.length,
+          successful,
+          failed,
+        })}
+      </span>
+      <div className={styles.actionCardList}>
+        {summary.items.map((item) => <Card key={item.id} className={styles.actionCard}>
+          <div className={styles.actionCardMain}>
+            <strong>{item.displayName}</strong>
+            <span
+              className={item.succeeded ? styles.success : styles.error}
+              role={item.succeeded ? undefined : "status"}
+            >{item.succeeded
+              ? item.description ? pluginText(item.description, locale) : t("成功")
+              : item.error ?? t("失败")}</span>
+          </div>
+        </Card>)}
+      </div>
+    </div>
+  </Modal>;
+}
+
 function formatActionStatus(status: PluginResourceActionCard["status"], locale: string) {
   const value = typeof status === "string" ? status : pluginText(status, locale);
   switch (value.toLowerCase()) {
@@ -474,6 +682,15 @@ function formatActionStatus(status: PluginResourceActionCard["status"], locale: 
     case "expired": return t("已过期");
     default: return value;
   }
+}
+
+
+function formatAutomationLastRun(automation: PluginAutomationDescriptor, locale: string) {
+  if (automation.lastRunAtMs === null) return t("尚未自动执行");
+  const time = new Date(automation.lastRunAtMs).toLocaleString(locale);
+  if (automation.lastRunSucceeded === true) return t("上次自动执行成功：{time}", { time });
+  if (automation.lastRunFailed === true) return t("上次自动执行失败：{time}", { time });
+  return t("上次自动执行：{time}", { time });
 }
 
 function formatActionDate(value: number, locale: string) {

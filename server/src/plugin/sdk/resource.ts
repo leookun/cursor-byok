@@ -51,6 +51,7 @@ export type ResourceAction = {
   displayName: LocalizedText;
   description?: LocalizedText;
   target?: ResourceActionTarget;
+  automation?: { kind: "daily"; defaultEnabled?: boolean; hidden?: boolean };
   destructive?: boolean;
   run(
     resource: ResourceSnapshot,
@@ -79,6 +80,8 @@ export type ResourceActionResult = {
   title: LocalizedText;
   description?: LocalizedText;
   cards?: ResourceActionCard[];
+  /** false records a failed automation run without exposing the private patch. */
+  succeeded?: boolean;
   /** 消费类操作可用它更新宿主保存的资源状态。 */
   patch?: ResourcePatch;
 };
@@ -189,4 +192,8 @@ export type ResourceSupport = {
   refresh?(resource: ResourceSnapshot, context: PluginContext): Promise<ResourcePatch>;
   /** 可选的上游撤销;宿主随后删除本地记录。 */
   remove?(resource: ResourceSnapshot, context: PluginContext): Promise<void>;
+  /** 宿主据此控制是否允许导出该资源的私有数据。 */
+  export?: {
+    enabled: boolean;
+  };
 };

@@ -108,6 +108,64 @@ const GROK_AUTH: &[(&str, &str)] = &[
         )),
     ),
 ];
+const CODEBUDDY_CN_AUTH: &[(&str, &str)] = &[
+    (
+        "plugin.json",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/plugin.json"
+        )),
+    ),
+    (
+        "main.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/main.ts"
+        )),
+    ),
+    (
+        "provider.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/provider.ts"
+        )),
+    ),
+    (
+        "models.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/models.ts"
+        )),
+    ),
+    (
+        "oauth.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/oauth.ts"
+        )),
+    ),
+    (
+        "checkin.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/checkin.ts"
+        )),
+    ),
+    (
+        "resources.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/resources.ts"
+        )),
+    ),
+    (
+        "assets/codebuddy.svg",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/codebuddy-cn-auth/assets/codebuddy.svg"
+        )),
+    ),
+];
 
 const ANTIGRAVITY_AUTH: &[(&str, &str)] = &[
     (
@@ -171,6 +229,7 @@ const ANTIGRAVITY_AUTH: &[(&str, &str)] = &[
 const PLUGINS: &[(&str, &[(&str, &str)])] = &[
     ("codex-auth", CODEX_AUTH),
     ("grok-auth", GROK_AUTH),
+    ("codebuddy-cn-auth", CODEBUDDY_CN_AUTH),
     ("antigravity-auth", ANTIGRAVITY_AUTH),
 ];
 

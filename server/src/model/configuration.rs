@@ -362,7 +362,14 @@ fn has_trailing_version(path: &str) -> bool {
 pub fn is_sensitive_header(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "authorization" | "proxy-authorization" | "x-api-key" | "api-key" | "cookie" | "set-cookie"
+        "authorization"
+            | "proxy-authorization"
+            | "x-api-key"
+            | "api-key"
+            | "cookie"
+            | "set-cookie"
+            | "x-refresh-token"
+            | "x-auth-refresh-source"
     )
 }
 

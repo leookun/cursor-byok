@@ -47,7 +47,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 266,
+          "line": 397,
           "column": 39
         }
       ]
@@ -78,8 +78,22 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 372,
+          "line": 540,
           "column": 16
+        }
+      ]
+    },
+    "02dd5480c2f8d38e": {
+      "source": "确定要删除 {resource} 吗？此操作无法撤销。",
+      "kind": "template",
+      "placeholders": [
+        "resource"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 378,
+          "column": 14
         }
       ]
     },
@@ -96,6 +110,20 @@
           "file": "features/home/metrics/HomeMetrics.tsx",
           "line": 127,
           "column": 5
+        }
+      ]
+    },
+    "04f62b352d60c425": {
+      "source": "上次自动执行失败：{time}",
+      "kind": "template",
+      "placeholders": [
+        "time"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 692,
+          "column": 49
         }
       ]
     },
@@ -153,6 +181,18 @@
         }
       ]
     },
+    "053461ce86d26572": {
+      "source": "成功",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 667,
+          "column": 75
+        }
+      ]
+    },
     "05468af47054d488": {
       "source": "模型 {model} 连通性测试成功（{duration} ms）",
       "kind": "template",
@@ -187,7 +227,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 314,
+          "line": 316,
           "column": 21
         }
       ]
@@ -247,7 +287,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 221,
+          "line": 223,
           "column": 12
         }
       ]
@@ -311,12 +351,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 266,
+          "line": 397,
           "column": 93
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 328,
+          "line": 459,
           "column": 72
         }
       ]
@@ -711,7 +751,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 157,
+          "line": 159,
           "column": 23
         }
       ]
@@ -723,7 +763,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 131,
+          "line": 165,
           "column": 15
         }
       ]
@@ -754,6 +794,18 @@
           "file": "features/models/CursorSettingsPage.tsx",
           "line": 362,
           "column": 52
+        }
+      ]
+    },
+    "1b62697615b1a20d": {
+      "source": "操作未成功",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 252,
+          "column": 17
         }
       ]
     },
@@ -824,7 +876,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 452,
+          "line": 620,
           "column": 14
         }
       ]
@@ -911,7 +963,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 426,
+          "line": 594,
           "column": 50
         }
       ]
@@ -975,7 +1027,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 298,
+          "line": 300,
           "column": 122
         }
       ]
@@ -1001,6 +1053,18 @@
           "file": "features/models/CursorModelEditor.tsx",
           "line": 159,
           "column": 42
+        }
+      ]
+    },
+    "28384d7afd2e4fa6": {
+      "source": "失败",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 668,
+          "column": 31
         }
       ]
     },
@@ -1054,6 +1118,18 @@
         }
       ]
     },
+    "2c8401337236781a": {
+      "source": "尚未自动执行",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 689,
+          "column": 47
+        }
+      ]
+    },
     "2caeaec539e78898": {
       "source": "思考预算 Token",
       "kind": "text",
@@ -1078,7 +1154,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 139,
+          "line": 173,
           "column": 73
         }
       ]
@@ -1110,7 +1186,7 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 278,
+          "line": 280,
           "column": 70
         },
         {
@@ -1193,6 +1269,20 @@
           "file": "features/home/metrics/HomeMetrics.tsx",
           "line": 81,
           "column": 5
+        }
+      ]
+    },
+    "2e0008f2943b44c1": {
+      "source": "全部账号执行结果：{action}",
+      "kind": "template",
+      "placeholders": [
+        "action"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 646,
+          "column": 12
         }
       ]
     },
@@ -1309,7 +1399,12 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 403,
+          "line": 367,
+          "column": 21
+        },
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 571,
           "column": 68
         }
       ]
@@ -1321,7 +1416,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 474,
+          "line": 682,
           "column": 28
         }
       ]
@@ -1333,7 +1428,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 488,
+          "line": 705,
           "column": 81
         }
       ]
@@ -1345,13 +1440,13 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 355,
-          "column": 32
+          "line": 516,
+          "column": 74
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 355,
-          "column": 56
+          "line": 516,
+          "column": 98
         }
       ]
     },
@@ -1379,7 +1474,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 143,
+          "line": 177,
           "column": 64
         }
       ]
@@ -1481,7 +1576,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 246,
+          "line": 248,
           "column": 32
         }
       ]
@@ -1546,7 +1641,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 307,
+          "line": 438,
           "column": 106
         },
         {
@@ -1688,13 +1783,18 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 278,
+          "line": 280,
           "column": 80
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 423,
+          "line": 591,
           "column": 82
+        },
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 648,
+          "column": 18
         }
       ]
     },
@@ -1851,7 +1951,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 139,
+          "line": 173,
           "column": 92
         }
       ]
@@ -1986,7 +2086,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 277,
+          "line": 279,
           "column": 12
         }
       ]
@@ -2051,12 +2151,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 471,
+          "line": 679,
           "column": 30
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 490,
+          "line": 707,
           "column": 42
         }
       ]
@@ -2377,7 +2477,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 454,
+          "line": 622,
           "column": 21
         }
       ]
@@ -2427,7 +2527,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 270,
+          "line": 272,
           "column": 7
         }
       ]
@@ -2484,6 +2584,20 @@
         }
       ]
     },
+    "5ff45f275f6e2ac4": {
+      "source": "上次自动执行：{time}",
+      "kind": "template",
+      "placeholders": [
+        "time"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 693,
+          "column": 10
+        }
+      ]
+    },
     "6003d3246f0fca2b": {
       "source": "模型管理",
       "kind": "text",
@@ -2491,7 +2605,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 272,
+          "line": 403,
           "column": 102
         }
       ]
@@ -2623,7 +2737,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 134,
+          "line": 168,
           "column": 30
         }
       ]
@@ -2637,7 +2751,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 300,
+          "line": 431,
           "column": 12
         }
       ]
@@ -2649,7 +2763,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 527,
+          "line": 540,
           "column": 43
         }
       ]
@@ -2988,7 +3102,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 522,
+          "line": 535,
           "column": 43
         }
       ]
@@ -3024,7 +3138,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 313,
+          "line": 315,
           "column": 31
         }
       ]
@@ -3118,7 +3232,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 395,
+          "line": 563,
           "column": 13
         }
       ]
@@ -3130,7 +3244,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 216,
+          "line": 218,
           "column": 36
         }
       ]
@@ -3142,7 +3256,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 456,
+          "line": 468,
           "column": 21
         }
       ]
@@ -3184,7 +3298,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 298,
+          "line": 300,
           "column": 20
         }
       ]
@@ -3266,7 +3380,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 274,
+          "line": 405,
           "column": 33
         }
       ]
@@ -3317,7 +3431,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 310,
+          "line": 312,
           "column": 32
         }
       ]
@@ -3341,7 +3455,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 373,
+          "line": 541,
           "column": 110
         },
         {
@@ -3440,7 +3554,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 134,
+          "line": 168,
           "column": 19
         }
       ]
@@ -3502,7 +3616,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 234,
+          "line": 236,
           "column": 18
         }
       ]
@@ -3569,7 +3683,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 312,
+          "line": 314,
           "column": 31
         }
       ]
@@ -3593,7 +3707,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 274,
+          "line": 405,
           "column": 20
         }
       ]
@@ -3639,7 +3753,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 473,
+          "line": 681,
           "column": 25
         }
       ]
@@ -3677,7 +3791,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 419,
+          "line": 587,
           "column": 111
         }
       ]
@@ -3701,7 +3815,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 141,
+          "line": 175,
           "column": 147
         }
       ]
@@ -3745,7 +3859,7 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 272,
+          "line": 274,
           "column": 9
         }
       ]
@@ -3807,7 +3921,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 311,
+          "line": 313,
           "column": 30
         }
       ]
@@ -3821,12 +3935,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 159,
+          "line": 161,
           "column": 17
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 92,
+          "line": 126,
           "column": 22
         }
       ]
@@ -4211,7 +4325,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 308,
+          "line": 439,
           "column": 107
         },
         {
@@ -4314,7 +4428,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 402,
+          "line": 570,
           "column": 84
         },
         {
@@ -4329,6 +4443,20 @@
         }
       ]
     },
+    "afb9b7cf4c4f412f": {
+      "source": "全部账号 · {action}",
+      "kind": "template",
+      "placeholders": [
+        "action"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 523,
+          "column": 13
+        }
+      ]
+    },
     "affb73206cfa035d": {
       "source": "到期时间：{time}",
       "kind": "template",
@@ -4338,7 +4466,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 435,
+          "line": 603,
           "column": 84
         }
       ]
@@ -4389,7 +4517,7 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 301,
+          "line": 303,
           "column": 70
         }
       ]
@@ -4526,6 +4654,22 @@
         }
       ]
     },
+    "b82974e06043a48e": {
+      "source": "共 {total} 个账号：成功 {successful}，失败 {failed}",
+      "kind": "template",
+      "placeholders": [
+        "total",
+        "successful",
+        "failed"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 653,
+          "column": 10
+        }
+      ]
+    },
     "b86967982067d295": {
       "source": "（估算）",
       "kind": "text",
@@ -4632,7 +4776,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 485,
+          "line": 702,
           "column": 81
         }
       ]
@@ -4770,7 +4914,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 278,
+          "line": 280,
           "column": 45
         }
       ]
@@ -4825,7 +4969,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 368,
+          "line": 536,
           "column": 66
         }
       ]
@@ -4890,7 +5034,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 371,
+          "line": 539,
           "column": 102
         },
         {
@@ -4936,7 +5080,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 312,
+          "line": 443,
           "column": 37
         }
       ]
@@ -4950,6 +5094,20 @@
           "file": "features/plugins/PluginManagementPage.tsx",
           "line": 106,
           "column": 9
+        }
+      ]
+    },
+    "cc3e3a28bbbbd287": {
+      "source": "上次自动执行成功：{time}",
+      "kind": "template",
+      "placeholders": [
+        "time"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 691,
+          "column": 52
         }
       ]
     },
@@ -5059,7 +5217,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 188,
+          "line": 190,
           "column": 20
         }
       ]
@@ -5141,7 +5299,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 268,
+          "line": 399,
           "column": 32
         }
       ]
@@ -5201,7 +5359,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 302,
+          "line": 304,
           "column": 44
         }
       ]
@@ -5227,7 +5385,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 322,
+          "line": 453,
           "column": 22
         }
       ]
@@ -5345,7 +5503,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 216,
+          "line": 218,
           "column": 25
         }
       ]
@@ -5357,7 +5515,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 462,
+          "line": 630,
           "column": 11
         }
       ]
@@ -5456,7 +5614,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 35,
+          "line": 69,
           "column": 71
         }
       ]
@@ -5535,6 +5693,18 @@
         }
       ]
     },
+    "e21576a75f6ff61f": {
+      "source": "删除资源",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 366,
+          "column": 14
+        }
+      ]
+    },
     "e231f1f3428d1c93": {
       "source": "正在申请授权码…",
       "kind": "text",
@@ -5542,7 +5712,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 139,
+          "line": 173,
           "column": 34
         }
       ]
@@ -5554,7 +5724,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 100,
+          "line": 134,
           "column": 36
         }
       ]
@@ -5674,7 +5844,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 268,
+          "line": 399,
           "column": 43
         }
       ]
@@ -5744,7 +5914,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 428,
+          "line": 596,
           "column": 100
         }
       ]
@@ -5785,6 +5955,20 @@
         }
       ]
     },
+    "eb74de4ac937cbf6": {
+      "source": "全部账号 · 正在执行{action}…",
+      "kind": "template",
+      "placeholders": [
+        "action"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 522,
+          "column": 13
+        }
+      ]
+    },
     "eb77492c9f76a7e1": {
       "source": "安装命令已自动复制。点击“打开终端”，将命令粘贴到终端中执行，并按提示输入密码。",
       "kind": "text",
@@ -5804,7 +5988,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 240,
+          "line": 242,
           "column": 20
         }
       ]
@@ -5885,7 +6069,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 434,
+          "line": 602,
           "column": 84
         }
       ]
@@ -5953,7 +6137,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 312,
+          "line": 443,
           "column": 69
         }
       ]
@@ -6001,7 +6185,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 178,
+          "line": 180,
           "column": 32
         }
       ]
@@ -6135,7 +6319,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 304,
+          "line": 435,
           "column": 18
         }
       ]
@@ -6147,7 +6331,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 287,
+          "line": 289,
           "column": 23
         }
       ]
@@ -6193,7 +6377,7 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 309,
+          "line": 311,
           "column": 29
         }
       ]
@@ -6256,7 +6440,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 178,
+          "line": 180,
           "column": 45
         }
       ]
@@ -6318,6 +6502,20 @@
           "file": "features/settings/SettingsPage.tsx",
           "line": 307,
           "column": 38
+        }
+      ]
+    },
+    "ff2f49ad95696026": {
+      "source": "启用 {action}",
+      "kind": "template",
+      "placeholders": [
+        "action"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 510,
+          "column": 20
         }
       ]
     },

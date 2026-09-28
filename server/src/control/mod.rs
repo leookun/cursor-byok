@@ -12,6 +12,7 @@ use axum::{
     body::{to_bytes, Body},
     extract::State,
     http::{header, header::CONTENT_TYPE, HeaderValue, Method, Request, Response, StatusCode},
+    middleware,
     routing::{any, get, post, put},
     Router,
 };
@@ -166,7 +167,7 @@ pub fn api_router(service: ControlService) -> Router {
         )
         .route(
             "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/export",
-            get(plugins::export_resources),
+            get(plugins::export_resources).layer(middleware::from_fn(require_local_origin)),
         )
         .route(
             "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/{resource_id}",
@@ -175,6 +176,10 @@ pub fn api_router(service: ControlService) -> Router {
         .route(
             "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/{resource_id}/actions/{action_id}",
             post(plugins::action),
+        )
+        .route(
+            "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/automations/{action_id}",
+            put(plugins::set_automation_enabled),
         )
         .route(
             "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/{resource_id}/refresh",
@@ -247,6 +252,32 @@ fn desktop_cors() -> CorsLayer {
         ])
 }
 
+/// Credential export hands out tokens, so it only answers the local desktop
+/// webview. CORS already restricts who may read the response; this rejects
+/// callers that never pass through the browser (a local process, a page that
+/// omits `Origin`).
+async fn require_local_origin(
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(origin) = request.headers().get(header::ORIGIN) else {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from(
+                "credential export requires a local desktop origin",
+            ))
+            .expect("static export rejection");
+    };
+    if !local_origin(origin) {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from(
+                "credential export requires a local desktop origin",
+            ))
+            .expect("static export rejection");
+    }
+    next.run(request).await
+}
 fn local_origin(origin: &HeaderValue) -> bool {
     let Ok(origin) = origin.to_str() else {
         return false;
@@ -277,5 +308,44 @@ fn local_origin(origin: &HeaderValue) -> bool {
             address.is_loopback() || address.is_unique_local() || address.is_unicast_link_local()
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_origin;
+    use axum::http::HeaderValue;
+
+    fn accepts(value: &str) -> bool {
+        local_origin(&HeaderValue::from_str(value).unwrap())
+    }
+
+    #[test]
+    fn export_origin_guard_admits_the_local_webview_only() {
+        // The desktop webview must keep working: it is the only caller that
+        // legitimately downloads credentials.
+        for allowed in [
+            "tauri://localhost",
+            "http://localhost:5173",
+            "http://127.0.0.1:41137",
+            "https://localhost",
+        ] {
+            assert!(accepts(allowed), "expected {allowed} to be allowed");
+        }
+
+        // Anything a remote page or a plain local process could supply.
+        for denied in [
+            "https://evil.example",
+            "https://copilot.tencent.com",
+            "http://127.0.0.1.evil.example",
+            "https://localhost.evil.example",
+            "file://",
+            "null",
+            "http://user:pass@localhost",
+            "http://localhost/path",
+            "http://localhost?q=1",
+        ] {
+            assert!(!accepts(denied), "expected {denied} to be denied");
+        }
     }
 }

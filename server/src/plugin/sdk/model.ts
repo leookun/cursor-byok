@@ -1,5 +1,5 @@
 import type { JsonValue, PluginContext } from "./plugin.ts";
-import type { ResourceSnapshot } from "./resource.ts";
+import type { ResourcePatch, ResourceSnapshot } from "./resource.ts";
 
 export type ModelCapabilities = {
   images?: boolean;
@@ -23,7 +23,13 @@ export type ModelListInput = {
   resource: ResourceSnapshot | null;
 };
 
+export type ModelListResult = {
+  models: ModelDefinition[];
+  /** Discovery may refresh the selected resource credentials. */
+  patch?: ResourcePatch;
+};
+
 export type ModelSupport = {
   /** 列举成功后,宿主用返回值整体替换该 Provider 的模型目录。 */
-  list(input: ModelListInput, context: PluginContext): Promise<ModelDefinition[]>;
+  list(input: ModelListInput, context: PluginContext): Promise<ModelDefinition[] | ModelListResult>;
 };

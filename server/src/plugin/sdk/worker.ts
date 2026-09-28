@@ -107,7 +107,11 @@ async function dispatch(message: { id: string; method: string; params?: JsonValu
       case "models.list": {
         const models = provider(params.providerId).models;
         if (!models) throw new Error(`plugin provider ${params.providerId} has no models`);
-        result = await models.list({ resource: (params.resource ?? null) as never }, context);
+        const listed = await models.list(
+          { resource: (params.resource ?? null) as never },
+          context,
+        );
+        result = Array.isArray(listed) ? { models: listed } : listed;
         break;
       }
       case "resource.present": {

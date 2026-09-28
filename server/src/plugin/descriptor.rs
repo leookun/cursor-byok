@@ -42,6 +42,29 @@ pub struct ResourceDefinition {
     pub actions: Vec<ResourceActionDefinition>,
     pub can_refresh: bool,
     pub can_remove: bool,
+    #[serde(default)]
+    pub export: ResourceExportDefinition,
+}
+
+impl Default for ResourceExportDefinition {
+    fn default() -> Self {
+        // A resource that never declared `export` keeps the pre-policy
+        // behavior: the management export menu stays available.
+        Self { enabled: true }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResourceExportDefinition {
+    /// Export stays available unless a plugin opts out, which keeps the
+    /// behavior of plugins written before the policy existed.
+    #[serde(default = "default_export_enabled")]
+    pub enabled: bool,
+}
+
+fn default_export_enabled() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -51,10 +74,52 @@ pub struct ResourceActionDefinition {
     pub display_name: LocalizedText,
     #[serde(default)]
     pub description: LocalizedText,
-    #[serde(default)]
+    #[serde(default = "default_action_target")]
     pub target: String,
     #[serde(default)]
+    pub automation: Option<ResourceAutomationDefinition>,
+    #[serde(default)]
     pub destructive: bool,
+}
+
+fn default_action_target() -> String {
+    "resource".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResourceAutomationDefinition {
+    pub kind: String,
+    #[serde(default)]
+    pub default_enabled: bool,
+    /// 后台行为：不投影到桌面端，用户无需配置。
+    #[serde(default)]
+    pub hidden: bool,
+}
+
+/// The persisted, user-visible state of one declared resource automation.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAutomationDescriptor {
+    pub action_id: String,
+    pub kind: String,
+    pub enabled: bool,
+    pub last_run_at_ms: Option<i64>,
+    pub last_run_succeeded: Option<bool>,
+    pub last_run_failed: Option<bool>,
+}
+
+impl PluginAutomationDescriptor {
+    pub fn from_state(action_id: &str, kind: &str, state: &super::state::StoredAutomation) -> Self {
+        Self {
+            action_id: action_id.to_owned(),
+            kind: kind.to_owned(),
+            enabled: state.enabled,
+            last_run_at_ms: state.last_run_at_ms,
+            last_run_succeeded: state.last_run_succeeded,
+            last_run_failed: state.last_run_failed,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -148,8 +213,10 @@ pub struct PluginResourceDescriptor {
     pub add: Vec<AddMethodDefinition>,
     pub import: Option<ImportDefinition>,
     pub actions: Vec<ResourceActionDefinition>,
+    pub automations: Vec<PluginAutomationDescriptor>,
     pub can_refresh: bool,
     pub can_remove: bool,
+    pub export: ResourceExportDefinition,
     pub resources: Vec<PluginResourceView>,
 }
 
@@ -196,8 +263,14 @@ pub struct ResourceActionResult {
     pub description: Option<LocalizedText>,
     #[serde(default)]
     pub cards: Vec<ResourceActionCard>,
+    #[serde(default = "default_action_succeeded")]
+    pub succeeded: bool,
     #[serde(default, skip_serializing)]
     pub patch: Option<super::state::ResourcePatch>,
+}
+
+fn default_action_succeeded() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -230,6 +303,7 @@ pub struct ResourceActionResponse {
     pub title: LocalizedText,
     pub description: Option<LocalizedText>,
     pub cards: Vec<ResourceActionCard>,
+    pub succeeded: bool,
 }
 
 impl From<ResourceActionResult> for ResourceActionResponse {
@@ -238,6 +312,7 @@ impl From<ResourceActionResult> for ResourceActionResponse {
             title: result.title,
             description: result.description,
             cards: result.cards,
+            succeeded: result.succeeded,
         }
     }
 }
@@ -311,5 +386,130 @@ mod tests {
         );
         assert_eq!(parse_model_id("plugin:only/one"), None);
         assert_eq!(parse_model_id("model-hash"), None);
+    }
+
+    #[test]
+    fn projects_automation_state_without_mutating_action_metadata() {
+        let action: ResourceActionDefinition = serde_json::from_value(serde_json::json!({
+            "id": "check-in",
+            "displayName": "Daily check-in",
+            "automation": {"kind": "daily", "defaultEnabled": true}
+        }))
+        .unwrap();
+        assert_eq!(action.target, "resource");
+        let metadata = action.automation.unwrap();
+        assert_eq!(metadata.kind, "daily");
+        assert!(metadata.default_enabled);
+
+        let state = super::super::state::StoredAutomation::with_default(metadata.default_enabled);
+        let descriptor = PluginAutomationDescriptor::from_state(&action.id, &metadata.kind, &state);
+        let value = serde_json::to_value(descriptor).unwrap();
+        assert_eq!(value["actionId"], "check-in");
+        assert_eq!(value["kind"], "daily");
+        assert_eq!(value["enabled"], true);
+        assert!(value["lastRunAtMs"].is_null());
+        assert!(value["lastRunSucceeded"].is_null());
+        assert!(value["lastRunFailed"].is_null());
+    }
+
+    #[test]
+    fn hidden_automations_stay_off_the_desktop_projection() {
+        // A background automation must still run on schedule while the host
+        // hides it from the resource panel.
+        let action: ResourceActionDefinition = serde_json::from_value(serde_json::json!({
+            "id": "check-in",
+            "displayName": "Daily check-in",
+            "automation": {"kind": "daily", "defaultEnabled": true, "hidden": true}
+        }))
+        .unwrap();
+        let metadata = action.automation.unwrap();
+        assert_eq!(metadata.kind, "daily");
+        assert!(metadata.default_enabled);
+        assert!(metadata.hidden);
+
+        let visible: ResourceActionDefinition = serde_json::from_value(serde_json::json!({
+            "id": "check-in",
+            "displayName": "Daily check-in",
+            "automation": {"kind": "daily"}
+        }))
+        .unwrap();
+        assert!(!visible.automation.unwrap().hidden);
+    }
+
+    #[test]
+    fn parses_credential_export_policy() {
+        let definition: PluginModuleDefinition = serde_json::from_value(serde_json::json!({
+            "providers": [{
+                "id": "codebuddy",
+                "displayName": "CodeBuddy",
+                "providerType": "tencent",
+                "resourceType": "account",
+                "hasModels": true
+            }],
+            "resources": [{
+                "type": "account",
+                "displayName": "Accounts",
+                "canRefresh": true,
+                "canRemove": false,
+                "export": {"enabled": true}
+            }]
+        }))
+        .unwrap();
+        assert!(definition.resources[0].export.enabled);
+    }
+
+    #[test]
+    fn credential_export_is_opt_out() {
+        // A plugin that does not declare `export` must keep the pre-policy
+        // behavior, so the Codex/Grok/Antigravity trees need no changes.
+        let opted_out: PluginModuleDefinition = serde_json::from_value(serde_json::json!({
+            "providers": [{
+                "id": "codebuddy",
+                "displayName": "CodeBuddy",
+                "providerType": "tencent",
+                "hasModels": true
+            }],
+            "resources": [{
+                "type": "account",
+                "displayName": "Accounts",
+                "canRefresh": true,
+                "canRemove": true,
+                "export": {"enabled": false}
+            }]
+        }))
+        .unwrap();
+        assert!(!opted_out.resources[0].export.enabled);
+
+        let undeclared: PluginModuleDefinition = serde_json::from_value(serde_json::json!({
+            "providers": [{
+                "id": "grok",
+                "displayName": "Grok",
+                "providerType": "xai",
+                "hasModels": true
+            }],
+            "resources": [{
+                "type": "account",
+                "displayName": "Accounts",
+                "canRefresh": true,
+                "canRemove": true
+            }]
+        }))
+        .unwrap();
+        assert!(undeclared.resources[0].export.enabled);
+    }
+
+    #[test]
+    fn action_failure_is_explicit_and_default_remains_success() {
+        let failed: ResourceActionResult = serde_json::from_value(serde_json::json!({
+            "title": "Failed",
+            "succeeded": false
+        }))
+        .unwrap();
+        assert!(!failed.succeeded);
+        let legacy: ResourceActionResult = serde_json::from_value(serde_json::json!({
+            "title": "Completed"
+        }))
+        .unwrap();
+        assert!(legacy.succeeded);
     }
 }

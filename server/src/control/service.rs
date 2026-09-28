@@ -25,7 +25,10 @@ use crate::{
         ModelRequest, ModelSpec, ModelType, Overview, ProjectedContent, ProjectedMessage,
         PromptSpec, ProviderType, Role,
     },
-    plugin::{PluginDescriptor, PluginRegistry, PluginRuntime, PluginRuntimeStatus},
+    plugin::{
+        PluginAutomationDescriptor, PluginDescriptor, PluginRegistry, PluginRuntime,
+        PluginRuntimeStatus,
+    },
     provider::{is_valid_response_event, ModelEvent, Provider},
     store::{
         CommitSettings, DesktopSettings, PortSettings, ProxySettings, ProxySettingsInput,
@@ -236,6 +239,18 @@ impl ControlService {
     ) -> Result<serde_json::Value> {
         self.plugins
             .resource_action(plugin_id, resource_type, resource_id, action_id, input)
+            .await
+    }
+
+    pub async fn plugin_set_resource_automation_enabled(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        action_id: &str,
+        enabled: bool,
+    ) -> Result<PluginAutomationDescriptor> {
+        self.plugins
+            .set_resource_automation_enabled(plugin_id, resource_type, action_id, enabled)
             .await
     }
 
