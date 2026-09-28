@@ -148,7 +148,13 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
 export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [modelProviderId, setModelProviderId] = useState<string | null>(null);
+  // 插件不声明账号资源时,面板里唯一可做的事就是管理模型,直接展开,
+  // 不再要求先点一次「模型管理」。声明了资源的插件维持原交互。
+  const [modelProviderId, setModelProviderId] = useState<string | null>(
+    plugin.resources.length === 0
+      ? plugin.providers.find((provider) => provider.hasModels)?.id ?? null
+      : null,
+  );
   const [resourceAction, setResourceAction] = useState<{
     resource: PluginResourceDescriptor;
     item: PluginResourceView;
@@ -206,8 +212,10 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     {plugin.providers.map((provider) => <ProviderRow
       key={provider.id}
       provider={provider}
+      pluginName={plugin.name}
       busy={busy !== null}
       syncing={busy === `sync:${provider.id}`}
+      manageModelsInline={plugin.resources.length === 0}
       onManageModels={() => setModelProviderId(provider.id)}
       onSync={() => void run(`sync:${provider.id}`, async () => {
         await api.syncPluginModels(plugin.id, provider.id);
@@ -226,17 +234,29 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
       })}
     />)}
     {error && <span className={styles.error} role="alert">{error}</span>}
-    {modelProvider && <ModelManagementModal
-      provider={modelProvider}
-      busy={busy !== null}
-      onClose={() => setModelProviderId(null)}
-      onSubmit={(enabledByModel) => void run("models", async () => {
-        for (const model of modelProvider.models) {
-          const enabled = enabledByModel[model.id] ?? model.enabled;
-          if (model.enabled !== enabled) await api.setPluginModelEnabled(plugin.id, modelProvider.id, model.modelId, enabled);
-        }
-      })}
-    />}
+    {modelProvider && (plugin.resources.length === 0
+      ? <InlineModelList
+        provider={modelProvider}
+        busy={busy !== null}
+        onSubmit={(enabledByModel) => void run("models", async () => {
+          for (const model of modelProvider.models) {
+            const enabled = enabledByModel[model.id] ?? model.enabled;
+            if (model.enabled !== enabled) await api.setPluginModelEnabled(plugin.id, modelProvider.id, model.modelId, enabled);
+          }
+        })}
+      />
+      : <ModelManagementModal
+        provider={modelProvider}
+        busy={busy !== null}
+        onClose={() => setModelProviderId(null)}
+        onSubmit={(enabledByModel) => void run("models", async () => {
+          for (const model of modelProvider.models) {
+            const enabled = enabledByModel[model.id] ?? model.enabled;
+            if (model.enabled !== enabled) await api.setPluginModelEnabled(plugin.id, modelProvider.id, model.modelId, enabled);
+          }
+        })}
+      />)}
+
     {resourceAction && <ResourceActionModal
       action={resourceAction.resource.actions.find((item) => item.target === "resource") ?? null}
       cardAction={resourceAction.resource.actions.find((item) => item.target === "card") ?? null}
@@ -249,19 +269,73 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
   </div>;
 }
 
-function ProviderRow({ provider, busy, syncing, onManageModels, onSync }: {
+/**
+ * 无账号资源的插件:模型表直接内联在面板里。
+ *
+ * 这类插件的模型管理是唯一入口,套一层 Modal 会让「插件面板 → 模型面板」
+ * 变成两层弹窗。内联渲染省掉这层,面板底部按钮即模型表的提交。
+ */
+function InlineModelList({ provider, busy, onSubmit }: {
   provider: PluginProviderDescriptor;
   busy: boolean;
+  onSubmit: (enabledByModel: Record<string, boolean>) => void;
+}) {
+  const [enabledByModel, setEnabledByModel] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setEnabledByModel(Object.fromEntries(provider.models.map((model) => [model.id, model.enabled])));
+  }, [provider.models]);
+
+  const setAll = (enabled: boolean) => {
+    setEnabledByModel(Object.fromEntries(provider.models.map((model) => [model.id, enabled])));
+  };
+
+  return <div className={styles.inlineModelList}>
+    <div className={styles.modelToolbar}>
+      <Button size="small" disabled={busy || provider.models.length === 0} onClick={() => setAll(true)}>{t("全选")}</Button>
+      <Button size="small" disabled={busy || provider.models.length === 0} onClick={() => setAll(false)}>{t("全不选")}</Button>
+    </div>
+    <table className={styles.modelTable}>
+      <thead><tr><th scope="col">{t("模型名称")}</th><th scope="col">{t("启用")}</th></tr></thead>
+      <tbody>
+        {provider.models.map((model) => <tr key={model.id}>
+          <td><div className={styles.modelName}>
+            <strong>{model.displayName}</strong>
+            {model.description && <span>{model.description}</span>}
+          </div></td>
+          <td><Switch
+            checked={enabledByModel[model.id] ?? model.enabled}
+            disabled={busy}
+            label={t("启用 {model}", { model: model.displayName })}
+            onChange={(enabled) => setEnabledByModel((current) => ({ ...current, [model.id]: enabled }))}
+          /></td>
+        </tr>)}
+      </tbody>
+    </table>
+    {provider.models.length === 0 && <span className={styles.empty}>{t("尚未同步模型")}</span>}
+    <div className={styles.modelToolbar}>
+      <Button size="small" variant="primary" disabled={busy || provider.models.length === 0} onClick={() => onSubmit(enabledByModel)}>
+        {t("保存")}
+      </Button>
+    </div>
+  </div>;
+}
+
+function ProviderRow({ provider, pluginName, busy, syncing, manageModelsInline, onManageModels, onSync }: {
+  provider: PluginProviderDescriptor;
+  pluginName: string;
+  busy: boolean;
   syncing: boolean;
+  manageModelsInline: boolean;
   onManageModels: () => void;
   onSync: () => void;
 }) {
   const { locale } = useI18n();
   return <Card className={styles.providerRow}>
     <div>
-      <strong>{pluginText(provider.displayName, locale)}</strong>
+      <strong>{manageModelsInline ? pluginName : pluginText(provider.displayName, locale)}</strong>
       <span>
-        {provider.providerType}
+        {manageModelsInline ? pluginText(provider.displayName, locale) : provider.providerType}
         {" · "}
         {provider.models.length > 0 ? t("{count} 个模型", { count: provider.models.length }) : t("尚未同步模型")}
         {" · "}
@@ -269,7 +343,9 @@ function ProviderRow({ provider, busy, syncing, onManageModels, onSync }: {
       </span>
     </div>
     {provider.hasModels && <div className={styles.actions}>
-      <Button size="small" disabled={busy || provider.models.length === 0} onClick={onManageModels}>{t("模型管理")}</Button>
+      {!manageModelsInline && (
+        <Button size="small" disabled={busy || provider.models.length === 0} onClick={onManageModels}>{t("模型管理")}</Button>
+      )}
       <Button size="small" disabled={busy} onClick={onSync}>
         {syncing ? t("正在同步…") : t("同步模型")}
       </Button>

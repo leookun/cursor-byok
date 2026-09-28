@@ -94,6 +94,16 @@
   min-width: min(520px, 70vw);
 }
 
+// 无账号资源插件的内联模型表:与 provider 行同层级,不使用 Modal 宽度约束。
+.inlineModelList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 6px;
+}
+
 .modelTable {
   width: 100%;
   table-layout: fixed;
