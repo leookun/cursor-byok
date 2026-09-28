@@ -619,6 +619,199 @@ async fn subagent_type_does_not_require_parent_metadata() {
     .await;
 }
 
+#[tokio::test]
+async fn subagent_run_without_message_id_starts_and_completes() {
+    let (_directory, store) = fixtures::temp_store().await;
+    let provider = fake_provider::FakeProvider::default();
+    provider.push(vec![
+        ModelEvent::Start {
+            model_call_id: "subagent-model-call".into(),
+        },
+        ModelEvent::TextStart,
+        ModelEvent::TextDelta("subagent finished".into()),
+        ModelEvent::TextEnd,
+        ModelEvent::Done(FinishReason::Stop),
+    ]);
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let registry = TransportRegistry::new(
+        store.clone(),
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+    );
+    let terminal = run_to_terminal(
+        &registry,
+        "windows-subagent",
+        Some(TransportParent {
+            request_id: None,
+            tool_call_id: Some("parent-task-call".into()),
+        }),
+        subagent_run("explore the repository", "windows-subagent-conversation"),
+    )
+    .await;
+
+    assert!(terminal.get("error").is_none(), "{terminal}");
+    assert_eq!(provider.requests().len(), 1);
+    let row: (String, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT run_kind, parent_run_id, parent_tool_call_id FROM runs WHERE cursor_request_id = ?",
+    )
+    .bind("windows-subagent")
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row, ("root".into(), None, None));
+}
+
+#[tokio::test]
+async fn subagent_retries_without_message_id_stay_idempotent() {
+    let (_directory, store) = fixtures::temp_store().await;
+    let provider = fake_provider::FakeProvider::default();
+    let completed = || {
+        vec![
+            ModelEvent::Start {
+                model_call_id: "retry-model-call".into(),
+            },
+            ModelEvent::TextStart,
+            ModelEvent::TextDelta("done".into()),
+            ModelEvent::TextEnd,
+            ModelEvent::Done(FinishReason::Stop),
+        ]
+    };
+    provider.push(completed());
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let registry = TransportRegistry::new(
+        store.clone(),
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+    );
+    let conversation = "synthetic-retry-conversation";
+
+    // First attempt and a client retry with fresh request ids but the same
+    // id-less message must map onto one runtime event.
+    let first = run_to_terminal(
+        &registry,
+        "synthetic-retry-a",
+        None,
+        subagent_run("same subagent task", conversation),
+    )
+    .await;
+    assert!(first.get("error").is_none(), "{first}");
+    wait_until_idle(store.pool(), conversation).await;
+    provider.push(completed());
+    let retry = run_to_terminal(
+        &registry,
+        "synthetic-retry-b",
+        None,
+        subagent_run("same subagent task", conversation),
+    )
+    .await;
+    assert!(retry.get("error").is_none(), "{retry}");
+    wait_until_idle(store.pool(), conversation).await;
+
+    // A different id-less message in the same conversation keeps its own
+    // identity instead of collapsing into the first event.
+    provider.push(completed());
+    let other = run_to_terminal(
+        &registry,
+        "synthetic-retry-c",
+        None,
+        subagent_run("a different subagent task", conversation),
+    )
+    .await;
+    assert!(other.get("error").is_none(), "{other}");
+
+    let runtime_messages: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages
+         WHERE conversation_id = ? AND message_id LIKE 'runtime:%'",
+    )
+    .bind(conversation)
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(runtime_messages, 2);
+}
+
+async fn run_to_terminal(
+    registry: &TransportRegistry,
+    request_id: &str,
+    parent: Option<TransportParent>,
+    message: pb::AgentClientMessage,
+) -> serde_json::Value {
+    let handle = registry.get_or_create(request_id).await.unwrap();
+    if let Some(parent) = parent {
+        handle.set_parent(parent).unwrap();
+    }
+    let mut output = handle.subscribe();
+    handle
+        .command(TransportCommand::Append {
+            seqno: 0,
+            message: Box::new(message),
+        })
+        .await
+        .unwrap();
+
+    let mut seqno = 1;
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), output.recv())
+            .await
+            .unwrap()
+            .expect("RunSSE closed before EndStream");
+        let (flags, payload) = connect::decode_frames(&frame).unwrap().pop().unwrap();
+        if flags & connect::END_STREAM_FLAG != 0 {
+            break serde_json::from_slice::<serde_json::Value>(&payload).unwrap();
+        }
+        let server = pb::AgentServerMessage::decode(payload).unwrap();
+        if let Some(pb::agent_server_message::Message::KvServerMessage(kv)) = server.message {
+            handle
+                .command(TransportCommand::Append {
+                    seqno,
+                    message: Box::new(kv_ack(kv.id)),
+                })
+                .await
+                .unwrap();
+            seqno += 1;
+        }
+    }
+}
+
+// Windows Cursor emits subagent kickoff messages without a message_id.
+fn subagent_run(text: &str, conversation_id: &str) -> pb::AgentClientMessage {
+    let mut message = protocol_client_run(text, "");
+    let Some(pb::agent_client_message::Message::RunRequest(request)) = message.message.as_mut()
+    else {
+        unreachable!()
+    };
+    request.conversation_id = Some(conversation_id.into());
+    request.subagent_type_name = Some("generalPurpose".into());
+    message
+}
+
+async fn wait_until_idle(pool: &sqlx::SqlitePool, conversation_id: &str) {
+    for _ in 0..50 {
+        let active: Option<String> =
+            sqlx::query_scalar("SELECT active_run_id FROM conversations WHERE conversation_id = ?")
+                .bind(conversation_id)
+                .fetch_optional(pool)
+                .await
+                .unwrap()
+                .flatten();
+        if active.is_none() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("conversation {conversation_id} never became idle");
+}
+
 async fn assert_run_starts_without_parent_dependency(
     request_id: &str,
     parent: Option<TransportParent>,
