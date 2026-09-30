@@ -261,13 +261,16 @@ pub async fn available_models(
         plugin_model_count = plugin_models.len(),
         "appending BYOK models to Cursor AvailableModels"
     );
+    let aliases = configured_aliases(&registry).await?;
     let mut available_models = models.iter().map(available_model).collect::<Vec<_>>();
+    available_models.extend(aliases.iter().map(available_alias));
     available_models.extend(plugin_models.iter().map(available_plugin_model));
     let local = AvailableModelsAddition {
         model_names: models
             .iter()
             .map(|model| model.model_hash.clone())
             .chain(plugin_models.iter().map(|model| model.id.clone()))
+            .chain(aliases.iter().map(|alias| alias.alias.config.name.clone()))
             .collect(),
         models: available_models,
     }
@@ -296,11 +299,13 @@ pub async fn usable_models(
         plugin_model_count = plugin_models.len(),
         "appending BYOK models to Cursor GetUsableModels"
     );
+    let aliases = configured_aliases(&registry).await?;
     let local = UsableModelsAddition {
         models: models
             .iter()
             .map(usable_model)
             .chain(plugin_models.iter().map(usable_plugin_model))
+            .chain(aliases.iter().map(usable_alias))
             .collect(),
     }
     .encode_to_vec();
@@ -736,6 +741,80 @@ fn available_plugin_model(model: &PluginModelDescriptor) -> AvailableModel {
     }
 }
 
+async fn configured_aliases(registry: &TransportRegistry) -> Result<Vec<crate::alias::AliasView>> {
+    match registry.aliases() {
+        Some(resolver) => Ok(resolver
+            .views()
+            .await?
+            .into_iter()
+            .filter(|alias| matches!(alias.status.as_str(), "working" | "partial"))
+            .collect()),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn available_alias(view: &crate::alias::AliasView) -> AvailableModel {
+    let name = &view.alias.config.name;
+    let contexts = view
+        .parameters
+        .context_window_tokens
+        .into_iter()
+        .map(|tokens| (tokens.to_string(), format_token_count(tokens)))
+        .collect::<Vec<_>>();
+    let parameters = if contexts.is_empty() {
+        Vec::new()
+    } else {
+        model_parameters(&contexts, false)
+            .into_iter()
+            .filter(|parameter| parameter.id == "context")
+            .collect()
+    };
+    let tooltip = format!(
+        "{}\n\nContext: {}\n\nMax output: {}",
+        view.alias.config.description,
+        view.parameters
+            .context_window_tokens
+            .map(format_token_count)
+            .unwrap_or_else(|| "unknown".into()),
+        view.parameters
+            .max_output_tokens
+            .map(format_token_count)
+            .unwrap_or_else(|| "unknown".into())
+    );
+    AvailableModel {
+        name: name.clone(),
+        default_on: true,
+        supports_agent: Some(view.parameters.tools == Some(true)),
+        supports_images: Some(view.parameters.images == Some(true)),
+        supports_thinking: Some(false),
+        supports_max_mode: Some(false),
+        supports_non_max_mode: Some(true),
+        client_display_name: Some(name.clone()),
+        server_model_name: Some(name.clone()),
+        inputbox_short_model_name: Some(name.clone()),
+        tooltip_data: Some(TooltipData {
+            markdown_content: Some(tooltip),
+        }),
+        supports_plan_mode: Some(view.parameters.tools == Some(true)),
+        parameter_definitions: parameters,
+        vendor_name: Some("Alias".into()),
+        named_model_section_index: Some(1),
+        ..Default::default()
+    }
+}
+
+fn usable_alias(view: &crate::alias::AliasView) -> agent::ModelDetails {
+    let name = &view.alias.config.name;
+    agent::ModelDetails {
+        model_id: name.clone(),
+        display_model_id: name.clone(),
+        display_name: name.clone(),
+        display_name_short: name.clone(),
+        credentials: Some(cli_local_model_credentials()),
+        ..Default::default()
+    }
+}
+
 fn cli_local_model_credentials() -> agent::model_details::Credentials {
     agent::model_details::Credentials::ApiKeyCredentials(agent::ApiKeyCredentials {
         api_key: CLI_LOCAL_MODEL_API_KEY.into(),
@@ -782,6 +861,9 @@ mod tests {
             base_url: "https://provider.example/v1/chat/completions".into(),
             use_full_url: true,
             api_key: "provider-secret".into(),
+            source_id: "00000000-0000-4000-8000-000000000001".into(),
+            supports_images: None,
+            supports_tools: None,
             tooltip_data: "Local Model".into(),
             model_id: "upstream-model".into(),
             reasoning_effort: None,
@@ -830,6 +912,9 @@ mod tests {
             icon: String::new(),
             provider_type: "test".into(),
             max_output_tokens: None,
+            context_window_tokens: None,
+            supports_tools: None,
+            supports_images: None,
             images: false,
             enabled: true,
         });

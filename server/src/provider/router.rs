@@ -18,7 +18,10 @@ use super::{
     OpenAiChatProvider, OpenAiResponsesProvider, Provider, ProviderStream,
 };
 
+#[derive(Clone)]
 pub struct ProviderRouter {
+    aliases: crate::alias::AliasResolver,
+    alias_connect_timeout: Option<Duration>,
     store: Store,
     plugins: PluginRegistry,
     clients: crate::network::NetworkClients,
@@ -35,6 +38,8 @@ impl ProviderRouter {
         stream_idle_timeout: Duration,
     ) -> Self {
         Self {
+            aliases: crate::alias::AliasResolver::new(store.clone(), plugins.clone()),
+            alias_connect_timeout: None,
             store,
             plugins,
             clients,
@@ -45,7 +50,47 @@ impl ProviderRouter {
 }
 
 impl Provider for ProviderRouter {
+    fn alias_resolver(&self) -> Option<crate::alias::AliasResolver> {
+        Some(self.aliases.clone())
+    }
+
     fn stream(
+        &self,
+        invocation: ModelInvocation,
+        cancellation: CancellationToken,
+    ) -> ProviderStream {
+        let router = self.clone();
+        Box::pin(try_stream! {
+            if let Some(alias) = router.store.alias_by_name(&invocation.request.model.model_id).await? {
+                let settings = router.store.alias_settings().await?;
+                let mut target_router = router.clone();
+                target_router.alias_connect_timeout = Some(Duration::from_secs(settings.connect_timeout_seconds));
+                let mut stream = router.aliases.stream(alias, invocation, Arc::new(SingleTarget(target_router)), cancellation);
+                while let Some(event) = stream.next().await { yield event?; }
+            } else {
+                if router.store.is_alias_name(&invocation.request.model.model_id).await? {
+                    Err(Error::Alias(format!("Model not found: '{}' (alias renamed or deleted)",invocation.request.model.model_id)))?;
+                }
+                let mut stream = router.stream_target(invocation, cancellation);
+                while let Some(event) = stream.next().await { yield event?; }
+            }
+        })
+    }
+}
+
+struct SingleTarget(ProviderRouter);
+impl Provider for SingleTarget {
+    fn stream(
+        &self,
+        invocation: ModelInvocation,
+        cancellation: CancellationToken,
+    ) -> ProviderStream {
+        self.0.stream_target(invocation, cancellation)
+    }
+}
+
+impl ProviderRouter {
+    fn stream_target(
         &self,
         invocation: ModelInvocation,
         cancellation: CancellationToken,
@@ -55,6 +100,7 @@ impl Provider for ProviderRouter {
         let clients = self.clients.clone();
         let request_timeout = self.request_timeout;
         let stream_idle_timeout = self.stream_idle_timeout;
+        let alias_connect_timeout = self.alias_connect_timeout;
         Box::pin(try_stream! {
             let selected = invocation.request.model.model_id.clone();
             // 两条分支只负责装配 Recorder 与 Provider 流;
@@ -74,6 +120,7 @@ impl Provider for ProviderRouter {
                     let provider: Arc<dyn Provider> = Arc::new(NormalizedProvider::new(Arc::new(PluginModelProvider {
                         registry: plugins.clone(),
                         recorder: recorder.clone(),
+                        connect_timeout: alias_connect_timeout,
                     })));
                     (recorder, guard, provider.stream(routed, cancellation.clone()))
                 } else {
@@ -87,6 +134,17 @@ impl Provider for ProviderRouter {
                             model.extra_params(),
                             &invocation.conversation_id,
                         );
+                    if alias_connect_timeout.is_some() {
+                        // Extra parameters may lower the alias limit, never raise it.
+                        if let Some(limit) = routed.request.model.max_output_tokens {
+                            for field in ["max_output_tokens", "max_completion_tokens", "max_tokens"] {
+                                if let Some(value) = routed.request.model.extra_params.get_mut(field) {
+                                    let requested = value.as_u64().ok_or_else(|| Error::Config(format!("{field} must be a positive integer")))?;
+                                    *value = serde_json::json!(requested.min(limit));
+                                }
+                            }
+                        }
+                    }
                     routed.request.model.model_id = model.model_id.clone();
                     let recorder = start_recorder(&store, &invocation, &model.model_hash, &model.display_name, provider_type, &request_url, &model.model_id).await?;
                     let guard = recorder.cancel_on_drop();
@@ -106,7 +164,9 @@ impl Provider for ProviderRouter {
                         request_timeout,
                         allowed_body_fields: None,
                     };
-                    let client = clients.provider_client(request_timeout).await?;
+                    let client = if let Some(connect_timeout) = alias_connect_timeout {
+                        clients.alias_client(request_timeout, connect_timeout).await?
+                    } else { clients.provider_client(request_timeout).await? };
                     let provider = build_observed(&config, recorder.clone(), client)?;
                     (recorder, guard, provider.stream(routed, cancellation.clone()))
                 };
@@ -126,7 +186,9 @@ impl Provider for ProviderRouter {
                     Ok(None) => break,
                     Err(_) => {
                         let elapsed_ms = stream_started.elapsed().as_millis() as u64;
-                        let error = stream_idle_timeout_error(stream_idle_timeout);
+                        let error = if alias_connect_timeout.is_some() {
+                            Error::Upstream(super::failure::ProviderFailure::transient("provider stream idle timeout"))
+                        } else { stream_idle_timeout_error(stream_idle_timeout) };
                         tracing::warn!(
                             error = %error,
                             elapsed_ms,
@@ -157,7 +219,7 @@ impl Provider for ProviderRouter {
                         yield event;
                     }
                     Err(error) => {
-                        let error = normalize_provider_stream_error(error, request_timeout);
+                        let error = if alias_connect_timeout.is_some() { error } else { normalize_provider_stream_error(error, request_timeout) };
                         tracing::debug!(
                             error = %error,
                             elapsed_ms,
@@ -243,6 +305,7 @@ async fn finish_stream(recorder: &CallRecorder, cancellation: &CancellationToken
 struct PluginModelProvider {
     registry: PluginRegistry,
     recorder: CallRecorder,
+    connect_timeout: Option<Duration>,
 }
 
 impl Provider for PluginModelProvider {
@@ -251,8 +314,12 @@ impl Provider for PluginModelProvider {
         invocation: ModelInvocation,
         cancellation: CancellationToken,
     ) -> ProviderStream {
-        self.registry
-            .stream_model(invocation, cancellation, self.recorder.clone())
+        self.registry.stream_model(
+            invocation,
+            cancellation,
+            self.recorder.clone(),
+            self.connect_timeout,
+        )
     }
 }
 

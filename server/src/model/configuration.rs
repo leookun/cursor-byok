@@ -114,6 +114,10 @@ pub struct ModelConfigInput {
     pub anthropic_extra_params_enabled: bool,
     #[serde(default = "empty_object")]
     pub anthropic_extra_params: serde_json::Value,
+    #[serde(default)]
+    pub supports_images: Option<bool>,
+    #[serde(default)]
+    pub supports_tools: Option<bool>,
     pub context_window_tokens: Option<u64>,
     pub max_completion_tokens: Option<u64>,
     pub anthropic_max_tokens: Option<u64>,
@@ -124,6 +128,8 @@ pub struct ModelConfigInput {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelConfig {
+    /// Immutable API channel identity; configuration edits may change model_hash.
+    pub source_id: String,
     pub model_hash: String,
     pub sort_order: i64,
     pub display_name: String,
@@ -143,6 +149,10 @@ pub struct ModelConfig {
     pub custom_headers: serde_json::Value,
     pub anthropic_extra_params_enabled: bool,
     pub anthropic_extra_params: serde_json::Value,
+    #[serde(default)]
+    pub supports_images: Option<bool>,
+    #[serde(default)]
+    pub supports_tools: Option<bool>,
     pub context_window_tokens: Option<u64>,
     pub max_completion_tokens: Option<u64>,
     pub anthropic_max_tokens: Option<u64>,
@@ -267,6 +277,8 @@ pub fn normalize_model_input(input: &ModelConfigInput) -> Result<ModelConfigInpu
         } else {
             empty_object()
         },
+        supports_images: input.supports_images,
+        supports_tools: input.supports_tools,
         context_window_tokens: positive(input.context_window_tokens, "context window")?,
         max_completion_tokens: positive(input.max_completion_tokens, "max completion tokens")?,
         anthropic_max_tokens: positive(input.anthropic_max_tokens, "Anthropic max tokens")?,

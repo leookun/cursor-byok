@@ -5,7 +5,8 @@ import type {
   ProviderSupport,
 } from "cursor-byok:provider";
 import type { PluginContext } from "cursor-byok:plugin";
-import { HttpError, streamOpenAiResponses } from "cursor-byok:protocol/openai-responses";
+import { HttpError, failedProviderResult } from "cursor-byok:provider";
+import { streamOpenAiResponses } from "cursor-byok:protocol/openai-responses";
 import { codexModels, reasoningEfforts } from "./models.ts";
 import {
   type AccountData,
@@ -17,34 +18,11 @@ import {
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 
-/** 流内错误只有文本可用,按额度关键词分类。 */
-export function isQuotaError(error: string): boolean {
-  const message = error.toLowerCase();
-  return message.includes("insufficient_quota") ||
-    message.includes("usage_limit_reached") ||
-    message.includes("exceeded your current quota") ||
-    message.includes("quota_exceeded") ||
-    message.includes("5-hour") ||
-    message.includes("5 hour") ||
-    (message.includes("429") &&
-      (message.includes("quota") || message.includes("usage_limit") ||
-        message.includes("insufficient")));
-}
-
-/** HTTP 失败携带结构化状态码,429 时放宽响应体的匹配条件。 */
 function isQuotaHttpError(error: HttpError): boolean {
-  const body = error.body.toLowerCase();
-  return body.includes("insufficient_quota") ||
-    body.includes("usage_limit_reached") ||
-    body.includes("exceeded your current quota") ||
-    body.includes("quota_exceeded") ||
-    body.includes("5-hour") ||
-    body.includes("5 hour") ||
-    (error.status === 429 &&
-      (body.includes("quota") || body.includes("usage_limit") || body.includes("insufficient")));
+  return error.failure.kind === "rate_limit";
 }
 
-function invalidResult(message: string, stateMessage: string): ProviderResult {
+function invalidResult(message: string, stateMessage: string): Extract<ProviderResult, { status: "resource-error" }> {
   return {
     status: "resource-error",
     message,
@@ -111,22 +89,22 @@ async function invoke(
   } catch (error) {
     if (error instanceof HttpError) {
       if (error.status === 401) {
-        return invalidResult(error.message, "ChatGPT authorization expired; sign in again");
+        return {
+          ...invalidResult(error.message, "ChatGPT authorization expired; sign in again"),
+          failure: error.failure,
+        };
       }
       if (isQuotaHttpError(error)) {
         return {
           status: "resource-error",
           message: error.message,
+          failure: { ...error.failure, kind: "rate_limit" },
           patch: quotaExhaustedPatch(data, error.body),
         };
       }
-      return { status: "request-error", message: error.message };
+      return failedProviderResult(error);
     }
-    const message = error instanceof Error ? error.message : String(error);
-    if (isQuotaError(message)) {
-      return { status: "resource-error", message, patch: quotaExhaustedPatch(data, message) };
-    }
-    return { status: "request-error", message };
+    return failedProviderResult(error);
   }
 }
 

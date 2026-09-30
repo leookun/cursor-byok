@@ -38,6 +38,7 @@ struct RegistryInner {
     traces: CursorTraceService,
     web_cache: WebCache,
     plugins: Option<PluginRegistry>,
+    aliases: Option<crate::alias::AliasResolver>,
     conversations: ConversationRegistry,
 }
 
@@ -117,6 +118,7 @@ impl TransportRegistry {
                 upstream: Mutex::new(HashMap::new()),
                 route_changed: Notify::new(),
                 traces: CursorTraceService::new(store.clone()),
+                aliases: provider.alias_resolver(),
                 conversations: ConversationRegistry::new(
                     store.clone(),
                     provider,
@@ -129,6 +131,10 @@ impl TransportRegistry {
                 plugins,
             }),
         }
+    }
+
+    pub fn aliases(&self) -> Option<&crate::alias::AliasResolver> {
+        self.inner.aliases.as_ref()
     }
 
     pub fn store(&self) -> &Store {

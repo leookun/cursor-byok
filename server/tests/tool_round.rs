@@ -836,6 +836,8 @@ async fn one_run_can_auto_compact_again_after_more_tool_output() {
             base_url: "https://example.com/v1/chat/completions".into(),
             use_full_url: true,
             api_key: "test-key".into(),
+            supports_images: None,
+            supports_tools: None,
             tooltip_data: "Repeated compaction".into(),
             model_id: "repeated-compaction-model".into(),
             reasoning_effort: None,

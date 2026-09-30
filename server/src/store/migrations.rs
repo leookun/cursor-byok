@@ -456,7 +456,13 @@ mod tests {
             .unwrap();
 
             assert_eq!(checksum_after, checksum_before);
-            assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+            assert_eq!(
+                versions,
+                ALL_MIGRATIONS
+                    .iter()
+                    .map(|migration| migration.version)
+                    .collect::<Vec<_>>()
+            );
             assert_eq!(checkpoint_table_exists, 1);
             assert_eq!(argument_error_column_exists, 1);
         }

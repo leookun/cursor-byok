@@ -36,6 +36,8 @@ fn model_input() -> ModelConfigInput {
         base_url: "https://example.com/v1".into(),
         use_full_url: false,
         api_key: "upstream".into(),
+        supports_images: None,
+        supports_tools: None,
         tooltip_data: "test".into(),
         model_id: "qwen/model".into(),
         reasoning_effort: None,
