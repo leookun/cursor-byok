@@ -19,7 +19,7 @@ mimalloc = "0.1"
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "custom-protocol"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-opener = "2"
