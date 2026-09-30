@@ -1,7 +1,7 @@
 //! Defines serializable plugin capability definitions and desktop descriptors.
 use serde::{Deserialize, Serialize};
 
-use super::state::{ResourceRecord, ResourceState, StoredModel};
+use super::state::{ResourceRecord, ResourceSelection, ResourceState, StoredModel};
 
 /// 由 collect.ts 输出的能力摘要;不含任何可执行内容。
 #[derive(Clone, Debug, Deserialize)]
@@ -150,6 +150,7 @@ pub struct PluginResourceDescriptor {
     pub actions: Vec<ResourceActionDefinition>,
     pub can_refresh: bool,
     pub can_remove: bool,
+    pub selection: ResourceSelection,
     pub resources: Vec<PluginResourceView>,
 }
 
@@ -158,11 +159,19 @@ pub struct PluginResourceDescriptor {
 #[serde(rename_all = "camelCase")]
 pub struct PluginResourceView {
     pub id: String,
+    #[serde(serialize_with = "serialize_resource_state")]
     pub state: ResourceState,
     pub display_name: String,
     pub description: LocalizedText,
     pub metrics: Vec<ResourceMetric>,
     pub created_at_ms: i64,
+}
+
+fn serialize_resource_state<S: serde::Serializer>(
+    state: &ResourceState,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    super::state::state_json(state).serialize(serializer)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -174,6 +183,8 @@ pub struct ResourceMetric {
     pub value: f64,
     #[serde(default)]
     pub reset_at_ms: Option<i64>,
+    #[serde(default)]
+    pub expires_at_ms: Option<i64>,
 }
 
 /// 插件对一条资源的展示投影(resource.present 的返回值)。
@@ -301,6 +312,33 @@ impl PluginModelDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_resource_state_uses_the_desktop_timestamp_contract() {
+        let record = ResourceRecord {
+            id: "account".into(),
+            key: "key".into(),
+            private_data: serde_json::json!({"accessToken": "private-token"}),
+            state: ResourceState::Cooling {
+                retry_at_ms: Some(12345),
+                message: None,
+            },
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+        let view = PluginResourceView::from_record(
+            &record,
+            ResourcePresentation {
+                display_name: "Test account".into(),
+                description: serde_json::Value::Null,
+                metrics: Vec::new(),
+            },
+        );
+        let value = serde_json::to_value(view).unwrap();
+        assert_eq!(value["state"]["retryAtMs"], 12345);
+        assert!(value["state"].get("retry_at_ms").is_none());
+        assert!(!value.to_string().contains("private-token"));
+    }
 
     #[test]
     fn parses_stable_model_ids_with_slashes() {

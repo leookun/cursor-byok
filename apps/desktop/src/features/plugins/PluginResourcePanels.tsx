@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   pluginText,
@@ -17,12 +17,12 @@ import { appStore } from "../../shared/store/appStore";
 import { Button } from "../../shared/ui/Button";
 import { Card } from "../../shared/ui/Card";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
-import { FormField, TextInput } from "../../shared/ui/FormControls";
 import { Modal } from "../../shared/ui/Modal";
 import { Switch } from "../../shared/ui/Switch";
+import { resourceKey } from "./accountLifecycle";
+import { ResourceAccountList } from "./ResourceAccountList";
+import { useAccountManager } from "./useAccountManager";
 import styles from "./PluginResourcePanels.module.scss";
-
-const PAGE_SIZE = 10;
 
 export function PluginAddPanel({ plugin, onConfigured }: { plugin: PluginDescriptor; onConfigured: () => void }) {
   return <div className={styles.panel}>
@@ -71,22 +71,24 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
     window.setTimeout(() => setCopied(false), 2000);
   };
 
-  useEffect(() => () => { stopped.current = true; }, []);
+  useEffect(() => { stopped.current = false; return () => { stopped.current = true; }; }, []);
 
   useEffect(() => {
     if (!begun || status !== "polling") return;
     let timer = 0;
+    let cancelled = false;
     const poll = async (intervalMs: number) => {
-      if (stopped.current) return;
+      if (stopped.current || cancelled) return;
       try {
         const result = await api.pluginOAuthPoll(begun.sessionId);
-        if (stopped.current) return;
+        if (stopped.current || cancelled) return;
         if (result.status === "pending") {
           timer = window.setTimeout(() => void poll(result.pollIntervalMs), Math.max(1000, result.pollIntervalMs));
           return;
         }
         if (result.status === "completed") {
           await appStore.refreshPlugins();
+          if (stopped.current || cancelled) return;
           if (result.modelSyncError) {
             setStatus("error");
             setError(t("账号已保存，但同步模型失败：{error}", { error: result.modelSyncError }));
@@ -99,13 +101,13 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
         setStatus("error");
         setError(result.message || t("授权被拒绝或已失败。"));
       } catch (cause) {
-        if (stopped.current) return;
+        if (stopped.current || cancelled) return;
         setError(errorText(cause));
         timer = window.setTimeout(() => void poll(intervalMs), Math.max(1000, intervalMs));
       }
     };
     timer = window.setTimeout(() => void poll(begun.pollIntervalMs), Math.max(1000, begun.pollIntervalMs));
-    return () => window.clearTimeout(timer);
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [begun, onConfigured, status]);
 
   const start = async () => {
@@ -113,11 +115,13 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
     setError(null);
     try {
       const next = await api.pluginOAuthBegin(pluginId, resourceType, method.id);
+      if (stopped.current) return;
       setBegun(next);
       setStatus("polling");
       if (next.userCode) await api.copyCursorText(next.userCode).catch(() => undefined);
       await api.openExternalUrl(next.verificationUrlComplete || next.verificationUrl);
     } catch (cause) {
+      if (stopped.current) return;
       setStatus("error");
       setError(errorText(cause));
     }
@@ -146,6 +150,9 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
 }
 
 export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
+  const manager = useAccountManager(plugin);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelProviderId, setModelProviderId] = useState<string | null>(null);
@@ -155,6 +162,8 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
   } | null>(null);
   const [resourceActionResult, setResourceActionResult] = useState<PluginResourceActionResult | null>(null);
   const [resourceActionError, setResourceActionError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const actionVersion = useRef(0);
   const modelProvider = modelProviderId ? plugin.providers.find((provider) => provider.id === modelProviderId) ?? null : null;
 
   const run = async (key: string, task: () => Promise<void>) => {
@@ -162,11 +171,11 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     setError(null);
     try {
       await task();
-      await appStore.refreshPlugins();
+      await appStore.readPlugins(true);
     } catch (cause) {
-      setError(errorText(cause));
+      if (mounted.current) setError(errorText(cause));
     } finally {
-      setBusy(null);
+      if (mounted.current) setBusy(null);
     }
   };
 
@@ -175,8 +184,8 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     action: PluginResourceAction,
     input: unknown = {},
   ) => {
-    const key = `action:${target.item.id}:${action.id}`;
-    setBusy(key);
+    const version = ++actionVersion.current;
+    setActionBusy(true);
     setResourceActionError(null);
     try {
       const result = await api.pluginResourceAction(
@@ -186,12 +195,12 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
         action.id,
         input,
       );
-      setResourceActionResult(result);
-      await appStore.refreshPlugins();
+      if (mounted.current && version === actionVersion.current) setResourceActionResult(result);
+      await appStore.readPlugins(true);
     } catch (cause) {
-      setResourceActionError(errorText(cause));
+      if (mounted.current && version === actionVersion.current) setResourceActionError(errorText(cause));
     } finally {
-      setBusy(null);
+      if (mounted.current && version === actionVersion.current) setActionBusy(false);
     }
   };
 
@@ -206,25 +215,23 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
     {plugin.providers.map((provider) => <ProviderRow
       key={provider.id}
       provider={provider}
-      busy={busy !== null}
-      syncing={busy === `sync:${provider.id}`}
+      busy={Boolean(manager.tasks[resourceKey("provider", provider.id)]?.pending)}
+      syncing={manager.tasks[resourceKey("provider", provider.id)]?.pending === "sync"}
+      error={manager.tasks[resourceKey("provider", provider.id)]?.error ?? null}
       onManageModels={() => setModelProviderId(provider.id)}
-      onSync={() => void run(`sync:${provider.id}`, async () => {
+      onSync={() => void manager.run("provider", provider.id, "sync", async () => {
         await api.syncPluginModels(plugin.id, provider.id);
+        await appStore.readPlugins(true);
       })}
     />)}
-    {plugin.resources.map((resource) => <ResourceList
+    {plugin.resources.map((resource) => <ResourceAccountList
       key={resource.type}
+      pluginId={plugin.id}
       resource={resource}
-      busy={busy !== null}
+      manager={manager}
       onAction={(item, action) => openResourceAction(resource, item, action)}
-      onRefresh={(item) => void run(`refresh:${item.id}`, async () => {
-        await api.refreshPluginResource(plugin.id, resource.type, item.id);
-      })}
-      onDelete={(item) => void run(`delete:${item.id}`, async () => {
-        await api.deletePluginResource(plugin.id, resource.type, item.id);
-      })}
     />)}
+    {manager.snapshotError && <span className={styles.error} role="alert">{t("本地状态同步失败：{error}", { error: manager.snapshotError })}</span>}
     {error && <span className={styles.error} role="alert">{error}</span>}
     {modelProvider && <ModelManagementModal
       provider={modelProvider}
@@ -241,18 +248,19 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
       action={resourceAction.resource.actions.find((item) => item.target === "resource") ?? null}
       cardAction={resourceAction.resource.actions.find((item) => item.target === "card") ?? null}
       result={resourceActionResult}
-      busy={busy !== null}
+      busy={actionBusy}
       error={resourceActionError}
-      onClose={() => setResourceAction(null)}
+      onClose={() => { actionVersion.current += 1; setResourceAction(null); }}
       onCardAction={(action, card) => void executeResourceAction(resourceAction, action, { cardId: card.id })}
     />}
   </div>;
 }
 
-function ProviderRow({ provider, busy, syncing, onManageModels, onSync }: {
+function ProviderRow({ provider, busy, syncing, error, onManageModels, onSync }: {
   provider: PluginProviderDescriptor;
   busy: boolean;
   syncing: boolean;
+  error: string | null;
   onManageModels: () => void;
   onSync: () => void;
 }) {
@@ -267,6 +275,7 @@ function ProviderRow({ provider, busy, syncing, onManageModels, onSync }: {
         {" · "}
         {provider.configured ? t("可调用") : t("未就绪")}
       </span>
+      {error && <span className={styles.error} role="alert">{error}</span>}
     </div>
     {provider.hasModels && <div className={styles.actions}>
       <Button size="small" disabled={busy || provider.models.length === 0} onClick={onManageModels}>{t("模型管理")}</Button>
@@ -328,81 +337,6 @@ function ModelManagementModal({ provider, busy, onClose, onSubmit }: {
       {provider.models.length === 0 && <span className={styles.empty}>{t("尚未同步模型")}</span>}
     </div>
   </Modal>;
-}
-
-function ResourceList({ resource, busy, onAction, onRefresh, onDelete }: {
-  resource: PluginResourceDescriptor;
-  busy: boolean;
-  onAction: (item: PluginResourceView, action: PluginResourceAction) => void;
-  onRefresh: (item: PluginResourceView) => void;
-  onDelete: (item: PluginResourceView) => void;
-}) {
-  const { locale } = useI18n();
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const filtered = useMemo(
-    () => resource.resources.filter((item) => item.displayName.toLowerCase().includes(query.trim().toLowerCase())),
-    [resource.resources, query],
-  );
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const visible = filtered.slice((Math.min(page, pageCount) - 1) * PAGE_SIZE, Math.min(page, pageCount) * PAGE_SIZE);
-
-  useEffect(() => setPage(1), [query]);
-
-  return <FormField label={pluginText(resource.displayName, locale)}>
-    <div className={styles.resourceSection}>
-      {resource.resources.length > PAGE_SIZE && <div className={styles.toolbar}>
-        <TextInput aria-label={t("搜索资源")} placeholder={t("搜索资源")} value={query} onChange={(event) => setQuery(event.target.value)} />
-      </div>}
-      <div className={styles.resourceList}>
-        {visible.map((item) => <ResourceRow
-          key={item.id}
-          item={item}
-          actions={resource.actions.filter((action) => action.target === "resource")}
-          canRefresh={resource.canRefresh}
-          disabled={busy}
-          onAction={(action) => onAction(item, action)}
-          onRefresh={() => onRefresh(item)}
-          onDelete={() => onDelete(item)}
-        />)}
-        {visible.length === 0 && <span className={styles.empty}>{t("还没有资源，请先添加。")}</span>}
-      </div>
-      {pageCount > 1 && <div className={styles.pagination}>
-        <Button size="small" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>{t("上一页")}</Button>
-        <span>{t("第 {page} / {total} 页", { page: Math.min(page, pageCount), total: pageCount })}</span>
-        <Button size="small" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)}>{t("下一页")}</Button>
-      </div>}
-    </div>
-  </FormField>;
-}
-
-function ResourceRow({ item, actions, canRefresh, disabled, onAction, onRefresh, onDelete }: {
-  item: PluginResourceView;
-  actions: PluginResourceAction[];
-  canRefresh: boolean;
-  disabled: boolean;
-  onAction: (action: PluginResourceAction) => void;
-  onRefresh: () => void;
-  onDelete: () => void;
-}) {
-  const { locale } = useI18n();
-  return <Card className={styles.resourceRow}>
-    <div>
-      <strong>{item.displayName}</strong>
-      {item.description && <span>{pluginText(item.description, locale)}</span>}
-      {item.metrics.map((metric) => <span key={metric.id}>
-        {metric.unit === "percent"
-          ? t("{label} 剩余 {percent}%", { label: pluginText(metric.label, locale), percent: Math.round(metric.value) })
-          : `${pluginText(metric.label, locale)}: ${metric.value}`}
-      </span>)}
-    </div>
-    <div className={styles.actions}>
-      <StateBadge state={item.state} />
-      {actions.map((action) => <Button key={action.id} size="small" disabled={disabled} onClick={() => onAction(action)}>{pluginText(action.displayName, locale)}</Button>)}
-      {canRefresh && <Button size="small" disabled={disabled} onClick={onRefresh}>{t("刷新")}</Button>}
-      <Button size="small" disabled={disabled} onClick={onDelete}>{t("删除")}</Button>
-    </div>
-  </Card>;
 }
 
 function ResourceActionModal({ action, cardAction, result, busy, error, onClose, onCardAction }: {
@@ -478,16 +412,6 @@ function formatActionStatus(status: PluginResourceActionCard["status"], locale: 
 
 function formatActionDate(value: number, locale: string) {
   return new Date(value).toLocaleString(locale);
-}
-
-function StateBadge({ state }: { state: PluginResourceView["state"] }) {
-  if (state.status === "cooling") {
-    return <span className={styles.cooling} title={state.message ?? undefined}>{t("冷却中")}</span>;
-  }
-  if (state.status === "invalid") {
-    return <span className={styles.invalid} title={state.message ?? undefined}>{t("已失效")}</span>;
-  }
-  return <span className={styles.ready}>{t("可用")}</span>;
 }
 
 function errorText(cause: unknown) {

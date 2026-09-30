@@ -19,7 +19,10 @@ use super::{
     },
     oauth_callback::{self, CallbackHandle, CallbackOutcome, CallbackRequest},
     runtime::PluginRuntime,
-    state::{now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, StoredModel},
+    state::{
+        now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, ResourceSelection,
+        StoredModel,
+    },
     wire,
     worker::{PluginWorker, WorkerStreamItem},
 };
@@ -33,6 +36,14 @@ use crate::{
 
 const OAUTH_SLOW_DOWN_STEP_MS: i64 = 5_000;
 const MAX_IMPORT_DRAFTS: usize = 256;
+
+/// Preserve resource failure semantics through the outer run retry policy.
+fn account_failure(message: &str, replacement_ready: bool, emitted: bool) -> Error {
+    Error::Resource {
+        message: message.to_owned(),
+        retryable: replacement_ready && !emitted,
+    }
+}
 
 #[derive(Clone)]
 pub struct PluginRegistry {
@@ -255,51 +266,63 @@ impl PluginRegistry {
                 .find(|model| model.id == upstream_id)
                 .ok_or_else(|| Error::RunNotFound(format!("plugin model {model_id}")))?;
             let resource = match &provider.resource_type {
-                Some(resource_type) => Some((
-                    resource_type.clone(),
-                    registry.select_resource(&plugin_id, resource_type).await?,
-                )),
+                Some(resource_type) => {
+                    let (record, selection) = registry.select_resource(&plugin_id, resource_type, true).await?;
+                    Some((resource_type.clone(), record, selection))
+                }
                 None => None,
             };
+            if cancellation.is_cancelled() { Err(Error::Cancelled)?; }
             let request = wire::llm_request(&invocation)?;
             let params = serde_json::json!({
                 "providerId": provider_id,
                 "model": stored.snapshot(),
-                "resource": resource.as_ref().map(|(resource_type, record)| record.snapshot(resource_type)),
+                "resource": resource.as_ref().map(|(resource_type, record, _)| record.snapshot(resource_type)),
                 "request": request,
             });
             let worker = registry.worker(&entry, &executable).await;
             let mut items = worker.invoke_streaming("provider.invoke", params, cancellation.clone(), Some(recorder)).await?;
             yield ModelEvent::Start { model_call_id: invocation.call_id.clone() };
+            let mut emitted = false;
             while let Some(item) = items.recv().await {
                 match item {
                     WorkerStreamItem::Event(event) => {
+                        emitted = true;
                         yield wire::model_event(&event)?;
                     }
                     WorkerStreamItem::Result(result) => {
                         let value = result?;
+                        if cancellation.is_cancelled() { Err(Error::Cancelled)?; }
                         let status = value.get("status").and_then(serde_json::Value::as_str).unwrap_or_default();
                         let patch = value.get("patch")
                             .filter(|patch| !patch.is_null())
                             .map(|patch| serde_json::from_value::<ResourcePatch>(patch.clone()))
                             .transpose()?;
-                        if let (Some(patch), Some((resource_type, record))) = (patch, resource.as_ref()) {
-                            if let Err(error) = registry.inner.state
-                                .apply_patch(&plugin_id, resource_type, &record.id, patch).await
-                            {
-                                tracing::warn!(plugin = %plugin_id, %error, "failed to apply plugin resource patch");
+                        let message = value.get("message")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("plugin provider call failed");
+                        if status == "resource-error" {
+                            let can_switch = match (patch, resource.as_ref()) {
+                                (Some(patch), Some((resource_type, record, selection))) => {
+                                    if matches!(patch.state.as_ref(), Some(super::state::ResourceStateInput::Cooling { .. } | super::state::ResourceStateInput::Invalid { .. })) {
+                                        registry.inner.state.fail_resource(&plugin_id, resource_type, record, selection, patch).await?
+                                    } else {
+                                        registry.inner.state.apply_patch_if_current(&plugin_id, resource_type, record, patch).await?;
+                                        false
+                                    }
+                                }
+                                _ => false,
+                            };
+                            Err(account_failure(message, can_switch, emitted))?;
+                        } else {
+                            if let (Some(patch), Some((resource_type, record, _))) = (patch, resource.as_ref()) {
+                                registry.inner.state
+                                    .apply_patch_if_current(&plugin_id, resource_type, record, patch).await?;
                             }
-                        }
-                        match status {
-                            "completed" => return,
-                            "resource-error" | "request-error" => {
-                                let message = value.get("message")
-                                    .and_then(serde_json::Value::as_str)
-                                    .unwrap_or("plugin provider call failed");
-                                Err(Error::Provider(message.to_owned()))?;
-                            }
-                            status => {
-                                Err(Error::Protocol(format!("unknown plugin provider result: {status}")))?;
+                            match status {
+                                "completed" => return,
+                                "request-error" => Err(Error::Provider(message.to_owned()))?,
+                                status => Err(Error::Protocol(format!("unknown plugin provider result: {status}")))?,
                             }
                         }
                     }
@@ -803,6 +826,27 @@ impl PluginRegistry {
         }))
     }
 
+    pub async fn set_resource_selection(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        active_resource_id: Option<String>,
+        automatic_switching: bool,
+    ) -> Result<ResourceSelection> {
+        let executable = self.executable()?;
+        let entry = self.find_entry(&executable, plugin_id).await?;
+        find_resource(&entry, resource_type)?;
+        self.inner
+            .state
+            .set_selection(
+                plugin_id,
+                resource_type,
+                active_resource_id,
+                automatic_switching,
+            )
+            .await
+    }
+
     pub async fn refresh_resource(
         &self,
         plugin_id: &str,
@@ -835,8 +879,9 @@ impl PluginRegistry {
         let patch: ResourcePatch = serde_json::from_value(value)?;
         self.inner
             .state
-            .apply_patch(plugin_id, resource_type, resource_id, patch)
-            .await
+            .apply_patch_if_current(plugin_id, resource_type, &record, patch)
+            .await?;
+        Ok(())
     }
 
     pub async fn resource_action(
@@ -885,7 +930,7 @@ impl PluginRegistry {
         if let Some(patch) = result.patch.clone() {
             self.inner
                 .state
-                .apply_patch(plugin_id, resource_type, resource_id, patch)
+                .apply_patch_if_current(plugin_id, resource_type, &record, patch)
                 .await?;
         }
         Ok(serde_json::to_value(ResourceActionResponse::from(result))?)
@@ -1017,6 +1062,12 @@ impl PluginRegistry {
                 actions: definition.actions.clone(),
                 can_refresh: definition.can_refresh,
                 can_remove: definition.can_remove,
+                selection: self
+                    .inner
+                    .state
+                    .selection(plugin_id, &definition.resource_type)
+                    .await
+                    .unwrap_or_default(),
                 resources: views,
             });
         }
@@ -1146,13 +1197,17 @@ impl PluginRegistry {
             )));
         }
         let plugin_id = &entry.manifest.id;
-        let resource = match &provider.resource_type {
-            Some(resource_type) => {
-                let record = self.select_resource(plugin_id, resource_type).await?;
-                Some(record.snapshot(resource_type))
-            }
+        let selected = match &provider.resource_type {
+            Some(resource_type) => Some((
+                resource_type,
+                self.select_resource(plugin_id, resource_type, false)
+                    .await?,
+            )),
             None => None,
         };
+        let resource = selected
+            .as_ref()
+            .map(|(resource_type, (record, _))| record.snapshot(resource_type));
         let value = self
             .worker(entry, executable)
             .await
@@ -1179,32 +1234,49 @@ impl PluginRegistry {
                 provider.id
             )));
         }
-        self.inner
-            .state
-            .replace_models(plugin_id, &provider.id, &models)
-            .await?;
+        if let Some((resource_type, (_, selection))) = &selected {
+            if !self
+                .inner
+                .state
+                .replace_models_if_selected(
+                    plugin_id,
+                    resource_type,
+                    selection,
+                    &provider.id,
+                    &models,
+                )
+                .await?
+            {
+                return Err(Error::Config(
+                    "active account changed during model sync; sync again".into(),
+                ));
+            }
+        } else {
+            self.inner
+                .state
+                .replace_models(plugin_id, &provider.id, &models)
+                .await?;
+        }
         Ok(models.len())
     }
 
-    /// 第一版选择策略:按创建顺序取首个可用资源;冷却到期视为可用。
+    /// The host owns a persisted selection shared by every model in the account pool.
     async fn select_resource(
         &self,
         plugin_id: &str,
         resource_type: &str,
-    ) -> Result<ResourceRecord> {
-        let records = self.inner.state.resources(plugin_id, resource_type).await?;
-        if records.is_empty() {
-            return Err(Error::Provider(format!(
-                "plugin '{plugin_id}' has no '{resource_type}' resource; add one first"
-            )));
-        }
-        let now = now_ms();
-        records
-            .iter()
-            .find(|record| record.state.is_ready(now))
-            .or_else(|| records.first())
-            .cloned()
-            .ok_or_else(|| Error::Provider("no plugin resource is available".into()))
+        require_ready: bool,
+    ) -> Result<(ResourceRecord, ResourceSelection)> {
+        self.inner
+            .state
+            .select_resource(plugin_id, resource_type, require_ready)
+            .await
+            .map_err(|error| match error {
+                Error::Provider(message) | Error::Config(message) => {
+                    account_failure(&message, false, false)
+                }
+                error => error,
+            })
     }
 
     async fn find_record(
@@ -1354,6 +1426,28 @@ fn find_provider<'a>(entry: &'a PluginEntry, provider_id: &str) -> Result<&'a Pr
                 entry.manifest.id
             ))
         })
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn only_pre_output_failures_with_a_replacement_can_retry() {
+        for (replacement, emitted, expected) in [
+            (false, false, false),
+            (true, false, true),
+            (false, true, false),
+            (true, true, false),
+        ] {
+            let Error::Resource { retryable, .. } =
+                account_failure("quota exhausted", replacement, emitted)
+            else {
+                panic!("resource failures must retain their retry disposition");
+            };
+            assert_eq!(retryable, expected);
+        }
+    }
 }
 
 fn find_resource<'a>(

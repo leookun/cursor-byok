@@ -365,7 +365,9 @@ fn finish_reason(reason: FinishReason) -> &'static str {
 
 fn error_kind(error: &crate::Error) -> &'static str {
     match error {
-        crate::Error::Provider(_) | crate::Error::Http(_) => "provider",
+        crate::Error::Provider(_) | crate::Error::Resource { .. } | crate::Error::Http(_) => {
+            "provider"
+        }
         crate::Error::Cancelled => "cancelled",
         crate::Error::Database(_) | crate::Error::Store(_) => "store",
         _ => "internal",

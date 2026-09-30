@@ -10,6 +10,7 @@ use crate::model::{CheckpointId, ToolCall, ToolRoundId, Usage};
 pub enum RunFailure {
     Protocol(String),
     Provider(String),
+    Resource { message: String, retryable: bool },
     Store(String),
     Client(String),
 }
@@ -18,7 +19,7 @@ impl RunFailure {
     pub fn category(&self) -> &'static str {
         match self {
             Self::Protocol(_) => "protocol",
-            Self::Provider(_) => "provider",
+            Self::Provider(_) | Self::Resource { .. } => "provider",
             Self::Store(_) => "store",
             Self::Client(_) => "client",
         }
@@ -31,6 +32,7 @@ impl From<crate::Error> for RunFailure {
         match error {
             Error::Protocol(message) | Error::Config(message) => Self::Protocol(message),
             Error::Provider(message) => Self::Provider(message),
+            Error::Resource { message, retryable } => Self::Resource { message, retryable },
             Error::Store(message) => Self::Store(message),
             Error::Cancelled => Self::Client("run was cancelled".into()),
             Error::Http(error) => Self::Provider(error.to_string()),
