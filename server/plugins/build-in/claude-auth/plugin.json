@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "dev.cursorbyok.examples.claude-auth",
+  "name": "Claude OAuth (experimental)",
+  "version": "0.1.0",
+  "minAppVersion": "0.1.0",
+  "icon": "assets/plugin.svg",
+  "entry": "main.ts",
+  "permissions": {
+    "network": ["claude.ai", "platform.claude.com", "api.anthropic.com"]
+  }
+}

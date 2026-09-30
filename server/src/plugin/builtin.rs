@@ -168,10 +168,50 @@ const ANTIGRAVITY_AUTH: &[(&str, &str)] = &[
     ),
 ];
 
+const CLAUDE_AUTH: &[(&str, &str)] = &[
+    (
+        "plugin.json",
+        include_str!("../../plugins/build-in/claude-auth/plugin.json"),
+    ),
+    (
+        "main.ts",
+        include_str!("../../plugins/build-in/claude-auth/main.ts"),
+    ),
+    (
+        "auth.ts",
+        include_str!("../../plugins/build-in/claude-auth/auth.ts"),
+    ),
+    (
+        "oauth.ts",
+        include_str!("../../plugins/build-in/claude-auth/oauth.ts"),
+    ),
+    (
+        "resources.ts",
+        include_str!("../../plugins/build-in/claude-auth/resources.ts"),
+    ),
+    (
+        "models.ts",
+        include_str!("../../plugins/build-in/claude-auth/models.ts"),
+    ),
+    (
+        "messages.ts",
+        include_str!("../../plugins/build-in/claude-auth/messages.ts"),
+    ),
+    (
+        "provider.ts",
+        include_str!("../../plugins/build-in/claude-auth/provider.ts"),
+    ),
+    (
+        "assets/plugin.svg",
+        include_str!("../../plugins/build-in/claude-auth/assets/plugin.svg"),
+    ),
+];
+
 const PLUGINS: &[(&str, &[(&str, &str)])] = &[
     ("codex-auth", CODEX_AUTH),
     ("grok-auth", GROK_AUTH),
     ("antigravity-auth", ANTIGRAVITY_AUTH),
+    ("claude-auth", CLAUDE_AUTH),
 ];
 
 /// 把内置插件预装到 installed 目录。manifest 的 version 是缓存键:
@@ -276,6 +316,12 @@ mod tests {
             .path()
             .join("antigravity-auth/assets/antigravity.svg")
             .is_file());
+        for (relative, expected) in CLAUDE_AUTH {
+            assert_eq!(
+                std::fs::read_to_string(root.path().join("claude-auth").join(relative)).unwrap(),
+                *expected
+            );
+        }
 
         // 版本一致:本地改动与额外文件保持原样,不发生任何写盘。
         std::fs::write(plugin.join("main.ts"), "edited").unwrap();
