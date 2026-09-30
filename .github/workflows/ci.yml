@@ -44,6 +44,31 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets
 
+  claude-plugin:
+    name: Claude plugin (Deno)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: server/plugins/build-in/claude-auth
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          # Match the runtime version in server/src/plugin/asset.rs.
+          deno-version: v2.9.6
+
+      - name: Check types, lint, and formatting
+        run: |
+          deno task check
+          deno task lint
+          deno task fmt
+
+      - name: Run offline plugin and sandboxed worker tests
+        run: |
+          deno task test
+          deno task test:host
+
   frontend:
     name: Frontend
     runs-on: ubuntu-22.04

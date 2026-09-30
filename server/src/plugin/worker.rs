@@ -874,16 +874,31 @@ mod tests {
         });
         let (_, _, oauth_recorder) = host.request("invocation", &oauth, false).await.unwrap();
         assert!(oauth_recorder.is_none());
-        assert!(store.llm_call_request("oauth-plugin").await.unwrap().is_none());
-        assert!(store.llm_call_chunks("oauth-plugin").await.unwrap().is_empty());
+        assert!(store
+            .llm_call_request("oauth-plugin")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .llm_call_chunks("oauth-plugin")
+            .await
+            .unwrap()
+            .is_empty());
 
         let (_, _, model_recorder) = host
             .request("invocation", &network_params(), true)
             .await
             .unwrap();
         assert!(model_recorder.is_some());
-        let recorded = store.llm_call_request("oauth-plugin").await.unwrap().unwrap();
-        assert_eq!(recorded.body, serde_json::json!({ "model": "test", "stream": true }));
+        let recorded = store
+            .llm_call_request("oauth-plugin")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            recorded.body,
+            serde_json::json!({ "model": "test", "stream": true })
+        );
         assert!(!recorded.body.to_string().contains("secret"));
     }
 

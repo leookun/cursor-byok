@@ -8,6 +8,7 @@
   "tasks": {
     "check": "deno check main.ts",
     "test": "deno test --no-remote",
+    "test:host": "deno test --no-remote --allow-run --allow-read host_smoke.ts",
     "lint": "deno lint",
     "fmt": "deno fmt --check"
   },

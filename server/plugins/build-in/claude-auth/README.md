@@ -7,9 +7,11 @@ prohibits offering third-party Claude.ai login and routing requests through subs
 credentials. Access may be denied or restricted without notice. An existing subscription does not
 guarantee API access through this plugin.
 
-**Status:** local, mocked protocol tests pass. Browser consent, token exchange, profile/model
-access, and inference have not been tested against a real account. This is an experimental
-implementation, not a verified working subscription connection.
+**Status:** automated Linux checks and a live account smoke test passed on 2026-09-30. The live
+check covered browser consent, code exchange, profile lookup, token refresh, discovery of 13 models,
+and one streamed text response from `claude-haiku-4-5-20251001`. This remains an experimental,
+unofficial integration; other models, accounts, and the full desktop sign-in UI were not
+live-tested.
 
 ## Structure
 
@@ -27,6 +29,7 @@ server/
 │   ├── assets/plugin.svg         Neutral plugin icon, not Anthropic branding
 │   ├── claude_test.ts            Mocked OAuth, resource, discovery, and provider tests
 │   ├── messages_test.ts          Mocked Messages protocol and history-prefix tests
+│   ├── host_smoke.ts             Full lifecycle through a real sandboxed Deno worker
 │   └── deno.json                 Local SDK imports and development tasks
 └── src/plugin/                   Existing plugin host
     ├── builtin.rs                Embeds this plugin in release builds
@@ -63,9 +66,8 @@ Model invocation
 
 - Authorization/token constants match inspected Claude Code and current public client
   implementations.
-- The plugin requests only `user:profile user:inference`; acceptance of this reduced scope set has
-  not been verified with a live account. It does not request API-key creation, file-upload, or MCP
-  rights.
+- The plugin requests only `user:profile user:inference`. This requested scope set passed the live
+  smoke test. It does not request API-key creation, file-upload, or MCP rights.
 - `localhost` is used in both authorization and exchange. The existing host still binds IPv4
   loopback. The browser must run on the same machine as the server, with working localhost
   resolution.
@@ -93,10 +95,10 @@ The plugin sends Bearer authorization, `anthropic-version: 2023-06-01`, and
 not impersonate the official Claude Code client**, inject an official-client system identity, or
 forge a Claude CLI version.
 
-Current third-party clients sometimes add these identity transformations to avoid subscription API
-rejections. Their necessity is not officially documented, but this is a significant compatibility
-risk: authorization can succeed while inference is rejected. This implementation reports the refusal
-instead of claiming that OAuth login guarantees usable inference.
+A live Haiku request succeeded without these transformations on 2026-09-30. That result does not
+establish compatibility with every model or account. Anthropic may still reject third-party
+subscription requests, so the plugin reports upstream refusals rather than treating OAuth login as a
+guarantee of inference access.
 
 ## Install and try
 
@@ -105,8 +107,10 @@ host recording fix is necessary: the upstream host could record a refresh-token 
 the first model request when detailed logging was enabled.
 
 The plugin is bundled automatically through `server/src/plugin/builtin.rs`. Debug builds discover it
-from `server/plugins/build-in/claude-auth`. Build instructions are in the repository's
-[contributing guide](../../../../CONTRIBUTING_EN.md).
+from `server/plugins/build-in/claude-auth`. Linux system dependencies and verification commands are
+listed in the repository's [CI workflow](../../../../.github/workflows/ci.yml). With Rust, Node.js
+22, and those dependencies installed, run `npm ci` followed by `npm run tauri:build -- --no-bundle`
+from `apps/desktop` to build without publishing a release.
 
 After starting that build:
 
@@ -116,37 +120,62 @@ After starting that build:
 4. Sync the model catalog and enable a returned model.
 5. Run a short connectivity test before using a real conversation.
 
-No account login, token import, installation into the running app, or live model call is performed
-by this change. A source checkout does not isolate application data: the host uses
-`~/.cursor-byok-v3` by default. Use a separate OS account/environment for an isolated runtime
-profile.
+Building or installing this change does not automatically sign in or import credentials. A source
+checkout does not isolate application data: the host uses `~/.cursor-byok-v3` by default. Use a
+separate OS account/environment for an isolated runtime profile.
 
 Deleting an account removes the local resource through the host; there is no plugin-specific remote
 revocation hook. Revoke the authorization through Anthropic's account controls when needed.
 
 ## Verification
 
-From this directory with Deno 2 installed:
+From this directory with Deno 2.9.6 installed (the version used by the host):
 
 ```sh
 deno task check
 deno task lint
 deno task fmt
 deno task test
+deno task test:host
 ```
 
-Tests use mocked networking and need no tokens or network permissions. They cover PKCE/state
-forwarding, callback consistency, expiry, identity lookup, refresh-token rotation/coalescing, safe
-errors, single-retry behavior, account cooling, pagination, append-only history, images, tool calls,
-ordered signed/redacted thinking, usage merging, cancellation, and truncated streams.
+The 32 unit tests use mocked networking and need no tokens or network permissions. The separate
+worker integration test starts the actual SDK worker with the host's sandbox flags and drives OAuth
+completion, profile lookup, model discovery, automatic token refresh, streaming events, and
+credential patches through its JSON protocol. Its parent test process needs subprocess and read
+permissions; the child has only plugin/SDK read access and no direct network access. All upstream
+responses in this test are simulated, so it does not establish live Claude compatibility.
 
-Host regression tests, from `server/` with the Rust toolchain and build prerequisites installed:
+These checks also run in the `Claude plugin (Deno)` CI job. Tests cover PKCE/state forwarding,
+callback consistency, expiry, identity lookup, refresh-token rotation/coalescing, safe errors,
+single-retry behavior, account cooling, pagination, append-only history, images, tool calls, ordered
+signed/redacted thinking, usage merging, cancellation, and truncated streams.
+
+Workspace verification, from the repository root with the Rust toolchain and build prerequisites
+installed:
 
 ```sh
-cargo test --lib plugin::builtin::tests
-cargo test --lib plugin::worker::tests
 cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace --all-targets
+cargo build --locked --workspace
 ```
+
+On Linux with Rust 1.98.1, all 306 workspace tests, strict Clippy, formatting, and the workspace
+debug build passed, including the OAuth recording regression test. The desktop TypeScript checks and
+Vite production build also passed with cached dependencies. A fresh `npm ci` was blocked by a
+registry download timeout. macOS/Windows checks and graphical desktop interaction were not run
+locally.
+
+### Live smoke test
+
+On 2026-09-30, a temporary harness called the real plugin modules with a loopback callback and
+explicit browser consent. Code exchange, profile lookup, immediate refresh-token rotation, discovery
+of 13 models, and a short streamed response from `claude-haiku-4-5-20251001` all succeeded.
+Credentials were kept only in process memory and were not written to logs, Git, or the running
+application's profile. This verified the plugin against the upstream service, not the full graphical
+desktop workflow or durable account recovery after restart. Tool calling, thinking replay, rate
+limits, and error paths are covered by mocked tests rather than this single live inference request.
 
 ## Protocol references
 
