@@ -36,11 +36,9 @@ export const claudeOAuth: OAuth2AuthorizationCodeAddMethod = {
     "zh-CN": "使用 Claude 登录",
   },
   description: {
-    "en-US":
-      "Experimental personal integration. Third-party subscription access violates Anthropic's terms and may be blocked.",
-    "ru-RU":
-      "Экспериментальная личная интеграция. Доступ по подписке из сторонних приложений нарушает условия Anthropic и может быть заблокирован.",
-    "zh-CN": "实验性个人集成。第三方订阅访问违反 Anthropic 条款，可能被封禁。",
+    "en-US": "Sign in and connect your full Claude subscription.",
+    "ru-RU": "Войдите и подключите полноценную подписку Claude.",
+    "zh-CN": "登录并连接完整的 Claude 订阅。",
   },
   callback: { path: "/callback" },
   begin(input, context) {

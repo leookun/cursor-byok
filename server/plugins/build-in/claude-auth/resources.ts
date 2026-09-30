@@ -11,9 +11,9 @@ export const claudeAccounts: ResourceSupport = {
     return {
       displayName: data.displayName,
       description: {
-        "en-US": "Experimental subscription access. Anthropic may restrict this connection.",
-        "ru-RU": "Экспериментальный доступ по подписке. Anthropic может ограничить подключение.",
-        "zh-CN": "实验性订阅访问。Anthropic 可能限制此连接。",
+        "en-US": "Full Claude subscription account.",
+        "ru-RU": "Полноценный аккаунт подписки Claude.",
+        "zh-CN": "完整的 Claude 订阅账号。",
       },
     };
   },

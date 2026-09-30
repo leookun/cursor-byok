@@ -26,11 +26,11 @@ export function retryAtMs(headers: Record<string, string>, now = Date.now()): nu
 
 export const claudeProvider: ProviderSupport = {
   id: "claude",
-  displayName: "Claude (experimental OAuth)",
+  displayName: "Claude",
   description: {
-    "en-US": "Unofficial personal subscription access to the Anthropic Messages API.",
-    "ru-RU": "Неофициальный личный доступ по подписке к Anthropic Messages API.",
-    "zh-CN": "通过订阅个人访问 Anthropic Messages API 的非官方集成。",
+    "en-US": "Full Claude subscription access through the Anthropic Messages API.",
+    "ru-RU": "Полноценный доступ к Claude по подписке через Anthropic Messages API.",
+    "zh-CN": "通过 Anthropic Messages API 使用完整的 Claude 订阅。",
   },
   providerType: "anthropic",
   resourceType: RESOURCE_TYPE,

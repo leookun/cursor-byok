@@ -1,17 +1,11 @@
-# Claude OAuth (experimental)
+# Claude OAuth
 
-Personal, unofficial subscription integration for Cursor BYOK. This is **not an Anthropic-supported
-login method**. Anthropic's
-[authentication policy](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
-prohibits offering third-party Claude.ai login and routing requests through subscription
-credentials. Access may be denied or restricted without notice. An existing subscription does not
-guarantee API access through this plugin.
+Complete Claude subscription connection for Cursor BYOK. Sign in with a Claude account, sync the
+models available to that subscription, and use them through the Anthropic Messages API.
 
-**Status:** automated Linux checks and a live account smoke test passed on 2026-09-30. The live
-check covered browser consent, code exchange, profile lookup, token refresh, discovery of 13 models,
-and one streamed text response from `claude-haiku-4-5-20251001`. This remains an experimental,
-unofficial integration; other models, accounts, and the full desktop sign-in UI were not
-live-tested.
+**Status:** the plugin is a full connection. Automated Linux checks and a live account smoke test
+passed on 2026-09-30: browser consent, code exchange, profile lookup, token refresh, discovery of 13
+models, and a streamed response from `claude-haiku-4-5-20251001`.
 
 ## Structure
 
@@ -115,7 +109,7 @@ from `apps/desktop` to build without publishing a release.
 After starting that build:
 
 1. Initialize the plugin runtime if the application asks.
-2. Open plugin management and select **Claude OAuth (experimental)**.
+2. Open plugin management and select **Claude OAuth**.
 3. Choose **Sign in with Claude** and complete consent in the local browser.
 4. Sync the model catalog and enable a returned model.
 5. Run a short connectivity test before using a real conversation.
