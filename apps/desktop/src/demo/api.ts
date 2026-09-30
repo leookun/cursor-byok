@@ -1,3 +1,4 @@
+import { demoAliases } from "./aliases";
 import type {
   CallDetail,
   CursorHarnessStatus,
@@ -37,6 +38,10 @@ const calls: LlmCall[] = Array.from({ length: 24 }, (_, index) => {
   const model = models[index % models.length];
   const failed = index === 7 || index === 19;
   return {
+    alias_id: null,
+    alias_name: null,
+    alias_target_id: null,
+    alias_switch_count: 0,
     call_kind: "provider_llm",
     route: "local_byok",
     call_id: `mock-call-${String(index + 1).padStart(3, "0")}`,
@@ -99,6 +104,7 @@ let tabSettings: TabSettings = { mode: "public", address: "" };
 let storage: StatisticsStorage = { call_count: calls.length, trace_count: calls.length };
 
 export function installDemoApi() {
+  const aliasRequest = demoAliases(models);
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = async (input, init) => {
@@ -110,6 +116,8 @@ export function installDemoApi() {
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const body = await readBody(input, init);
 
+    const aliasResponse = aliasRequest(path, method, body);
+    if (aliasResponse) return aliasResponse;
     if (path === "/promotions") return json({ slots: [] });
     if (path === "/models" && method === "GET") return json(models);
     if (path === "/models" && method === "POST") return json(models);
@@ -198,6 +206,7 @@ function createModel({ hash, order, name, type, url, modelId, endpoint = "/v1/re
   endpoint?: string;
 }): Model {
   return {
+    source_id: `00000000-0000-4000-8000-${String(order).padStart(12, "0")}`,
     model_hash: hash,
     sort_order: order,
     display_name: name,
@@ -244,6 +253,7 @@ function createOverview(params: URLSearchParams): Overview {
 
   return {
     metrics: {
+      alias_switches: 0,
       llm_calls: llmCalls,
       successful_calls: llmCalls - Math.max(1, Math.floor(llmCalls * 0.008)),
       failed_calls: Math.max(1, Math.floor(llmCalls * 0.008)),
