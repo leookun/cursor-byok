@@ -175,6 +175,10 @@ export interface TokenPricingSettings {
 export type PluginRuntimeState = "uninitialized" | "initializing" | "ready" | "failed" | "unsupported";
 export type PluginRuntimePhase = "checking" | "downloading" | "verifying" | "installing" | "validating";
 
+export type PluginInstallResult =
+  | { status: "installed"; id: string; name: string; replaced: boolean }
+  | { status: "exists"; id: string; name: string };
+
 export interface PluginRuntimeStatus {
   state: PluginRuntimeState;
   version: string;
@@ -510,6 +514,12 @@ export const api = {
   cursorHarness: () => request<CursorHarnessStatus>("/harness/cursor/status"),
   initializeCursorCa: () => request<CursorHarnessStatus>("/harness/cursor/ca/initialize", { method: "POST" }),
   plugins: () => request<PluginDescriptor[]>("/plugins"),
+  pickPluginDirectory: async (title: string) => {
+    if (!packagedDesktop) throw new Error(t("请在桌面应用中选择插件目录"));
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<string | null>("pick_plugin_directory", { title });
+  },
+  installPlugin: (path: string, replace: boolean) => request<PluginInstallResult>("/plugins/install", { method: "POST", body: JSON.stringify({ path, replace }) }),
   pluginOAuthBegin: (pluginId: string, resourceType: string, methodId: string) => request<PluginOAuthBegin>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/add/${encodeURIComponent(methodId)}/begin`, { method: "POST" }),
   pluginOAuthPoll: (sessionId: string, signal?: AbortSignal) => request<PluginOAuthPoll>(`/plugins/oauth/${encodeURIComponent(sessionId)}/poll`, { method: "POST", signal }),
   importPluginResources: (pluginId: string, resourceType: string, files: PluginImportFile[]) => request<PluginImportResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/import`, { method: "POST", body: JSON.stringify(files) }),

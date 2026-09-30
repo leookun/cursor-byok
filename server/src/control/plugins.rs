@@ -7,8 +7,8 @@ use axum::{
 
 use crate::{
     plugin::{
-        ImportResponse, OAuthBeginResponse, OAuthPollResponse, PluginDescriptor,
-        PluginRuntimeStatus,
+        ImportResponse, InstallPluginResponse, OAuthBeginResponse, OAuthPollResponse,
+        PluginDescriptor, PluginRuntimeStatus,
     },
     Result,
 };
@@ -17,6 +17,24 @@ use super::ControlService;
 
 pub async fn list(State(service): State<ControlService>) -> Result<Json<Vec<PluginDescriptor>>> {
     Ok(Json(service.plugins().await))
+}
+
+pub async fn install(
+    State(service): State<ControlService>,
+    Json(request): Json<InstallPluginRequest>,
+) -> Result<Json<InstallPluginResponse>> {
+    Ok(Json(
+        service
+            .install_plugin(std::path::Path::new(&request.path), request.replace)
+            .await?,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct InstallPluginRequest {
+    path: String,
+    replace: bool,
 }
 
 pub async fn remove(

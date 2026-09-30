@@ -176,6 +176,14 @@ impl ControlService {
         self.plugins.plugins().await
     }
 
+    pub async fn install_plugin(
+        &self,
+        path: &std::path::Path,
+        replace: bool,
+    ) -> Result<crate::plugin::InstallPluginResponse> {
+        self.plugins.install_plugin(path, replace).await
+    }
+
     pub async fn plugin_oauth_begin(
         &self,
         plugin_id: &str,
