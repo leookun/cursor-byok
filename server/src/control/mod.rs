@@ -1,5 +1,6 @@
 //! Exposes the local control API.
 mod ads;
+mod app_api;
 mod calls;
 mod harness;
 mod models;
@@ -110,7 +111,7 @@ fn proxy_error(error: impl std::fmt::Display) -> Response<Body> {
 }
 
 pub fn api_router(service: ControlService) -> Router {
-    Router::new()
+    let api = Router::new()
         .route("/__byok-api__/api/promotions", get(ads::get))
         .route(
             "/__byok-api__/api/promotions/images/{file_name}",
@@ -201,6 +202,10 @@ pub fn api_router(service: ControlService) -> Router {
             get(settings::get_external_api).put(settings::update_external_api),
         )
         .route(
+            "/__byok-api__/api/settings/app-api",
+            get(settings::get_app_api).put(settings::update_app_api),
+        )
+        .route(
             "/__byok-api__/api/settings/storage/statistics",
             get(settings::get_storage).delete(settings::clear_storage),
         )
@@ -236,8 +241,9 @@ pub fn api_router(service: ControlService) -> Router {
             "/__byok-api__/api/harness/cursor/enabled",
             put(harness::set_enabled),
         )
-        .with_state(service)
-        .layer(desktop_cors())
+        .with_state(service.clone())
+        .layer(desktop_cors());
+    app_api::attach(service, api)
 }
 
 fn desktop_cors() -> CorsLayer {
@@ -247,6 +253,8 @@ fn desktop_cors() -> CorsLayer {
         .allow_headers([
             CONTENT_TYPE,
             header::ACCEPT_LANGUAGE,
+            header::AUTHORIZATION,
+            header::HeaderName::from_static("x-api-key"),
             header::HeaderName::from_static("disable-ad-ids"),
         ])
 }

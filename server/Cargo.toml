@@ -51,6 +51,7 @@ time = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time", "net"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = "0.7"
+tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower-http = { version = "0.6", features = ["cors", "decompression-gzip", "fs"] }
@@ -65,7 +66,6 @@ protoc-bin-vendored = "3"
 [dev-dependencies]
 flate2 = "1"
 tempfile = "3"
-tower = { version = "0.5", features = ["util"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }

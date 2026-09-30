@@ -118,6 +118,15 @@ export interface ExternalApiSettings {
   api_key: string;
 }
 
+export type AppApiAuthMethod = "bearer" | "api_key";
+
+export interface AppApiSettings {
+  enabled: boolean;
+  auth_required: boolean;
+  auth_method: AppApiAuthMethod;
+  api_key: string;
+}
+
 export interface StatisticsStorage {
   call_count: number;
   trace_count: number;
@@ -548,6 +557,8 @@ export const api = {
   setPorts: (settings: PortSettings) => request<PortSettings>("/settings/ports", { method: "PUT", body: JSON.stringify(settings) }),
   externalApiSettings: () => request<ExternalApiSettings>("/settings/external-api"),
   setExternalApiSettings: (settings: ExternalApiSettings) => request<ExternalApiSettings>("/settings/external-api", { method: "PUT", body: JSON.stringify(settings) }),
+  appApiSettings: () => request<AppApiSettings>("/settings/app-api"),
+  setAppApiSettings: (settings: AppApiSettings) => request<AppApiSettings>("/settings/app-api", { method: "PUT", body: JSON.stringify(settings) }),
   statisticsStorage: () => request<StatisticsStorage>("/settings/storage/statistics"),
   clearStatisticsStorage: (scope: StatisticsStorageScope) => request<StatisticsStorage>("/settings/storage/statistics", { method: "DELETE", body: JSON.stringify({ scope }) }),
   proxySettings: () => request<ProxySettings>("/settings/proxy"),

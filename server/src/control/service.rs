@@ -28,8 +28,9 @@ use crate::{
     plugin::{PluginDescriptor, PluginRegistry, PluginRuntime, PluginRuntimeStatus},
     provider::{is_valid_response_event, ModelEvent, Provider},
     store::{
-        CommitSettings, DesktopSettings, ExternalApiSettings, PortSettings, ProxySettings,
-        ProxySettingsInput, StatisticsStorage, Store, TabSettings, TokenPricingSettings,
+        AppApiSettings, CommitSettings, DesktopSettings, ExternalApiSettings, PortSettings,
+        ProxySettings, ProxySettingsInput, StatisticsStorage, Store, TabSettings,
+        TokenPricingSettings,
     },
     Error, Result,
 };
@@ -704,6 +705,14 @@ impl ControlService {
         settings: ExternalApiSettings,
     ) -> Result<ExternalApiSettings> {
         self.store.set_external_api_settings(settings).await
+    }
+
+    pub async fn app_api_settings(&self) -> Result<AppApiSettings> {
+        self.store.app_api_settings().await
+    }
+
+    pub async fn set_app_api_settings(&self, settings: AppApiSettings) -> Result<AppApiSettings> {
+        self.store.set_app_api_settings(settings).await
     }
 
     pub async fn set_ports(&self, settings: PortSettings) -> Result<PortSettings> {
