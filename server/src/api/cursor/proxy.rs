@@ -10,12 +10,14 @@ use axum::{
 use crate::Result;
 
 const CURSOR_UPSTREAM: &str = "https://api2.cursor.sh";
+const AGENT_UPSTREAM: &str = "https://agentn.api5.cursor.sh";
 pub const UPSTREAM_URL_HEADER: &str = "x-server-upstream-url";
 
 #[derive(Clone)]
 pub struct CursorProxy {
     clients: crate::network::NetworkClients,
     upstream: String,
+    http2: bool,
 }
 
 pub struct BufferedResponse {
@@ -50,11 +52,25 @@ impl CursorProxy {
         Self {
             clients,
             upstream: CURSOR_UPSTREAM.into(),
+            http2: false,
+        }
+    }
+
+    /// Relays calls from Cursor's HTTP/2 agent connection.
+    pub fn agent(clients: crate::network::NetworkClients) -> Self {
+        Self {
+            clients,
+            upstream: AGENT_UPSTREAM.into(),
+            http2: true,
         }
     }
 
     async fn client(&self) -> Result<reqwest::Client> {
-        self.clients.cursor_client().await
+        if self.http2 {
+            self.clients.cursor_http2_client().await
+        } else {
+            self.clients.cursor_client().await
+        }
     }
 }
 

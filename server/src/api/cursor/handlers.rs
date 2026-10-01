@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use prost::Message;
 use tower_http::decompression::RequestDecompressionLayer;
 
 use crate::{
@@ -232,16 +233,22 @@ async fn bidi_handler(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let request: ai::BidiAppendRequest = connect::decode_unary(&body)?;
+    if foreign_bidi_payload(&registry, &request).await {
+        // Speech-to-text on HTTP/1.1 reuses this envelope with its own payload.
+        tracing::info!("relaying non-agent BidiAppend stream to Cursor upstream");
+        return proxy::forward(
+            Extension(proxy),
+            Request::from_parts(parts, Body::from(body)),
+        )
+        .await;
+    }
     let decoded = bidi::decode(&request)?;
     let first_model = decoded.model_id().map(str::to_owned);
     let conversation_id = decoded.conversation_id().map(str::to_owned);
     let trace_metadata = decoded.trace_metadata();
     let trace = registry.trace(&decoded.request_id);
     let local = if let Some(model_id) = decoded.model_id() {
-        // 插件模型 ID 只在本地有意义,永远不转发到 Cursor 官方上游。
-        if model_id.starts_with(crate::plugin::ADAPTER_ID_PREFIX)
-            || registry.store().model(model_id).await?.is_some()
-        {
+        if is_local_model(registry.store(), model_id).await? {
             tracing::info!(
                 request_id = decoded.request_id,
                 model_id,
@@ -368,7 +375,41 @@ async fn buffered(request: Request<Body>) -> Result<(axum::http::request::Parts,
     Ok((parts, body))
 }
 
-fn parent_headers(headers: &HeaderMap) -> Result<Option<TransportParent>> {
+/// Configured models and plugin adapters are served locally.
+pub(crate) async fn is_local_model(store: &crate::store::Store, model_id: &str) -> Result<bool> {
+    // 插件模型 ID 只在本地有意义,永远不转发到 Cursor 官方上游。
+    Ok(model_id.starts_with(crate::plugin::ADAPTER_ID_PREFIX)
+        || store.model(model_id).await?.is_some())
+}
+
+/// Speech-to-text reuses the BidiAppend envelope with a payload that is not
+/// an agent message.
+/// Appends for a run that is already local always stay local.
+async fn foreign_bidi_payload(
+    registry: &TransportRegistry,
+    request: &ai::BidiAppendRequest,
+) -> bool {
+    if request.data.is_empty() {
+        return false;
+    }
+    let request_id = request.request_id.as_ref().map(|id| id.request_id.as_str());
+    if let Some(request_id) = request_id {
+        if registry.local(request_id).await.is_some() {
+            return false;
+        }
+    }
+    !is_agent_payload(&request.data)
+}
+
+/// Protobuf decoding is lenient, so only a decoded message counts.
+fn is_agent_payload(data: &str) -> bool {
+    hex::decode(data)
+        .ok()
+        .and_then(|payload| agent::AgentClientMessage::decode(payload.as_slice()).ok())
+        .is_some_and(|message| message.message.is_some())
+}
+
+pub(crate) fn parent_headers(headers: &HeaderMap) -> Result<Option<TransportParent>> {
     let request_id = header_text(headers, "x-parent-request-id")?;
     let tool_call_id = header_text(headers, "x-parent-agent-tool-call-id")?;
     match (request_id, tool_call_id) {
@@ -383,10 +424,31 @@ fn parent_headers(headers: &HeaderMap) -> Result<Option<TransportParent>> {
     }
 }
 
-fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>> {
+pub(crate) fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>> {
     headers
         .get(name)
         .map(|value| value.to_str())
         .transpose()
         .map_err(|error| crate::Error::Protocol(format!("invalid {name} header: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_decoded_agent_messages_count_as_agent_payloads() {
+        let message = agent::AgentClientMessage {
+            message: Some(agent::agent_client_message::Message::RunRequest(
+                Default::default(),
+            )),
+        };
+        assert!(is_agent_payload(&hex::encode(message.encode_to_vec())));
+        // Speech audio is not hex, and an empty decode carries no message.
+        assert!(!is_agent_payload("not hex"));
+        assert!(!is_agent_payload(&hex::encode(
+            agent::AgentClientMessage::default().encode_to_vec()
+        )));
+        assert!(!is_agent_payload(&hex::encode([0x7a, 0x01, 0x00])));
+    }
 }
