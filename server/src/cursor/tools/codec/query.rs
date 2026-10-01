@@ -98,7 +98,8 @@ pub fn tool_query(id: u32, call: &ToolCall) -> Result<pb::AgentServerMessage> {
         }),
         "webfetch" => Query::WebFetchRequestQuery(pb::WebFetchRequestQuery {
             args: Some(pb::WebFetchArgs {
-                url: string("url")?,
+                url: crate::search::WebFetchRequest::from_arguments(&call.arguments)?
+                    .approval_target(),
                 tool_call_id: call.call_id.clone(),
             }),
             skip_approval: false,

@@ -8,6 +8,7 @@ import { CursorModelTestResult, type CursorModelTestState } from "./CursorModelT
 import styles from "./CursorSettings.module.scss";
 import { PageContent } from "../../shell/layout/PageContent";
 import { LegacyModelImport } from "./LegacyModelImport";
+import { RemoteSshHelp } from "./RemoteSshHelp";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { FormField, SecretTextInput, TextInput } from "../../shared/ui/FormControls";
 import controls from "../../shared/ui/Controls.module.scss";
@@ -32,6 +33,7 @@ export function CursorSettingsPage() {
   const [waitingForCaRefresh, setWaitingForCaRefresh] = useState(false);
   const [deleting, setDeleting] = useState<Model | null>(null);
   const [confirmDisableTakeover, setConfirmDisableTakeover] = useState(false);
+  const [remoteSshHelpOpen, setRemoteSshHelpOpen] = useState(false);
   const [testingModelHashes, setTestingModelHashes] = useState<Set<string>>(() => new Set());
   const [modelTestResults, setModelTestResults] = useState<Map<string, CursorModelTestState>>(() => new Map());
   const [savingAndTesting, setSavingAndTesting] = useState(false);
@@ -45,7 +47,7 @@ export function CursorSettingsPage() {
   const activeModelTests = useRef(new Map<string, { testId: string; controller: AbortController; cancelling: boolean }>());
   const caReady = cursorHarness?.ca === "ready";
   const cursorTakenOver = cursorHarness?.settings_applied ?? false;
-  const takeoverLabel = cursorTakenOver ? t("关闭接管Cursor") : t("开启接管Cursor");
+  const takeoverLabel = cursorTakenOver ? t("关闭本地接管Cursor") : t("开启本地接管Cursor");
   const pluginModels = configuredPluginModels(plugins);
   const testTargets = [
     ...models.map((model) => ({ model_hash: model.model_hash, display_name: model.display_name })),
@@ -303,7 +305,9 @@ export function CursorSettingsPage() {
   return <>
     <PageActions position="left">
       <div className={styles.takeoverActions}>
-        <span className={styles.takeoverStatus}>{cursorTakenOver ? t("已接管") : t("未接管")}</span>
+        <TooltipTrigger label={t("仅表示本机代理配置，不验证 Remote SSH 连接。")}>
+          <span className={styles.takeoverStatus}>{cursorTakenOver ? t("本地已接管") : t("本地未接管")}</span>
+        </TooltipTrigger>
         <TooltipTrigger label={takeoverLabel}>
           <Switch
             checked={cursorTakenOver}
@@ -323,7 +327,11 @@ export function CursorSettingsPage() {
         </div>}
       </div>
     </PageActions>
-    <PageActions><TooltipTrigger label={caReady ? t("添加模型") : t("请先初始化 CA")}><button className={controls.iconButton} aria-label={t("添加模型")} disabled={!caReady || cursorBusy} onClick={openNew}><Icon icon={addIcon} size="1.1em" /></button></TooltipTrigger></PageActions>
+    <PageActions>
+      <button type="button" className={controls.secondary} aria-haspopup="dialog" onClick={() => setRemoteSshHelpOpen(true)}>{t("Remote SSH 指南")}</button>
+      <TooltipTrigger label={caReady ? t("添加模型") : t("请先初始化 CA")}><button className={controls.iconButton} aria-label={t("添加模型")} disabled={!caReady || cursorBusy} onClick={openNew}><Icon icon={addIcon} size="1.1em" /></button></TooltipTrigger>
+    </PageActions>
+    {remoteSshHelpOpen && <RemoteSshHelp onClose={() => setRemoteSshHelpOpen(false)} />}
     <PageContent title="Cursor" sections={[{ key: "cursor-settings", estimatedHeight: estimatedModelHeight, content }]} />
     <ConfirmDialog
       open={confirmDisableTakeover}
