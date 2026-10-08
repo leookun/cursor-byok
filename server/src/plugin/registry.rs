@@ -148,6 +148,25 @@ impl PluginRegistry {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(store: Store, root: &Path) -> Result<Self> {
+        let runtime = PluginRuntime::for_test(root.join("runtime"))?;
+        let catalog =
+            PluginCatalog::for_test(&root.join("catalog"), env!("CARGO_PKG_VERSION").into())?;
+        let data = PluginDataStore::for_test(root.join("data"))?;
+        Ok(Self {
+            inner: Arc::new(RegistryInner {
+                store,
+                runtime,
+                catalog,
+                state: PluginStateStore::new(data),
+                entries: RwLock::new(None),
+                workers: Mutex::new(HashMap::new()),
+                oauth_sessions: Mutex::new(HashMap::new()),
+            }),
+        })
+    }
+
     pub async fn plugins(&self) -> Vec<PluginDescriptor> {
         let Some(executable) = self.inner.runtime.executable() else {
             return self

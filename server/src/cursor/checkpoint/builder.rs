@@ -17,6 +17,8 @@ use crate::{
 
 use super::{derived, roots::RootFrontier, turns::TurnFrontier};
 
+const DEFAULT_CONTEXT_WINDOW_TOKENS: u64 = 200_000;
+
 #[derive(Clone)]
 pub struct CheckpointBuilder {
     pub(super) store: Store,
@@ -295,5 +297,24 @@ impl CheckpointBuilder {
 }
 
 fn context_limit(selected: Option<u64>, previous: Option<u64>) -> Option<u64> {
-    selected.or(previous.filter(|tokens| *tokens != 0))
+    selected
+        .or(previous.filter(|tokens| *tokens != 0))
+        .or(Some(DEFAULT_CONTEXT_WINDOW_TOKENS))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_limit_defaults_to_legacy_window() {
+        assert_eq!(context_limit(None, None), Some(200_000));
+        assert_eq!(context_limit(None, Some(0)), Some(200_000));
+    }
+
+    #[test]
+    fn context_limit_prefers_selected_then_previous_window() {
+        assert_eq!(context_limit(Some(64_000), Some(100_000)), Some(64_000));
+        assert_eq!(context_limit(None, Some(100_000)), Some(100_000));
+    }
 }
