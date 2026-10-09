@@ -373,13 +373,12 @@ fn parent_headers(headers: &HeaderMap) -> Result<Option<TransportParent>> {
     let tool_call_id = header_text(headers, "x-parent-agent-tool-call-id")?;
     match (request_id, tool_call_id) {
         (None, None) => Ok(None),
-        (Some(request_id), Some(tool_call_id)) => Ok(Some(TransportParent {
-            request_id: request_id.into(),
-            tool_call_id: tool_call_id.into(),
+        // Cursor emits these headers independently. A subagent can carry only
+        // its parent tool call ID (or only its parent request ID).
+        (request_id, tool_call_id) => Ok(Some(TransportParent {
+            request_id: request_id.map(str::to_owned),
+            tool_call_id: tool_call_id.map(str::to_owned),
         })),
-        _ => Err(crate::Error::Protocol(
-            "Cursor subagent request must include both parent headers".into(),
-        )),
     }
 }
 
