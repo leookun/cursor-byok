@@ -350,6 +350,7 @@ fn build_inner(
     let client = match client {
         Some(client) => client,
         None => reqwest::Client::builder()
+            .http1_only()
             .timeout(config.request_timeout)
             .build()?,
     };
