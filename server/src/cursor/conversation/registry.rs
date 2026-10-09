@@ -102,6 +102,16 @@ impl ConversationRegistry {
         conversation_id: &ConversationId,
         compiled: CompiledMessages,
     ) -> CommandResult {
+        self.deliver_with_detached_results(conversation_id, compiled, None)
+            .await
+    }
+
+    pub(crate) async fn deliver_with_detached_results(
+        &self,
+        conversation_id: &ConversationId,
+        compiled: CompiledMessages,
+        detached_results: Option<(crate::model::ToolRoundId, Vec<crate::model::ToolResult>)>,
+    ) -> CommandResult {
         if compiled.delivery == MessageDelivery::Ignore {
             return CommandResult::Applied;
         }
@@ -141,7 +151,11 @@ impl ConversationRegistry {
             MessageDelivery::BreakMessages => {
                 active
                     .handle
-                    .break_messages(compiled.event_id, compiled.messages)
+                    .break_messages_with_detached_results(
+                        compiled.event_id,
+                        compiled.messages,
+                        detached_results,
+                    )
                     .await
             }
         };

@@ -27,6 +27,7 @@ pub(crate) use search::complete as semble;
 
 #[derive(Clone, Debug)]
 pub struct ToolCompletion {
+    pub(crate) exec_id: Option<u32>,
     result: ToolResult,
     tool_call: pb::ToolCall,
     read_image: Option<ReadImage>,
@@ -95,6 +96,7 @@ impl ToolCompletion {
         // carry the same bounded result without reprocessing it.
         gate::tool_completion(&call.name, &mut tool, &mut result.content);
         Self {
+            exec_id: None,
             result,
             tool_call: pb::ToolCall {
                 tool_call_id: Some(call.call_id.clone()),
@@ -151,6 +153,9 @@ impl ToolResultSender {
 }
 
 impl ToolResultReceiver {
+    pub(crate) fn try_recv(&mut self) -> Option<Result<ToolCompletion>> {
+        self.0.try_recv().ok()
+    }
     pub async fn recv(&mut self) -> Option<Result<ToolCompletion>> {
         self.0.recv().await
     }

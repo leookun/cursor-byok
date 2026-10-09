@@ -48,6 +48,7 @@ pub struct ConversationOutput {
     results: ToolResultReceiver,
     checkpoint: CheckpointBuilder,
     tool_runtime: CursorToolRuntime,
+    tasks: super::task::Tasks,
     runtime_actions: mpsc::UnboundedReceiver<RuntimeAction>,
     compiler: PromptCompiler,
     blob_sync: BlobSynchronizer,
@@ -75,6 +76,7 @@ pub(crate) struct ConversationOutputDependencies {
     pub results: ToolResultReceiver,
     pub checkpoint: CheckpointBuilder,
     pub tool_runtime: CursorToolRuntime,
+    pub tasks: super::task::Tasks,
     pub runtime_actions: mpsc::UnboundedReceiver<RuntimeAction>,
     pub compiler: PromptCompiler,
     pub blob_sync: BlobSynchronizer,
@@ -101,6 +103,7 @@ impl ConversationOutput {
             results: runtime.results,
             checkpoint: runtime.checkpoint,
             tool_runtime: runtime.tool_runtime,
+            tasks: runtime.tasks,
             runtime_actions: runtime.runtime_actions,
             compiler: runtime.compiler,
             blob_sync: runtime.blob_sync,
@@ -436,6 +439,7 @@ impl ConversationOutput {
                             completed.clear();
                             completed_round = Some(round_id.clone());
                         }
+                        interrupted_tool_calls.clear();
                         active_round = Some(round_id.clone());
                         active_tool_calls = round_calls
                             .iter()
@@ -474,6 +478,8 @@ impl ConversationOutput {
                             )
                             .await?
                         {
+                            self.tasks
+                                .register(&round_id, self.tool_runtime.task_execs().await);
                             for message in dispatched.messages {
                                 self.handle.emit(&message)?;
                             }
@@ -487,6 +493,27 @@ impl ConversationOutput {
                         streams.clear();
                     }
                     RunEvent::MessagesCommitted(state) => {
+                        let completion_ids = match &state.cause {
+                            CommitCause::RuntimeEvent { event_id } => vec![event_id.clone()],
+                            CommitCause::InitialMessages => self
+                                .store
+                                .load_checkpoint_messages(state.checkpoint_id)
+                                .await?
+                                .into_iter()
+                                .filter_map(|message| message.runtime_event_id)
+                                .collect(),
+                            _ => Vec::new(),
+                        };
+                        for event_id in completion_ids {
+                            if let Some((call, completion)) =
+                                self.tasks.take_presentation(&event_id)
+                            {
+                                self.handle
+                                    .emit(&codec::tool_completed(&call, &completion))?;
+                                presentation.tool_completed(&completion);
+                            }
+                        }
+
                         if matches!(&state.cause, CommitCause::RuntimeEvent { .. }) {
                             response_text.clear();
                             response_thinking.clear();
@@ -523,11 +550,7 @@ impl ConversationOutput {
                             active_round = Some(round_id.clone());
                         }
                         let mut tool_round_settled = false;
-                        if let CommitCause::ToolResult {
-                            call_id,
-                            interrupted,
-                        } = &state.cause
-                        {
+                        if let CommitCause::ToolResult { call_id, synthetic } = &state.cause {
                             let snapshot = self
                                 .store
                                 .tool_round(active_round.as_ref().ok_or_else(|| {
@@ -546,7 +569,7 @@ impl ConversationOutput {
                                         "committed call is absent from tool round: {call_id}"
                                     ))
                                 })?;
-                            if !interrupted {
+                            if !synthetic {
                                 let completion = completions.remove(call_id).ok_or_else(|| {
                                     Error::Protocol(format!(
                                         "core committed a tool result without typed Cursor state: {call_id}"
@@ -746,12 +769,16 @@ impl ConversationOutput {
                                     for _ in 0..3 {
                                         self.checkpoint.publish(&self.handle, &checkpoint).await?;
                                     }
-                                    return Ok(RunFinish::TurnCompleted);
+                                    return Ok(RunFinish::TurnCompleted(Box::new(checkpoint)));
                                 }
                                 let checkpoints = final_checkpoint.take().ok_or_else(|| {
                                     Error::Protocol("Completed without final state".into())
                                 })?;
-                                self.handle.emit(&events::turn_ended(turn_usage))?;
+                                // The Cursor interaction stays open while detached Tasks
+                                // still owe results, even when this model Run is finished.
+                                if !self.tasks.has_pending() {
+                                    self.handle.emit(&events::turn_ended(turn_usage))?;
+                                }
                                 self.checkpoint
                                     .publish(&self.handle, &checkpoints.staged)
                                     .await?;
@@ -760,9 +787,9 @@ impl ConversationOutput {
                                     .await?;
                                 self.handle.emit(&pb::AgentServerMessage {
                                     ttft_breakdown: None,
-                                    message: Some(pb::agent_server_message::Message::ConversationCheckpointUpdate(checkpoints.settled)),
+                                    message: Some(pb::agent_server_message::Message::ConversationCheckpointUpdate(checkpoints.settled.clone())),
                                 })?;
-                                Ok(RunFinish::TurnCompleted)
+                                Ok(RunFinish::TurnCompleted(Box::new(checkpoints.settled)))
                             }
                             RunOutcome::Cancelled => {
                                 worker.abort();
@@ -784,6 +811,7 @@ impl ConversationOutput {
     }
 
     async fn abort_execs(&self) {
+        self.tasks.cancel();
         for id in self.tool_runtime.drain_running().await {
             let _ = self.handle.emit(&codec::abort(id));
         }
@@ -795,6 +823,14 @@ impl ConversationOutput {
         completions: &mut HashMap<String, ToolCompletion>,
         interrupted_tool_calls: &HashSet<String>,
     ) -> Result<Option<ToolCompletion>> {
+        if !self.tasks.accept_foreground(&completion, &self.handle) {
+            return Ok(None);
+        }
+        if let Some(id) = completion.exec_id {
+            if self.tool_runtime.is_interrupted(id).await {
+                return Ok(None);
+            }
+        }
         if interrupted_tool_calls.contains(&completion.result().call_id) {
             return Ok(None);
         }
@@ -935,6 +971,14 @@ impl ConversationOutput {
         );
         self.handle
             .emit(&events::context_injection_queued(injection_id.clone()))?;
+        let detached_results = state
+            .active_round
+            .map(|round| (round.clone(), self.tasks.detach(round)));
+        // Results decoded before detach are still owned here. Transfer them before
+        // the foreground run can finish and drop its receiver.
+        while let Some(result) = self.results.try_recv() {
+            self.tasks.accept_foreground(&result?, &self.handle);
+        }
         state.interrupted_tool_calls.extend(
             state
                 .active_tool_calls
@@ -954,7 +998,7 @@ impl ConversationOutput {
         let conversation_id = ConversationId::new(&self.context.exec.conversation_id);
         tokio::spawn(async move {
             let _ = registry
-                .deliver(
+                .deliver_with_detached_results(
                     &conversation_id,
                     CompiledMessages {
                         event_id,
@@ -962,6 +1006,7 @@ impl ConversationOutput {
                         messages: vec![message],
                         delivery: MessageDelivery::BreakMessages,
                     },
+                    detached_results,
                 )
                 .await;
         });

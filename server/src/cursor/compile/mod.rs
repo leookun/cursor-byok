@@ -11,3 +11,5 @@ mod run;
 pub use action::*;
 pub(crate) use break_messages::{compile_injection, compile_user_message_action, RuntimeAction};
 pub use run::*;
+
+pub(crate) use insert_messages::task_completion;

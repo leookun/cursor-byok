@@ -34,6 +34,7 @@ struct ActionProjection {
     background_completion: bool,
 }
 
+#[derive(Clone)]
 pub struct CursorRunContext {
     pub request_id: String,
     pub mode: i32,
@@ -394,7 +395,7 @@ fn validate_prompt_root(messages: &[CanonicalMessage]) -> Result<()> {
     Ok(())
 }
 
-fn execution_run_id(request_id: &str) -> RunId {
+pub(crate) fn execution_run_id(request_id: &str) -> RunId {
     let execution_id = Uuid::new_v4().simple().to_string();
     RunId::new(format!("{request_id}:{}", &execution_id[..8]))
 }
