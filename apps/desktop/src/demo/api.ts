@@ -1,6 +1,7 @@
 import type {
   CallDetail,
   CursorHarnessStatus,
+  AppApiSettings,
   ExternalApiSettings,
   LlmCall,
   Model,
@@ -88,6 +89,7 @@ let harnessStatus: CursorHarnessStatus = {
 let detailed = true;
 let portSettings = { proxy_port: 0, service_port: 0 };
 let externalApiSettings: ExternalApiSettings = { enabled: false, api_key: "" };
+let appApiSettings: AppApiSettings = { enabled: false, auth_required: false, auth_method: "bearer", api_key: "" };
 let proxySettings: ProxySettings = {
   mode: "default",
   address: "",
@@ -154,6 +156,11 @@ export function installDemoApi() {
     if (path === "/settings/external-api") {
       externalApiSettings = body as ExternalApiSettings;
       return json(externalApiSettings);
+    }
+    if (path === "/settings/app-api" && method === "GET") return json(appApiSettings);
+    if (path === "/settings/app-api") {
+      appApiSettings = body as AppApiSettings;
+      return json(appApiSettings);
     }
     if (path === "/settings/storage/statistics" && method === "GET") return json(storage);
     if (path === "/settings/storage/statistics") {
