@@ -468,6 +468,7 @@ impl HostContext {
         &self,
         request_id: &str,
         params: &serde_json::Value,
+        record_stream: bool,
     ) -> Result<(
         reqwest::RequestBuilder,
         CancellationToken,
@@ -519,7 +520,11 @@ impl HostContext {
             .as_ref()
             .map(|state| state.cancellation.clone())
             .unwrap_or_default();
-        let recorder = invocation.and_then(|state| state.claim_recorder());
+        // Only inference streams claim the model recorder. Auxiliary fetches may
+        // contain OAuth refresh tokens in both their request and response bodies.
+        let recorder = invocation
+            .filter(|_| record_stream)
+            .and_then(|state| state.claim_recorder());
         if let Some(recorder) = &recorder {
             let (headers, body) = recorded_network_request(params)?;
             recorder.request(headers, &body).await?;
@@ -532,7 +537,7 @@ impl HostContext {
         request_id: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let (request, cancellation, recorder) = self.request(request_id, &params).await?;
+        let (request, cancellation, recorder) = self.request(request_id, &params, false).await?;
         let request = request.timeout(Duration::from_secs(60));
         let response = tokio::select! {
             _ = cancellation.cancelled() => return Err(Error::Cancelled),
@@ -574,7 +579,7 @@ impl HostContext {
         request_id: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let (request, cancellation, recorder) = self.request(request_id, &params).await?;
+        let (request, cancellation, recorder) = self.request(request_id, &params, true).await?;
         let response = tokio::select! {
             _ = cancellation.cancelled() => return Err(Error::Cancelled),
             response = request.send() => response?,
@@ -813,8 +818,8 @@ mod tests {
         let (_directory, store, recorder) = recorder(true, "detailed-plugin").await;
         let host = host_with_recorder(store.clone(), recorder.clone()).await;
         let params = network_params();
-        let (_, _, first_recorder) = host.request("invocation", &params).await.unwrap();
-        let (_, _, second_recorder) = host.request("invocation", &params).await.unwrap();
+        let (_, _, first_recorder) = host.request("invocation", &params, true).await.unwrap();
+        let (_, _, second_recorder) = host.request("invocation", &params, true).await.unwrap();
         let (_, body) = recorded_network_request(&params).unwrap();
 
         assert!(first_recorder.is_some());
@@ -858,6 +863,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn oauth_fetch_does_not_record_tokens_or_claim_the_model_recorder() {
+        let (_directory, store, recorder) = recorder(true, "oauth-plugin").await;
+        let host = host_with_recorder(store.clone(), recorder).await;
+        let oauth = serde_json::json!({
+            "url": "https://example.com/oauth/token",
+            "method": "POST",
+            "headers": { "content-type": "application/json" },
+            "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"secret\"}"
+        });
+        let (_, _, oauth_recorder) = host.request("invocation", &oauth, false).await.unwrap();
+        assert!(oauth_recorder.is_none());
+        assert!(store
+            .llm_call_request("oauth-plugin")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .llm_call_chunks("oauth-plugin")
+            .await
+            .unwrap()
+            .is_empty());
+
+        let (_, _, model_recorder) = host
+            .request("invocation", &network_params(), true)
+            .await
+            .unwrap();
+        assert!(model_recorder.is_some());
+        let recorded = store
+            .llm_call_request("oauth-plugin")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            recorded.body,
+            serde_json::json!({ "model": "test", "stream": true })
+        );
+        assert!(!recorded.body.to_string().contains("secret"));
+    }
+
+    #[tokio::test]
     async fn standard_plugin_network_recording_keeps_metrics_without_payloads() {
         let (_directory, store, recorder) = recorder(false, "standard-plugin").await;
         let host = host_with_recorder(store.clone(), recorder.clone()).await;
@@ -866,7 +911,7 @@ mod tests {
         let request_bytes = serde_json::to_string(&body).unwrap().len() as i64;
         let response = b"data: [DONE]\n\n";
 
-        let (_, _, observed) = host.request("invocation", &params).await.unwrap();
+        let (_, _, observed) = host.request("invocation", &params, true).await.unwrap();
         assert!(observed.is_some());
         recorder.response_headers(204).await.unwrap();
         recorder.response_chunk(response).await.unwrap();

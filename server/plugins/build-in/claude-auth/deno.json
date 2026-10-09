@@ -1,0 +1,19 @@
+{
+  "imports": {
+    "cursor-byok:plugin": "../../../src/plugin/sdk/plugin.ts",
+    "cursor-byok:provider": "../../../src/plugin/sdk/provider.ts",
+    "cursor-byok:model": "../../../src/plugin/sdk/model.ts",
+    "cursor-byok:resource": "../../../src/plugin/sdk/resource.ts"
+  },
+  "tasks": {
+    "check": "deno check main.ts",
+    "test": "deno test --no-remote",
+    "test:host": "deno test --no-remote --allow-run --allow-read host_smoke.ts",
+    "lint": "deno lint",
+    "fmt": "deno fmt --check"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "exclude": ["assets"]
+  }
+}
