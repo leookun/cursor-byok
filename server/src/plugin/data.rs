@@ -160,13 +160,7 @@ fn write_once(
         .map_err(|error| ("sync temporary file", error))?;
     drop(file);
     let _ = set_file_permissions(temporary);
-    // Windows 的 rename 不覆盖已存在文件,先删除旧文件。
-    #[cfg(windows)]
-    match std::fs::remove_file(target) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(("remove previous file", error)),
-    }
+    // Replace atomically. Never delete the last valid rotated credential before replacement.
     std::fs::rename(temporary, target).map_err(|error| ("replace target file", error))?;
     let _ = set_file_permissions(target);
     Ok(())
@@ -232,6 +226,47 @@ fn set_file_permissions(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn credential_replacement_has_no_missing_or_partial_file_window() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let store = PluginDataStore::for_test(root.path().join("data")).unwrap();
+        store
+            .update(
+                "test.plugin",
+                "tokens",
+                &serde_json::json!({"refreshToken":0}),
+            )
+            .await
+            .unwrap();
+        let path = store.path("test.plugin", "tokens").unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let reader_done = done.clone();
+        let reader = std::thread::spawn(move || {
+            while !reader_done.load(Ordering::Relaxed) {
+                let bytes =
+                    std::fs::read(&path).expect("credentials disappeared during replacement");
+                let value: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("partial credential write");
+                assert!(value["refreshToken"].is_number());
+            }
+        });
+        for id in 1..100 {
+            store
+                .update(
+                    "test.plugin",
+                    "tokens",
+                    &serde_json::json!({"refreshToken":id}),
+                )
+                .await
+                .unwrap();
+        }
+        done.store(true, Ordering::Relaxed);
+        reader.join().unwrap();
+    }
     #[tokio::test]
     async fn writes_reads_and_removes_json() {
         let root = tempfile::tempdir().unwrap();

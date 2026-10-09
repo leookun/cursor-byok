@@ -109,6 +109,7 @@ export type ProviderInvokeInput = {
  */
 export type ProviderResult =
   | { status: "completed"; patch?: ResourcePatch }
+  | { status: "auth-error"; message: string }
   | { status: "resource-error"; message: string; patch: ResourcePatch }
   | { status: "request-error"; message: string; patch?: ResourcePatch };
 

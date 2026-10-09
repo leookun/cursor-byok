@@ -116,6 +116,11 @@ async function dispatch(message: { id: string; method: string; params?: JsonValu
         result = resources.map((resource) => support.present(resource as never));
         break;
       }
+      case "resource.prepare": {
+        const support = resourceSupport(params.resourceType);
+        result = await support.prepare?.(params.resource as never, (params.rejectedResource ?? null) as never, context) ?? null;
+        break;
+      }
       case "resource.refresh": {
         const support = resourceSupport(params.resourceType);
         if (!support.refresh) throw new Error(`resource ${params.resourceType} has no refresh`);
