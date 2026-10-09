@@ -120,7 +120,7 @@ impl CheckpointBuilder {
         Ok((todo_ids, plan_id))
     }
 
-    async fn base_todo_state(&self) -> Result<serde_json::Value> {
+    pub(crate) async fn base_todo_state(&self) -> Result<serde_json::Value> {
         let mut todos = Vec::with_capacity(self.base.todos.len());
         for raw_id in &self.base.todos {
             let id = BlobId::from_bytes(raw_id)?;

@@ -21,7 +21,7 @@ use super::runtime::now_ms;
 
 pub(crate) use exec::{edit_failure, from_exec};
 pub(crate) use interaction::{complete_web_fetch, complete_web_search, from_interaction};
-pub(crate) use local::{local, subagents_disabled, todo_items};
+pub(crate) use local::{local, project_todo_completion, subagents_disabled, todo_items};
 pub(crate) use mcp::failure as mcp_failure;
 pub(crate) use search::complete as semble;
 

@@ -24,7 +24,7 @@ use crate::{
             codec, compat,
             runtime::CursorToolRuntime,
             stream::ToolCallStream,
-            tool_call_result::{ToolCompletion, ToolResultReceiver},
+            tool_call_result::{project_todo_completion, ToolCompletion, ToolResultReceiver},
             ToolBatchState, ToolDispatcher,
         },
     },
@@ -144,6 +144,7 @@ impl ConversationOutput {
     }
 
     async fn run_inner(&mut self) -> Result<RunFinish> {
+        let mut todo_state = self.checkpoint.base_todo_state().await?;
         if self.context.compacting {
             self.handle.emit(&events::summary_started())?;
         }
@@ -547,11 +548,12 @@ impl ConversationOutput {
                                     ))
                                 })?;
                             if !interrupted {
-                                let completion = completions.remove(call_id).ok_or_else(|| {
+                                let mut completion = completions.remove(call_id).ok_or_else(|| {
                                     Error::Protocol(format!(
                                         "core committed a tool result without typed Cursor state: {call_id}"
                                     ))
                                 })?;
+                                project_todo_completion(call, &mut completion, &mut todo_state);
                                 self.handle
                                     .emit(&codec::tool_completed(call, &completion))?;
                                 presentation.tool_completed(&completion);

@@ -47,7 +47,7 @@ pub fn fold_derived_state_from(
     state
 }
 
-fn apply_todo_write(current: Option<Value>, mut input: Value) -> Value {
+pub(crate) fn apply_todo_write(current: Option<Value>, mut input: Value) -> Value {
     if !input.get("merge").and_then(Value::as_bool).unwrap_or(false) {
         return input;
     }

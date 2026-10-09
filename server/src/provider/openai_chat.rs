@@ -72,7 +72,7 @@ impl Provider for OpenAiChatProvider {
                 tools_count = request.prompt.tools.len(),
                 "OpenAI Chat provider stream started"
             );
-            let messages = openai_chat_messages(&request.prompt.instructions, &request.history)?;
+            let messages = openai_chat_messages(&request.prompt.instructions, &request.history, &request.model.model_id)?;
             let mut body = json!({
                 "model": request.model.model_id,
                 "messages": messages,
@@ -235,7 +235,12 @@ fn apply_model(
     Ok(())
 }
 
-fn openai_chat_messages(instructions: &str, messages: &[ProjectedMessage]) -> Result<Vec<Value>> {
+fn openai_chat_messages(
+    instructions: &str,
+    messages: &[ProjectedMessage],
+    model_id: &str,
+) -> Result<Vec<Value>> {
+    let deepseek = model_id.to_ascii_lowercase().contains("deepseek");
     let mut output = Vec::with_capacity(messages.len() + usize::from(!instructions.is_empty()));
     if !instructions.is_empty() {
         output.push(json!({"role": "system", "content": instructions}));
@@ -252,16 +257,22 @@ fn openai_chat_messages(instructions: &str, messages: &[ProjectedMessage]) -> Re
             }
             ProjectedContent::Assistant {
                 text,
+                thinking,
                 replay_state,
                 calls,
-                ..
             } => {
                 let replay_reasoning = replay_state
                     .as_ref()
                     .filter(|state| state.provider_kind == "openai_chat")
                     .and_then(|state| state.value.get("reasoning_content"))
                     .and_then(Value::as_str)
-                    .filter(|reasoning| !reasoning.is_empty());
+                    .filter(|reasoning| !reasoning.is_empty())
+                    .or_else(|| {
+                        // DeepSeek tool conversations replay plain reasoning across
+                        // protocols, including an explicitly empty tool-call turn.
+                        (deepseek && (!thinking.is_empty() || !calls.is_empty()))
+                            .then_some(thinking.as_str())
+                    });
 
                 // Chat Completions rejects an empty assistant content string. Tool-call
                 // assistant messages use null content, while an assistant with no visible
@@ -439,6 +450,76 @@ pub(crate) fn openai_usage(value: &Value) -> Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assistant(
+        thinking: &str,
+        replay_state: Option<crate::model::ProviderReplayState>,
+    ) -> ProjectedMessage {
+        ProjectedMessage {
+            message_id: "assistant-1".into(),
+            role: Role::Assistant,
+            content: ProjectedContent::Assistant {
+                text: String::new(),
+                thinking: thinking.into(),
+                replay_state,
+                calls: vec![ToolCallContent {
+                    index: 0,
+                    call_id: "call-1".into(),
+                    name: "Read".into(),
+                    arguments: json!({"path": "marker.txt"}),
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn deepseek_preserves_reasoning_when_switching_from_responses_to_chat() {
+        let message = assistant(
+            "Read the marker first.",
+            Some(crate::model::ProviderReplayState {
+                provider_kind: "openai_responses".into(),
+                value: json!({"items": [{"type": "reasoning", "encrypted_content": "opaque"}]}),
+            }),
+        );
+        let messages =
+            openai_chat_messages("", &[message], "deepseek/deepseek-v4.1-flash").unwrap();
+        assert_eq!(messages[0]["reasoning_content"], "Read the marker first.");
+        assert_eq!(messages[0]["content"], Value::Null);
+        assert_eq!(messages[0]["tool_calls"][0]["id"], "call-1");
+        assert!(messages[0].get("encrypted_content").is_none());
+    }
+
+    #[test]
+    fn deepseek_replays_a_tool_turn_without_reasoning_as_an_empty_string() {
+        let messages =
+            openai_chat_messages("", &[assistant("", None)], "deepseek/deepseek-v4.1-flash")
+                .unwrap();
+        assert_eq!(messages[0]["reasoning_content"], "");
+        assert_eq!(messages[0]["tool_calls"][0]["function"]["name"], "Read");
+    }
+
+    #[test]
+    fn native_chat_replay_takes_precedence_over_projected_thinking() {
+        let message = assistant(
+            "display summary",
+            Some(crate::model::ProviderReplayState {
+                provider_kind: "openai_chat".into(),
+                value: json!({"reasoning_content": "native reasoning"}),
+            }),
+        );
+        let messages =
+            openai_chat_messages("", &[message], "deepseek/deepseek-v4.1-flash").unwrap();
+        assert_eq!(messages[0]["reasoning_content"], "native reasoning");
+    }
+
+    #[test]
+    fn other_chat_models_do_not_receive_foreign_reasoning_fields() {
+        let messages =
+            openai_chat_messages("", &[assistant("foreign reasoning", None)], "gpt-example")
+                .unwrap();
+        assert!(messages[0].get("reasoning_content").is_none());
+        assert_eq!(messages[0]["tool_calls"][0]["id"], "call-1");
+    }
 
     #[test]
     fn observed_tool_calls_outrank_ordinary_stop_reasons() {
