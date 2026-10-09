@@ -117,6 +117,20 @@ pub enum OAuthPollResponse {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum InstallPluginResponse {
+    Installed {
+        id: String,
+        name: String,
+        replaced: bool,
+    },
+    Exists {
+        id: String,
+        name: String,
+    },
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResponse {
     pub added: usize,
@@ -146,6 +160,35 @@ impl PluginRegistry {
                 oauth_sessions: Mutex::new(HashMap::new()),
             }),
         })
+    }
+
+    pub async fn install_plugin(
+        &self,
+        path: &std::path::Path,
+        replace: bool,
+    ) -> Result<InstallPluginResponse> {
+        let executable = self.executable()?;
+        match self
+            .inner
+            .catalog
+            .install_user_plugin(path, &executable, replace)
+            .await?
+        {
+            super::user_install::PrepareOutcome::Exists { id, name } => {
+                Ok(InstallPluginResponse::Exists { id, name })
+            }
+            super::user_install::PrepareOutcome::Pending(pending) => {
+                let id = pending.id.clone();
+                let name = pending.name.clone();
+                let replaced = pending.replaced;
+                if let Some(worker) = self.inner.workers.lock().await.remove(&id) {
+                    worker.stop().await;
+                }
+                pending.commit()?;
+                *self.inner.entries.write().await = None;
+                Ok(InstallPluginResponse::Installed { id, name, replaced })
+            }
+        }
     }
 
     pub async fn plugins(&self) -> Vec<PluginDescriptor> {

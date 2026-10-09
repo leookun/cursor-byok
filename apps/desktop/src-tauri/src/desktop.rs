@@ -40,6 +40,17 @@ struct DesktopRuntime {
 }
 
 #[tauri::command]
+fn pick_plugin_directory(window: WebviewWindow, title: String) -> Option<String> {
+    // rfd 在 macOS、Windows 和 Linux 上分别打开 NSOpenPanel、IFileDialog 和 portal/GTK。
+    // 对话框和随后的复制发生在同一个进程里，macOS 对所选目录的授权因此仍然有效。
+    rfd::FileDialog::new()
+        .set_title(title)
+        .set_parent(&window)
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn open_terminal_with_command(command: String) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -194,6 +205,7 @@ pub fn run() -> ExitCode {
 
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            pick_plugin_directory,
             open_terminal_with_command,
             crate::update::check_portable_update,
             crate::update::install_portable_update,

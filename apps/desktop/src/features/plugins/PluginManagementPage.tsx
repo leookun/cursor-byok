@@ -2,12 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { api, pluginText, type PluginDescriptor, type PluginImportFile, type PluginRuntimePhase, type PluginRuntimeStatus } from "../../shared/api";
 import { useI18n } from "../../i18n/store";
 import { PageContent } from "../../shell/layout/PageContent";
+import { PageActions } from "../../shell/PageActions";
 import { appStore, useAppStore } from "../../shared/store/appStore";
 import { ActionMenu, type ActionMenuItem } from "../../shared/ui/ActionMenu";
 import { Button } from "../../shared/ui/Button";
 import { Card } from "../../shared/ui/Card";
+import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
+import controls from "../../shared/ui/Controls.module.scss";
+import { Icon } from "../../shared/ui/Icon";
+import { addIcon } from "../../shared/ui/icons";
 import { Modal } from "../../shared/ui/Modal";
 import { useMessage } from "../../shared/ui/message";
+import { TooltipTrigger } from "../../shared/ui/TooltipTrigger";
 import { TruncatedButton } from "../../shared/ui/TruncatedButton";
 import { PluginAddPanel, PluginSettingsPanel } from "./PluginResourcePanels";
 import styles from "./PluginManagementPage.module.scss";
@@ -17,7 +23,12 @@ export function PluginManagementPage() {
   const [progressOpen, setProgressOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selected, setSelected] = useState<{ pluginId: string; mode: "add" | "settings" } | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [replaceTarget, setReplaceTarget] = useState<{ path: string; name: string } | null>(null);
   const cancelRequested = useRef(false);
+  const message = useMessage();
+  const runtimeReady = pluginRuntime?.state === "ready";
+  const canInstall = runtimeReady && !installing && replaceTarget === null;
   const selectedPlugin = selected ? plugins.find((plugin) => plugin.id === selected.pluginId) ?? null : null;
 
   useEffect(() => {
@@ -53,6 +64,42 @@ export function PluginManagementPage() {
     }
   };
 
+  const choosePlugin = async () => {
+    if (!canInstall) return;
+    setInstalling(true);
+    try {
+      const path = await api.pickPluginDirectory(t("选择插件目录"));
+      if (!path) return;
+      const result = await api.installPlugin(path, false);
+      if (result.status === "exists") {
+        setReplaceTarget({ path, name: result.name });
+        return;
+      }
+      await appStore.refreshPlugins();
+      message(t("插件已添加"));
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : String(cause), { duration: 5000 });
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const confirmReplace = async () => {
+    if (!replaceTarget) return;
+    setInstalling(true);
+    try {
+      const result = await api.installPlugin(replaceTarget.path, true);
+      if (result.status === "exists") return;
+      await appStore.refreshPlugins();
+      message(t("插件已替换"));
+      setReplaceTarget(null);
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : String(cause), { duration: 5000 });
+    } finally {
+      setInstalling(false);
+    }
+  };
+
   const content = pluginRuntime?.state === "ready"
     ? <PluginCards plugins={plugins} onOpen={(pluginId, mode) => setSelected({ pluginId, mode })} />
     : <RuntimeGate status={pluginRuntime} starting={starting} onInitialize={() => void initialize()} />;
@@ -61,10 +108,27 @@ export function PluginManagementPage() {
     : 320;
 
   return <>
+    <PageActions>
+      <TooltipTrigger label={runtimeReady ? t("添加插件") : t("需要先初始化插件运行时")}>
+        <button className={controls.iconButton} aria-label={t("添加插件")} disabled={!canInstall} onClick={() => void choosePlugin()}>
+          <Icon icon={addIcon} size="1.1em" />
+        </button>
+      </TooltipTrigger>
+    </PageActions>
     <PageContent
       title={t("插件配置")}
       sections={[{ key: "installed-plugins", estimatedHeight, content }]}
     />
+    <ConfirmDialog
+      open={replaceTarget !== null}
+      title={t("替换已安装的插件")}
+      busy={installing}
+      confirmLabel={t("替换")}
+      onCancel={() => setReplaceTarget(null)}
+      onConfirm={() => void confirmReplace()}
+    >
+      {t("已安装 {name}。替换插件文件并保留已保存的账号？", { name: replaceTarget?.name ?? "" })}
+    </ConfirmDialog>
     <RuntimeProgressModal
       open={progressOpen}
       status={pluginRuntime}
