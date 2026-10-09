@@ -10,6 +10,7 @@ use crate::{Error, Result};
 
 const META_FILE: &str = "meta.json";
 const RULE_EXTENSION: &str = "md";
+const BLOCKLIST_FILE: &str = ".blocklist";
 pub const LOCAL_ID_PREFIX: &str = "local-";
 
 /// 一条规则的完整视图:knowledge 来自 md 文件,其余字段来自 meta.json。
@@ -69,6 +70,33 @@ impl RuleStore {
         Ok(Self { root })
     }
 
+    /// 读取 rules 目录下的 .blocklist:每行一个大小写不敏感的子串,
+    /// 命中 knowledge 或 title 的规则会被拦截(不写盘、不注入、列表不可见)。
+    /// 用于挡住反复自动再生成的污染规则。文件不存在时为空列表。
+    pub fn blocklist(&self) -> Vec<String> {
+        let Ok(content) = std::fs::read_to_string(self.root.join(BLOCKLIST_FILE)) else {
+            return Vec::new();
+        };
+        content
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(str::to_lowercase)
+            .collect()
+    }
+
+    pub fn is_blocked(&self, knowledge: &str, title: &str) -> bool {
+        let blocklist = self.blocklist();
+        if blocklist.is_empty() {
+            return false;
+        }
+        let knowledge = knowledge.to_lowercase();
+        let title = title.to_lowercase();
+        blocklist
+            .iter()
+            .any(|needle| knowledge.contains(needle) || title.contains(needle))
+    }
+
     pub fn list(&self) -> Result<Vec<RuleRecord>> {
         let meta = self.read_meta();
         let mut records = Vec::new();
@@ -86,6 +114,7 @@ impl RuleStore {
             let knowledge = std::fs::read_to_string(&path)?;
             records.push(assemble(id, knowledge, meta.rules.get(id), &path));
         }
+        records.retain(|record| !self.is_blocked(&record.knowledge, &record.title));
         records.sort_by(|left, right| {
             timestamp(&right.created_at)
                 .cmp(&timestamp(&left.created_at))
@@ -108,6 +137,20 @@ impl RuleStore {
 
     pub fn upsert(&self, record: &RuleRecord) -> Result<()> {
         validate_id(&record.id)?;
+        if self.is_blocked(&record.knowledge, &record.title) {
+            tracing::warn!(
+                id = %record.id,
+                title = %record.title,
+                knowledge = %record.knowledge,
+                "KB rule write blocked by .blocklist; removing any on-disk residue"
+            );
+            remove_file_if_exists(&self.rule_path(&record.id))?;
+            let mut meta = self.read_meta();
+            if meta.rules.remove(&record.id).is_some() {
+                self.write_meta(&meta)?;
+            }
+            return Ok(());
+        }
         write_atomic(&self.rule_path(&record.id), record.knowledge.as_bytes())?;
         let mut meta = self.read_meta();
         meta.rules.insert(record.id.clone(), rule_meta(record));
@@ -151,6 +194,14 @@ impl RuleStore {
         meta.rules.clear();
         for record in records {
             validate_id(&record.id)?;
+            if self.is_blocked(&record.knowledge, &record.title) {
+                tracing::warn!(
+                    id = %record.id,
+                    title = %record.title,
+                    "KB mirror skipped blocked rule (matches .blocklist)"
+                );
+                continue;
+            }
             write_atomic(&self.rule_path(&record.id), record.knowledge.as_bytes())?;
             meta.rules.insert(record.id.clone(), rule_meta(record));
         }
