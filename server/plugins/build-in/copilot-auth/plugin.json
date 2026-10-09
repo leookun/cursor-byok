@@ -1,0 +1,20 @@
+{
+  "apiVersion": 1,
+  "id": "dev.cursorbyok.community.copilot-auth",
+  "name": "GitHub Copilot",
+  "version": "0.1.0",
+  "author": "@CharlesYWL",
+  "minAppVersion": "0.1.0",
+  "icon": "assets/copilot.svg",
+  "entry": "main.ts",
+  "permissions": {
+    "network": [
+      "github.com",
+      "api.github.com",
+      "api.githubcopilot.com",
+      "api.individual.githubcopilot.com",
+      "api.business.githubcopilot.com",
+      "api.enterprise.githubcopilot.com"
+    ]
+  }
+}
