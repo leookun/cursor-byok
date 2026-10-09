@@ -20,6 +20,42 @@ pub struct DecodedAppend {
 }
 
 impl DecodedAppend {
+    pub async fn resolve_model_aliases(&mut self, store: &crate::store::Store) -> Result<()> {
+        let Some(agent::agent_client_message::Message::RunRequest(request)) =
+            self.message.message.as_mut()
+        else {
+            return Ok(());
+        };
+        let aliases = store.cursor_model_aliases().await?;
+        let mut selections = Vec::new();
+        if let Some(model) = request.requested_model.as_mut() {
+            selections.push(&mut model.model_id);
+        }
+        if let Some(model) = request.model_details.as_mut() {
+            selections.push(&mut model.model_id);
+        }
+        for selection in &mut request.subagent_model_overrides {
+            if let Some(agent::subagent_model_override::Selection::Model(model)) =
+                selection.selection.as_mut()
+            {
+                selections.push(&mut model.model_id);
+            }
+        }
+        for selection in selections {
+            if let Some(target) = aliases.get(selection) {
+                // A deleted/reconfigured target must not silently send the request
+                // (and its context) to the original hosted model instead.
+                if store.model(target).await?.is_none() {
+                    return Err(Error::Config(format!(
+                        "Cursor model alias {selection} targets a missing BYOK model"
+                    )));
+                }
+                selection.clone_from(target);
+            }
+        }
+        Ok(())
+    }
+
     pub fn model_id(&self) -> Option<&str> {
         let agent::agent_client_message::Message::RunRequest(request) =
             self.message.message.as_ref()?
@@ -208,4 +244,89 @@ pub async fn append(
         })
         .await?;
     Ok(ai::BidiAppendResponse {})
+}
+
+#[cfg(test)]
+mod alias_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn resolves_all_explicit_selections_but_preserves_inheritance_and_parameters() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::connect(&format!(
+            "sqlite://{}",
+            directory.path().join("test.db").display()
+        ))
+        .await
+        .unwrap();
+        let model = store.create_model(&serde_json::from_value(serde_json::json!({
+            "display_name": "BYOK model", "type": "openai", "base_url": "https://example.invalid",
+            "api_key": "test", "tooltip_data": "test", "model_id": "provider-model"
+        })).unwrap()).await.unwrap();
+        store
+            .set_cursor_model_aliases(std::collections::BTreeMap::from([(
+                "hosted-model".into(),
+                model.model_hash.clone(),
+            )]))
+            .await
+            .unwrap();
+        let selection = agent::RequestedModel {
+            model_id: "hosted-model".into(),
+            parameters: vec![agent::requested_model::ModelParameterValue {
+                id: "effort".into(),
+                value: "high".into(),
+            }],
+            ..Default::default()
+        };
+        let mut decoded = DecodedAppend {
+            request_id: "aliases".into(),
+            seqno: 0,
+            message: agent::AgentClientMessage {
+                message: Some(agent::agent_client_message::Message::RunRequest(
+                    agent::AgentRunRequest {
+                        requested_model: Some(selection.clone()),
+                        model_details: Some(agent::ModelDetails {
+                            model_id: "hosted-model".into(),
+                            ..Default::default()
+                        }),
+                        subagent_model_overrides: vec![
+                            agent::SubagentModelOverride {
+                                subagent_type: "generalPurpose".into(),
+                                selection: Some(agent::subagent_model_override::Selection::Model(
+                                    selection.clone(),
+                                )),
+                            },
+                            agent::SubagentModelOverride {
+                                subagent_type: "explore".into(),
+                                selection: Some(
+                                    agent::subagent_model_override::Selection::Inherit(true),
+                                ),
+                            },
+                        ],
+                        ..Default::default()
+                    },
+                )),
+            },
+        };
+        decoded.resolve_model_aliases(&store).await.unwrap();
+        let Some(agent::agent_client_message::Message::RunRequest(run)) = decoded.message.message
+        else {
+            unreachable!()
+        };
+        let requested = run.requested_model.unwrap();
+        assert_eq!(requested.model_id, model.model_hash);
+        assert_eq!(requested.parameters, selection.parameters);
+        assert_eq!(run.model_details.unwrap().model_id, model.model_hash);
+        let Some(agent::subagent_model_override::Selection::Model(child)) =
+            &run.subagent_model_overrides[0].selection
+        else {
+            unreachable!()
+        };
+        assert_eq!(child.model_id, model.model_hash);
+        assert_eq!(child.parameters, selection.parameters);
+        assert_eq!(
+            run.subagent_model_overrides[1].selection,
+            Some(agent::subagent_model_override::Selection::Inherit(true))
+        );
+    }
 }
