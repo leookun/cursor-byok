@@ -52,6 +52,38 @@ You can connect OpenAI- and Anthropic-compatible services, customize endpoints, 
 
 For complete installation steps, system configuration, and Frequently Asked Questions, see the [User Guide](https://docs.leokun.cn).
 
+## Remote SSH
+
+Use **Cursor 3.21.16 or newer**. Keep cursor-byok running on your local machine, with local CA (certificate authority), proxy integration, and model configuration completed. Open **Cursor → Remote SSH guide** in cursor-byok for the same instructions and a copyable setting.
+
+1. Connect to your SSH host in Cursor.
+2. In Cursor Settings, select **Remote [SSH: host]** and open that host's remote settings JSON. Set this once per SSH host, not only in local User or workspace settings. Merge this property without replacing your other settings:
+
+   ```json
+   {
+     "cursorAgentHost.remoteInferenceRoute": "always"
+   }
+   ```
+
+3. Save, then run **Developer: Reload Window** from the command palette.
+4. Start a **new chat**, select a configured BYOK model explicitly (not **Auto**), and send a request. An existing chat does not validate the new route.
+
+```text
+SSH workspace / remote Agent
+    → Cursor's native inference route → local Cursor client
+    → local cursor-byok → configured model provider
+Tool execution remains in the SSH workspace.
+```
+
+This route requires **no SSH tunnel and no local CA installation on the remote host**. Keep the local service bound to loopback; do not expose it publicly or copy CA private keys to the remote host.
+
+The application's **Local: on/off** labels describe local proxy configuration only. Neither those labels nor a successful local model test verifies Remote SSH. Agent streaming, remote file and terminal tools, search, WebFetch, MCP, Skills, Tab, and commit generation must be checked separately; this setup guide is not a claim that every feature has passed end-to-end SSH testing. See the [Remote SSH verification checklist](./docs/remote-ssh.md).
+
+### Troubleshooting Remote SSH
+
+- **A remote process cannot connect to `127.0.0.1` or `localhost`:** those addresses refer to the remote machine when used there, not your local desktop. Check the effective **Remote [SSH: host]** setting, reload the window, and test a new chat before changing ports or networking.
+- **Certificate errors:** diagnose these separately from loopback connection failures. Record the failing process, destination, and certificate error. Check the trust configuration on the machine making that connection. A certificate error alone does not prove that a tunnel or remote installation of the local CA is needed. Keep TLS verification enabled and never share CA private keys or credentials.
+
 ## Model Management
 
 Model configurations support both OpenAI and Anthropic API protocols. Each model channel can independently define its context window, maximum output tokens, reasoning effort, custom headers, and additional request parameters.

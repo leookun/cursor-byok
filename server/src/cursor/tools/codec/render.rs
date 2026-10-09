@@ -470,7 +470,8 @@ pub fn render_tool_call(call: &ToolCall, completed: bool) -> Result<pb::ToolCall
         }
         Some(pb::tool_call::Tool::WebFetchToolCall(tool)) => {
             tool.args = Some(pb::WebFetchArgs {
-                url: string("url"),
+                url: crate::search::WebFetchRequest::from_arguments(&call.arguments)?
+                    .approval_target(),
                 tool_call_id: call.call_id.clone(),
             })
         }

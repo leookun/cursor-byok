@@ -4,11 +4,12 @@ use crate::{
         protocol::{events, proto::agent::v1 as pb},
         tools::{
             compat, edit,
-            runtime::{CursorToolRuntime, ExecStage, PendingExec},
+            runtime::{CursorToolRuntime, ExecStage, PendingExec, SembleSnapshot},
             tool_call_result::{self as result, ToolCompletion},
         },
     },
     model::ToolCall,
+    search::{self, host_snapshot},
     Error, Result,
 };
 
@@ -50,25 +51,38 @@ pub async fn client_event(
     };
     let pb::exec_client_message::Message::ShellStream(stream) = wire_result else {
         let entry = take(message.id, pending).await?;
-        return match entry.stage {
+        return match &entry.stage {
             ExecStage::EditRead => advance_edit(entry, wire_result, pending).await,
+            ExecStage::SembleSnapshot(snapshot) => {
+                let snapshot = snapshot.clone();
+                complete_semble_snapshot(entry, snapshot, wire_result.clone()).await
+            }
             ExecStage::Direct | ExecStage::DynamicMcp(_) | ExecStage::EditWrite(_) => {
                 completed(entry, wire_result.clone())
             }
         };
     };
     use pb::shell_stream::Event;
+    let is_semble = pending.exec_stage_is_semble_snapshot(message.id).await;
     let event = match &stream.event {
         Some(Event::Stdout(stdout)) => {
             if pending.append_stdout(message.id, &stdout.data).await {
-                ClientExecEvent::Delta(Box::new(shell_delta(&call, true, &stdout.data)))
+                if is_semble {
+                    ClientExecEvent::Pending
+                } else {
+                    ClientExecEvent::Delta(Box::new(shell_delta(&call, true, &stdout.data)))
+                }
             } else {
                 ClientExecEvent::Pending
             }
         }
         Some(Event::Stderr(stderr)) => {
             if pending.append_stderr(message.id, &stderr.data).await {
-                ClientExecEvent::Delta(Box::new(shell_delta(&call, false, &stderr.data)))
+                if is_semble {
+                    ClientExecEvent::Pending
+                } else {
+                    ClientExecEvent::Delta(Box::new(shell_delta(&call, false, &stderr.data)))
+                }
             } else {
                 ClientExecEvent::Pending
             }
@@ -76,45 +90,45 @@ pub async fn client_event(
         Some(Event::Start(_)) | Some(Event::HookContext(_)) => ClientExecEvent::Pending,
         Some(Event::Exit(exit)) => {
             let entry = take(message.id, pending).await?;
-            let result = shell_exit_result(message, exit, &entry.stdout, &entry.stderr);
-            completed(entry, pb::exec_client_message::Message::ShellResult(result))?
+            let shell = shell_exit_result(message, exit, &entry.stdout, &entry.stderr);
+            finish_shell(entry, pb::exec_client_message::Message::ShellResult(shell)).await?
         }
         Some(Event::Backgrounded(backgrounded)) => {
             let entry = take(message.id, pending).await?;
-            let result = shell_backgrounded_result(
+            if matches!(entry.stage, ExecStage::SembleSnapshot(_)) {
+                return Ok(ClientExecEvent::Completed(Box::new(result::semble(
+                    &entry.call,
+                    entry.started_at_ms,
+                    Err(
+                        "Semble host snapshot was backgrounded before completion; retry with a smaller repository"
+                            .into(),
+                    ),
+                )?)));
+            }
+            let shell = shell_backgrounded_result(
                 backgrounded,
                 &entry.stdout,
                 &entry.stderr,
                 &entry.context.terminals_folder,
             );
-            completed(entry, pb::exec_client_message::Message::ShellResult(result))?
+            completed(entry, pb::exec_client_message::Message::ShellResult(shell))?
         }
         Some(Event::Rejected(value)) => {
-            let result = pb::ShellResult {
+            let shell = pb::ShellResult {
                 result: Some(pb::shell_result::Result::Rejected(value.clone())),
                 ..Default::default()
             };
-            complete(
-                message.id,
-                pending,
-                pb::exec_client_message::Message::ShellResult(result),
-            )
-            .await?
+            finish_terminal_shell(message.id, pending, shell).await?
         }
         Some(Event::PermissionDenied(value)) => {
-            let result = pb::ShellResult {
+            let shell = pb::ShellResult {
                 result: Some(pb::shell_result::Result::PermissionDenied(value.clone())),
                 ..Default::default()
             };
-            complete(
-                message.id,
-                pending,
-                pb::exec_client_message::Message::ShellResult(result),
-            )
-            .await?
+            finish_terminal_shell(message.id, pending, shell).await?
         }
         Some(Event::SandboxUnsupported(value)) => {
-            let result = pb::ShellResult {
+            let shell = pb::ShellResult {
                 result: Some(pb::shell_result::Result::SpawnError(pb::ShellSpawnError {
                     command: value.command.clone(),
                     working_directory: value.working_directory.clone(),
@@ -122,12 +136,7 @@ pub async fn client_event(
                 })),
                 ..Default::default()
             };
-            complete(
-                message.id,
-                pending,
-                pb::exec_client_message::Message::ShellResult(result),
-            )
-            .await?
+            finish_terminal_shell(message.id, pending, shell).await?
         }
         None => ClientExecEvent::Pending,
     };
@@ -142,6 +151,13 @@ pub async fn stream_closed(id: u32, pending: &CursorToolRuntime) -> Result<Optio
     let Some(entry) = pending.take_exec(id).await else {
         return Ok(None);
     };
+    if let ExecStage::SembleSnapshot(_) = &entry.stage {
+        return Ok(Some(result::semble(
+            &entry.call,
+            entry.started_at_ms,
+            Err("Cursor Exec stream closed before the Semble host snapshot finished".into()),
+        )?));
+    }
     let error = "Cursor Exec stream closed before returning a terminal result";
     if entry.call.name.eq_ignore_ascii_case("Shell") || entry.call.name.eq_ignore_ascii_case("Bash")
     {
@@ -253,12 +269,134 @@ async fn advance_edit(
     )?)))
 }
 
-async fn complete(
+async fn finish_terminal_shell(
     id: u32,
     pending: &CursorToolRuntime,
-    result: pb::exec_client_message::Message,
+    shell: pb::ShellResult,
 ) -> Result<ClientExecEvent> {
-    completed(take(id, pending).await?, result)
+    let entry = take(id, pending).await?;
+    finish_shell(entry, pb::exec_client_message::Message::ShellResult(shell)).await
+}
+
+async fn finish_shell(
+    entry: PendingExec,
+    wire_result: pb::exec_client_message::Message,
+) -> Result<ClientExecEvent> {
+    match &entry.stage {
+        ExecStage::SembleSnapshot(snapshot) => {
+            let snapshot = snapshot.clone();
+            complete_semble_snapshot(entry, snapshot, wire_result).await
+        }
+        _ => completed(entry, wire_result),
+    }
+}
+
+async fn complete_semble_snapshot(
+    entry: PendingExec,
+    snapshot: SembleSnapshot,
+    wire_result: pb::exec_client_message::Message,
+) -> Result<ClientExecEvent> {
+    let output = match snapshot_search_output(&entry, &snapshot, &wire_result).await {
+        Ok(value) => Ok(value),
+        Err(error) => Err(error),
+    };
+    Ok(ClientExecEvent::Completed(Box::new(result::semble(
+        &entry.call,
+        entry.started_at_ms,
+        output,
+    )?)))
+}
+
+async fn snapshot_search_output(
+    entry: &PendingExec,
+    snapshot: &SembleSnapshot,
+    wire_result: &pb::exec_client_message::Message,
+) -> std::result::Result<serde_json::Value, String> {
+    let stdout = shell_stdout(wire_result)?;
+    let dump = host_snapshot::parse_dump(&stdout)?;
+    let root = host_snapshot::materialize_dump(
+        &entry.context.conversation_id,
+        &entry.call.call_id,
+        &snapshot.remote_root,
+        &dump,
+    )?;
+    let tool_name = entry
+        .call
+        .name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    search::execute_semble_on_root(
+        &tool_name,
+        entry.call.arguments.clone(),
+        root,
+        snapshot.remote_root.clone(),
+        host_snapshot::source_identity(&snapshot.remote_root),
+        None,
+    )
+    .await
+}
+
+fn shell_stdout(
+    wire_result: &pb::exec_client_message::Message,
+) -> std::result::Result<String, String> {
+    use pb::{exec_client_message::Message, shell_result::Result as ShellResult};
+    let Message::ShellResult(result) = wire_result else {
+        return Err("Semble host snapshot expected a Shell result".into());
+    };
+    match result.result.as_ref() {
+        Some(ShellResult::Success(success)) => {
+            if success.output_location.is_some() {
+                return Err(
+                    "Semble host snapshot output was spilled to a file; reduce repository size or raise the dump bound"
+                        .into(),
+                );
+            }
+            if !success.stdout.is_empty() {
+                return Ok(success.stdout.clone());
+            }
+            if let Some(interleaved) = success.interleaved_output.as_ref() {
+                if !interleaved.is_empty() {
+                    return Ok(interleaved.clone());
+                }
+            }
+            Err("Semble host snapshot completed without stdout".into())
+        }
+        Some(ShellResult::Failure(failure)) => {
+            let detail = if failure.stderr.is_empty() {
+                failure.stdout.clone()
+            } else if failure.stdout.is_empty() {
+                failure.stderr.clone()
+            } else {
+                format!("{}\n{}", failure.stdout, failure.stderr)
+            };
+            Err(if detail.is_empty() {
+                format!(
+                    "Semble host snapshot failed with exit code {}",
+                    failure.exit_code
+                )
+            } else {
+                detail
+            })
+        }
+        Some(ShellResult::Rejected(rejected)) => Err(format!(
+            "Semble host snapshot rejected: {}",
+            rejected.reason
+        )),
+        Some(ShellResult::PermissionDenied(denied)) => Err(format!(
+            "Semble host snapshot permission denied: {}",
+            denied.error
+        )),
+        Some(ShellResult::SpawnError(error)) => {
+            Err(format!("Semble host snapshot spawn error: {}", error.error))
+        }
+        Some(ShellResult::Timeout(timeout)) => Err(format!(
+            "Semble host snapshot timed out after {}ms",
+            timeout.timeout_ms
+        )),
+        None => Err("Semble host snapshot returned an empty Shell result".into()),
+    }
 }
 
 async fn take(id: u32, pending: &CursorToolRuntime) -> Result<PendingExec> {

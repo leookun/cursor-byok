@@ -112,7 +112,7 @@
       "type": "function",
       "function": {
         "name": "SembleSearch",
-        "description": "Search a source repository with hybrid semantic retrieval, BM25 lexical matching, and exact-symbol lookup. Use it to locate unknown implementations, understand behavior, find symbols and relevant code, or identify likely entry points in a code flow. The repository may be an absolute local directory or an explicit HTTP(S) Git URL.\n\nWrite natural-language queries in English because the code-specialized model performs best in English; preserve exact identifiers, literals, and code fragments unchanged. Prefer a focused query, start with top_k 5 and 8-12 snippet lines, and keep the default code scope unless documentation or configuration is specifically relevant. Results are ranked evidence, not an exhaustive text match or authoritative call graph; use Grep when every exact occurrence is required, and use SembleFindRelated to expand from a known result.",
+        "description": "Search a source repository with hybrid semantic retrieval, BM25 lexical matching, and exact-symbol lookup. Use it to locate unknown implementations, understand behavior, find symbols and relevant code, or identify likely entry points in a code flow. Absolute filesystem repo paths are read through the Cursor host (local or Remote SSH) via a bounded snapshot; explicit HTTP(S) Git URLs are fetched independently.\n\nWrite natural-language queries in English because the code-specialized model performs best in English; preserve exact identifiers, literals, and code fragments unchanged. Prefer a focused query, start with top_k 5 and 8-12 snippet lines, and keep the default code scope unless documentation or configuration is specifically relevant. Results are ranked evidence, not an exhaustive text match or authoritative call graph; use Grep when every exact occurrence is required, and use SembleFindRelated to expand from a known result.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -121,7 +121,7 @@
               "type": "string"
             },
             "repo": {
-              "description": "Absolute local repository directory or explicit HTTP(S) Git URL.",
+              "description": "Absolute Cursor-host filesystem directory (local or SSH workspace) or explicit HTTP(S) Git URL.",
               "type": "string"
             },
             "query": {
@@ -155,7 +155,7 @@
       "type": "function",
       "function": {
         "name": "SembleFindRelated",
-        "description": "Find code chunks semantically related to a known Semble search result. Use it after SembleSearch when a relevant location is known and you need nearby responsibilities, collaborators, or likely connected implementation. Pass the file path exactly as returned by search and a one-indexed line inside that result. This is ranked related-code evidence rather than an authoritative call graph.",
+        "description": "Find code chunks semantically related to a known Semble search result. Use it after SembleSearch when a relevant location is known and you need nearby responsibilities, collaborators, or likely connected implementation. Pass the file path exactly as returned by search and a one-indexed line inside that result. Absolute filesystem repos are snapshotted through the Cursor host (local or Remote SSH). This is ranked related-code evidence rather than an authoritative call graph.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -164,7 +164,7 @@
               "type": "string"
             },
             "repo": {
-              "description": "The same absolute local repository directory or explicit HTTP(S) Git URL used for search.",
+              "description": "The same absolute Cursor-host filesystem directory or HTTP(S) Git URL used for search.",
               "type": "string"
             },
             "file_path": {
@@ -828,7 +828,7 @@
       "type": "function",
       "function": {
         "name": "WebFetch",
-        "description": "Fetch content from a specified URL and return its contents in a readable markdown format. Use this tool when you need to retrieve and analyze web content.",
+        "description": "Fetch a public HTTP(S) URL as readable markdown, or read a bounded page of previously fetched content. Large results include a conversation-private content_id and next byte offset; call this tool again with the same returned URL and content_id to read every remaining page without Shell, local files, or download URLs. Cached reads make no network request and require the URL to match the cached source. Cached content is accessible for up to 24 hours subject to capacity; fetch the original URL again if unavailable. Both operations follow the normal URL approval flow.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -841,13 +841,26 @@
               "type": "string"
             },
             "url": {
-              "description": "The URL to fetch. The content will be converted to a readable markdown format.",
+              "description": "The public HTTP(S) URL to fetch and convert to markdown. For cached reads, use the exact source URL from the prior WebFetch result; it is required for native approval.",
               "type": "string"
+            },
+            "content_id": {
+              "description": "Opaque UUID returned by WebFetch in this conversation. Read cached content without another network fetch, using its exact source URL.",
+              "type": "string"
+            },
+            "offset": {
+              "description": "Zero-based UTF-8 byte offset for cached content, default 0. Use the exact next offset returned by WebFetch.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "description": "Maximum bytes in a cached page, default 16384. Pages end at UTF-8 character boundaries. Applies only to content_id.",
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 16384
             }
           },
-          "required": [
-            "url"
-          ]
+          "required": ["url"]
         }
       }
     },

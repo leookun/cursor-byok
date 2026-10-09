@@ -106,12 +106,8 @@ struct CursorRelay {
     tab_mode: Arc<RwLock<TabMode>>,
 }
 
-impl HttpHandler for CursorRelay {
-    async fn handle_request(
-        &mut self,
-        _ctx: &HttpContext,
-        mut request: Request<Body>,
-    ) -> RequestOrResponse {
+impl CursorRelay {
+    fn route_request(&self, mut request: Request<Body>) -> Request<Body> {
         let original = request.uri().clone();
         let locally_routed = should_route_locally(original.path(), *self.tab_mode.read());
         if is_cursor_host(original.host().unwrap_or_default()) && locally_routed {
@@ -126,7 +122,17 @@ impl HttpHandler for CursorRelay {
                 *request.uri_mut() = uri;
             }
         }
-        request.into()
+        request
+    }
+}
+
+impl HttpHandler for CursorRelay {
+    async fn handle_request(
+        &mut self,
+        _ctx: &HttpContext,
+        request: Request<Body>,
+    ) -> RequestOrResponse {
+        self.route_request(request).into()
     }
 
     async fn should_intercept_connect(
@@ -198,6 +204,105 @@ fn should_route_locally(path: &str, tab_mode: TabMode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_transport_and_commit_routes_stay_together_in_every_tab_mode() {
+        for mode in [TabMode::Public, TabMode::Direct, TabMode::Custom] {
+            for path in [
+                "/agent.v1.AgentService/RunSSE",
+                "/aiserver.v1.BidiService/BidiAppend",
+                "/agent.v1.AgentService/GetUsableModels",
+                "/aiserver.v1.AiService/AvailableModels",
+                "/aiserver.v1.AiService/WriteGitCommitMessage",
+                "/aiserver.v1.NetworkService/IsConnected",
+            ] {
+                assert!(should_route_locally(path, mode), "{path}: {mode:?}");
+            }
+            assert!(!should_route_locally("/unmanaged.Service/Call", mode));
+        }
+    }
+
+    #[test]
+    fn tab_and_file_sync_follow_the_selected_mode() {
+        for path in crate::cursor::services::tab::TAB_PATHS {
+            assert!(should_route_locally(path, TabMode::Public), "{path}");
+            assert!(should_route_locally(path, TabMode::Custom), "{path}");
+            assert!(!should_route_locally(path, TabMode::Direct), "{path}");
+        }
+    }
+
+    #[test]
+    fn cursor_agent_hosts_are_intercepted_without_matching_unrelated_domains() {
+        for host in [
+            "api2.cursor.sh",
+            "api3.cursor.sh",
+            "api5.cursor.sh",
+            "agent.api5.cursor.sh",
+            "agentn.api5.cursor.sh",
+            "API5.CURSOR.SH.",
+        ] {
+            assert!(is_cursor_host(host), "{host}");
+        }
+        for host in [
+            "example.com",
+            "cursor.sh.example.com",
+            "notcursor.sh",
+            "127.0.0.1",
+            "",
+        ] {
+            assert!(!is_cursor_host(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn relay_preserves_streaming_request_identity_and_original_url() {
+        let backend: SocketAddr = "127.0.0.1:43123".parse().unwrap();
+        let relay = CursorRelay {
+            backend,
+            tab_mode: Arc::new(RwLock::new(TabMode::Direct)),
+        };
+        for path in [
+            "/agent.v1.AgentService/RunSSE",
+            "/aiserver.v1.BidiService/BidiAppend",
+        ] {
+            let original = format!("https://agent.api5.cursor.sh{path}?request_id=ssh-test");
+            let request = Request::post(&original)
+                .header("content-type", "application/connect+proto")
+                .header("x-parent-request-id", "parent-request")
+                .header("x-parent-agent-tool-call-id", "parent-tool")
+                .body(Body::from(vec![0u8, 0, 0, 0, 3, 1, 2, 3]))
+                .unwrap();
+            let request = relay.route_request(request);
+            assert_eq!(
+                request.uri().authority().unwrap().as_str(),
+                backend.to_string()
+            );
+            assert_eq!(request.uri().path(), path);
+            assert_eq!(request.uri().query(), Some("request_id=ssh-test"));
+            assert_eq!(request.headers()[UPSTREAM_URL_HEADER], original);
+            assert_eq!(request.headers()["x-parent-request-id"], "parent-request");
+            assert_eq!(
+                request.headers()["x-parent-agent-tool-call-id"],
+                "parent-tool"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn occupied_proxy_port_selects_a_new_loopback_port() {
+        let occupied = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let actual = bind_proxy_listener(occupied.local_addr().unwrap().port())
+            .await
+            .unwrap();
+        assert_eq!(
+            actual.local_addr().unwrap().ip(),
+            std::net::Ipv4Addr::LOCALHOST
+        );
+        assert_ne!(
+            actual.local_addr().unwrap().port(),
+            occupied.local_addr().unwrap().port()
+        );
+    }
 
     #[test]
     fn cursor_cli_transport_and_model_metadata_routes_stay_local() {
