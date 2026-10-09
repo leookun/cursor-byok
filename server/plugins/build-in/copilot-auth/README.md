@@ -32,6 +32,7 @@
 | 计费          | 最后一条消息是用户输入时 `x-initiator: user`(消耗 premium request);工具结果/助手续跑回合为 `agent`,不额外计费 |
 | 重试          | 408 / 425 / 429 / 5xx 与边缘节点的裸 403 最多重试 3 次;401 先重新换取 token 再重试一次                        |
 | 额度耗尽      | 429 且提示额度不足时账号进入冷却,直到额度重置日(未知时 1 小时)                                                |
+| 上下文        | 档位由 Cursor/宿主统一提供;超出 Copilot 上限(`model_max_prompt_tokens_exceeded`)时宿主自动压缩历史后重试      |
 | 不支持        | GitHub Enterprise Server / ghe.com、Anthropic `/v1/messages` 原生协议、自动启用被策略禁用的模型               |
 
 ## 开发

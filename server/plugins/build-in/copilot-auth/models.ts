@@ -10,7 +10,6 @@ export type CopilotModelData = {
   route: ModelRoute;
   vendor: string | null;
   reasoningEfforts: string[];
-  contextWindow: number | null;
 };
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -74,7 +73,6 @@ export function parseCopilotModels(body: unknown): ModelDefinition[] {
       route,
       vendor,
       reasoningEfforts: strings(supports?.reasoning_effort),
-      contextWindow: number(limits?.max_context_window_tokens),
     };
     models.push({
       id,

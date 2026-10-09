@@ -138,7 +138,7 @@ function snapshot(data: AccountData): ResourceSnapshot {
 const chatModel: ModelSnapshot = {
   id: "claude-sonnet-4.5",
   displayName: "Claude Sonnet 4.5",
-  privateData: { route: "chat", vendor: "Anthropic", reasoningEfforts: [], contextWindow: null },
+  privateData: { route: "chat", vendor: "Anthropic", reasoningEfforts: [] },
 };
 
 const responsesModel: ModelSnapshot = {
@@ -148,7 +148,6 @@ const responsesModel: ModelSnapshot = {
     route: "responses",
     vendor: "OpenAI",
     reasoningEfforts: ["low", "medium", "high"],
-    contextWindow: 400_000,
   },
 };
 
@@ -324,7 +323,7 @@ Deno.test("model parsing keeps enabled picker chat models only", () => {
     model_picker_enabled: true,
     capabilities: {
       type: "chat",
-      limits: { max_output_tokens: 64_000, max_context_window_tokens: 400_000 },
+      limits: { max_output_tokens: 64_000 },
       supports: { vision: true, reasoning_effort: ["low", "high"] },
     },
     supported_endpoints: ["/chat/completions", "/responses"],
@@ -352,7 +351,6 @@ Deno.test("model parsing keeps enabled picker chat models only", () => {
       route: "responses",
       vendor: "OpenAI",
       reasoningEfforts: ["low", "high"],
-      contextWindow: 400_000,
     },
   });
   assertEquals((models[2].privateData as { route: string }).route, "chat");
