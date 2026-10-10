@@ -9,13 +9,14 @@ use std::collections::BTreeMap;
 
 use crate::{
     cursor::protocol::proto::agent::v1 as pb,
-    model::ToolCall,
+    model::{CanonicalMessage, ToolCall},
     search::{WebFetch, WebSearch},
     store::Store,
     Error, Result,
 };
 
 use super::{
+    auto_review::{self, Action, AutoReviewer, Held},
     compat,
     runtime::{CursorToolRuntime, ExecContext, PendingInteraction},
     tool_call_result::{ToolCompletion, ToolResultSender},
@@ -26,11 +27,48 @@ pub(super) struct ToolStart {
     pub completion: Option<ToolCompletion>,
 }
 
+/// Lets dispatch hold a call for Auto-review with the conversation as intent.
+#[derive(Clone, Copy)]
+pub(super) struct ToolReview<'a> {
+    pub reviewer: &'a AutoReviewer,
+    pub messages: &'a [CanonicalMessage],
+}
+
+impl ToolReview<'_> {
+    /// Hands `message` to Auto-review when `call` needs review; Cursor receives it
+    /// once the verdict is known instead of now.
+    fn hold(
+        self,
+        runtime: &CursorToolRuntime,
+        held: Held,
+        action: Action,
+        call: &ToolCall,
+        context: &ExecContext,
+        message: &pb::AgentServerMessage,
+    ) -> Option<ToolStart> {
+        let settings = auto_review::applies(&action, call, context)?;
+        self.reviewer.start(
+            runtime.clone(),
+            held,
+            action,
+            call.clone(),
+            settings.clone(),
+            auto_review::conversation(self.messages),
+            message.clone(),
+        );
+        Some(ToolStart {
+            messages: Vec::new(),
+            completion: None,
+        })
+    }
+}
+
 pub(super) enum InteractionContinuation {
     Completed(Box<ToolCompletion>),
     Pending,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn start(
     runtime: &CursorToolRuntime,
     results: &ToolResultSender,
@@ -39,9 +77,10 @@ pub(super) async fn start(
     dynamic_mcp: &BTreeMap<String, pb::McpToolDefinition>,
     context: &ExecContext,
     store: Option<&Store>,
+    review: Option<ToolReview<'_>>,
 ) -> Result<ToolStart> {
     if let Some(definition) = dynamic_mcp.get(&call.name) {
-        return exec::start_dynamic(runtime, call, definition, context).await;
+        return exec::start_dynamic(runtime, call, definition, context, review).await;
     }
 
     if is_mcp_auth(call) {
@@ -58,11 +97,13 @@ pub(super) async fn start(
     match normalized(&call.name).as_str() {
         "shell" | "bash" | "read" | "delete" | "grep" | "glob" | "readlints" | "task"
         | "callmcptool" | "fetchmcpresource" | "getmcptools" => {
-            exec::start(runtime, call, context).await
+            exec::start(runtime, call, context, review).await
         }
         "write" | "strreplace" | "editnotebook" => edit::start(runtime, call, context).await,
-        "askquestion" | "websearch" | "webfetch" | "switchmode" | "createplan"
-        | "generateimage" => interaction::start(runtime, call).await,
+        "webfetch" => interaction::start_reviewed(runtime, call, context, review).await,
+        "askquestion" | "websearch" | "switchmode" | "createplan" | "generateimage" => {
+            interaction::start(runtime, call).await
+        }
         "todowrite" | "updatecurrentstep" => local::start(call, message_index),
         "semblesearch" | "semblefindrelated" => search::start(results, call, store.cloned()),
         _ => Ok(unavailable_tool(call)),
