@@ -162,6 +162,47 @@
   }
 }
 
+.selectionSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.resourceRow {
+  flex-wrap: wrap;
+  align-items: flex-start;
+
+  .accountDetails {
+    flex: 1 1 260px;
+    overflow-wrap: anywhere;
+    gap: 8px;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+  }
+}
+
+.activeResource {
+  border-color: var(--vscode-focusBorder);
+}
+
+.resourceRow .activeLabel {
+  color: var(--vscode-textLink-foreground);
+  margin-inline-start: 8px;
+}
+
+.resourceRow .deleteButton {
+  color: var(--vscode-errorForeground);
+}
+
 .actionBody {
   display: flex;
   flex-direction: column;
@@ -231,7 +272,9 @@
   }
 }
 
-.error {
+.error,
+.providerRow .error,
+.resourceRow .error {
   color: var(--vscode-errorForeground, #f48771);
   font-size: type.$font-size-xs;
 }

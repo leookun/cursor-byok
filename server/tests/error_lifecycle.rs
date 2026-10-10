@@ -701,6 +701,94 @@ async fn assert_run_starts_without_parent_dependency(
     assert_eq!(row, ("root".into(), None, None));
 }
 
+#[tokio::test]
+async fn account_failures_follow_explicit_retry_policy() {
+    for retryable in [false, true] {
+        let (_directory, store) = fixtures::temp_store().await;
+        let provider = fake_provider::FakeProvider::default();
+        provider.push_error(Error::Resource {
+            // 401 is normally terminal; a confirmed account switch permits retry.
+            message: "HTTP 401: account authorization expired".into(),
+            retryable,
+        });
+        if retryable {
+            provider.push(vec![
+                ModelEvent::Start {
+                    model_call_id: "replacement-call".into(),
+                },
+                ModelEvent::TextStart,
+                ModelEvent::TextDelta("replacement account".into()),
+                ModelEvent::TextEnd,
+                ModelEvent::Done(FinishReason::Stop),
+            ]);
+        }
+        let assets = PromptAssets::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("prompt/cursor")
+                .as_path(),
+        )
+        .unwrap();
+        let registry = TransportRegistry::new(
+            store,
+            Arc::new(provider.clone()),
+            PromptCompiler::new(assets),
+        );
+        let handle = registry.get_or_create("account-failure").await.unwrap();
+        let mut output = handle.subscribe();
+        handle
+            .command(TransportCommand::Append {
+                seqno: 0,
+                message: Box::new(protocol_client_run("use selected account", "account-user")),
+            })
+            .await
+            .unwrap();
+        let mut seqno = 1;
+        let terminal = loop {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(15), output.recv())
+                .await
+                .unwrap()
+                .expect("terminal account result");
+            let (flags, payload) = connect::decode_frames(&frame).unwrap().pop().unwrap();
+            if flags & connect::END_STREAM_FLAG != 0 {
+                break serde_json::from_slice::<serde_json::Value>(&payload).unwrap();
+            }
+            let server = pb::AgentServerMessage::decode(payload).unwrap();
+            if let Some(pb::agent_server_message::Message::KvServerMessage(kv)) = server.message {
+                handle
+                    .command(TransportCommand::Append {
+                        seqno,
+                        message: Box::new(kv_ack(kv.id)),
+                    })
+                    .await
+                    .unwrap();
+                seqno += 1;
+            }
+        };
+        let requests = provider.requests();
+        assert_eq!(requests.len(), if retryable { 2 } else { 1 });
+        if retryable {
+            assert!(terminal.get("error").is_none(), "{terminal}");
+            assert_eq!(
+                requests[0], requests[1],
+                "account failover preserves the request"
+            );
+            let call_ids = provider.call_ids();
+            assert_ne!(
+                call_ids[0], call_ids[1],
+                "each attempt has an independent recording ID"
+            );
+            assert!(call_ids[1].ends_with(":retry-1"));
+        } else {
+            assert_eq!(terminal["error"]["code"], "unavailable");
+            let detail = STANDARD_NO_PAD
+                .decode(terminal["error"]["details"][0]["value"].as_str().unwrap())
+                .unwrap();
+            let detail = ai::ErrorDetails::decode(detail.as_slice()).unwrap();
+            assert_eq!(detail.details.unwrap().is_retryable, Some(false));
+        }
+    }
+}
+
 fn client_run() -> pb::AgentClientMessage {
     pb::AgentClientMessage {
         message: Some(pb::agent_client_message::Message::RunRequest(

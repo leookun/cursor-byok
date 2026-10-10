@@ -27,6 +27,7 @@ enum FakeResponse {
 pub struct FakeProvider {
     responses: Arc<Mutex<VecDeque<FakeResponse>>>,
     requests: Arc<Mutex<Vec<ModelRequest>>>,
+    call_ids: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeProvider {
@@ -62,6 +63,9 @@ impl FakeProvider {
             });
         ready
     }
+    pub fn call_ids(&self) -> Vec<String> {
+        self.call_ids.lock().unwrap().clone()
+    }
     pub fn requests(&self) -> Vec<ModelRequest> {
         self.requests.lock().unwrap().clone()
     }
@@ -73,6 +77,7 @@ impl Provider for FakeProvider {
         invocation: ModelInvocation,
         _cancellation: CancellationToken,
     ) -> ProviderStream {
+        self.call_ids.lock().unwrap().push(invocation.call_id);
         self.requests.lock().unwrap().push(invocation.request);
         let events = self
             .responses

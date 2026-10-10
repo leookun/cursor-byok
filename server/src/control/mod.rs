@@ -169,6 +169,10 @@ pub fn api_router(service: ControlService) -> Router {
             get(plugins::export_resources),
         )
         .route(
+            "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/selection",
+            put(plugins::set_resource_selection),
+        )
+        .route(
             "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/{resource_id}",
             axum::routing::delete(plugins::delete_resource),
         )

@@ -116,7 +116,9 @@ impl ConversationOutput {
             if !self.superseded.is_cancelled() {
                 self.abort_execs().await;
                 let (category, summary) = match error {
-                    Error::Provider(_) | Error::Http(_) => ("provider", error.to_string()),
+                    Error::Provider(_) | Error::Resource { .. } | Error::Http(_) => {
+                        ("provider", error.to_string())
+                    }
                     Error::Store(_) | Error::Database(_) | Error::Migration(_) => {
                         ("store", error.to_string())
                     }
@@ -1000,6 +1002,7 @@ fn cursor_error(failure: RunFailure) -> Error {
     match failure {
         RunFailure::Protocol(message) => Error::Protocol(message),
         RunFailure::Provider(message) => Error::Provider(message),
+        RunFailure::Resource { message, retryable } => Error::Resource { message, retryable },
         RunFailure::Store(message) => Error::Store(message),
         RunFailure::Client(message) => Error::Protocol(message),
     }
@@ -1045,14 +1048,14 @@ pub(crate) fn finish_failed(handle: &TransportHandle, error: &Error) -> Result<(
         details: Vec::new(),
     };
     let stream_error = match error {
-        Error::Provider(_) | Error::Http(_) => {
+        Error::Provider(_) | Error::Resource { .. } | Error::Http(_) => {
             let detail = ai::ErrorDetails {
                 error: ai::error_details::Error::ProviderError as i32,
                 details: Some(ai::CustomErrorDetails {
                     title: "Provider Error".into(),
                     detail: error.to_string(),
                     allow_command_links_potentially_unsafe_please_only_use_for_handwritten_trusted_markdown: Some(true),
-                    is_retryable: Some(true),
+                    is_retryable: Some(!matches!(error, Error::Resource { retryable: false, .. })),
                     show_request_id: Some(true),
                     should_show_immediate_error: Some(false),
                 }),

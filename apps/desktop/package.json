@@ -7,6 +7,7 @@
     "start": "vite",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test:plugins": "node --experimental-strip-types --test tests/pluginAccounts.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "i18n:scan": "cross-env STATIC_I18N_SCAN=true vite build",
     "build": "vite build",

@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { api, type CursorHarnessStatus, type LlmCall, type Model, type ModelInput, type Overview, type PluginDescriptor, type PluginRuntimeStatus, type PortSettings, type TokenPricingSettings } from "../api";
+import { api, type CursorHarnessStatus, type LlmCall, type Model, type ModelInput, type Overview, type PluginDescriptor, type PluginResourceSelection, type PluginRuntimeStatus, type PortSettings, type TokenPricingSettings } from "../api";
+import { applyPluginSelection, createSingleFlight, mergePluginSnapshots } from "./pluginState";
 import { applyTheme, isThemeId, type ThemeId } from "../theme/theme";
+
+const pluginRequests = createSingleFlight();
+let pluginSnapshotRevision = 0;
 
 export const DEFAULT_TOKEN_PRICING: TokenPricingSettings = {
   input_per_million: 5.0,
@@ -23,6 +27,7 @@ export type AppSnapshot = {
   cursorBusy: boolean;
   pluginRuntime: PluginRuntimeStatus | null;
   plugins: PluginDescriptor[];
+  pluginSelectionPending: string[];
 };
 
 const savedTheme = (): ThemeId => {
@@ -58,11 +63,13 @@ let snapshot: AppSnapshot = {
   cursorBusy: false,
   pluginRuntime: null,
   plugins: [],
+  pluginSelectionPending: [],
 };
 
 const listeners = new Set<() => void>();
 
 function update(patch: Partial<AppSnapshot>) {
+  if (patch.plugins) patch = { ...patch, plugins: mergePluginSnapshots(snapshot.plugins, patch.plugins) };
   snapshot = { ...snapshot, ...patch };
   listeners.forEach((listener) => listener());
 }
@@ -159,12 +166,38 @@ export const appStore = {
       return null;
     }
   },
+  // Account-manager reads are local snapshots, never upstream quota refreshes.
+  readPlugins(afterMutation = false) {
+    if (afterMutation) pluginSnapshotRevision += 1;
+    return pluginRequests("snapshot", async () => {
+      for (;;) {
+        const revision = pluginSnapshotRevision;
+        const plugins = await api.plugins();
+        if (revision !== pluginSnapshotRevision) continue;
+        update({ plugins });
+        return;
+      }
+    });
+  },
   async refreshPlugins() {
     try {
-      update({ plugins: await api.plugins() });
+      await appStore.readPlugins();
     } catch (cause) {
       update({ error: cause instanceof Error ? cause.message : String(cause) });
     }
+  },
+  async setPluginResourceSelection(pluginId: string, resourceType: string, selection: Omit<PluginResourceSelection, "revision">) {
+    const key = JSON.stringify([pluginId, resourceType]);
+    return pluginRequests(key, async () => {
+      update({ pluginSelectionPending: [...snapshot.pluginSelectionPending, key] });
+      try {
+        const saved = await api.setPluginResourceSelection(pluginId, resourceType, selection);
+        update({ plugins: applyPluginSelection(snapshot.plugins, pluginId, resourceType, saved) });
+        return saved;
+      } finally {
+        update({ pluginSelectionPending: snapshot.pluginSelectionPending.filter((item) => item !== key) });
+      }
+    });
   },
   async removePluginConfiguration(pluginId: string) {
     await perform(async () => {
