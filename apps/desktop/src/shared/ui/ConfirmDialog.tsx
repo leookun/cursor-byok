@@ -1,12 +1,14 @@
 import { useId, type ReactNode } from "react";
 import { Modal } from "./Modal";
 
-export function ConfirmDialog({ id, open, title, children, busy, wide, cancelLabel = t("取消"), confirmLabel = t("确认"), onCancel, onConfirm }: {
+export function ConfirmDialog({ id, open, title, children, busy, wide, cancelLabel = t("取消"), confirmLabel = t("确认"), onCancel, onConfirm, destructive = false, confirmDisabled = false }: {
   id?: string;
   open: boolean;
   title: string;
   children: ReactNode;
   busy?: boolean;
+  destructive?: boolean;
+  confirmDisabled?: boolean;
   wide?: boolean;
   cancelLabel?: string;
   confirmLabel?: string;
@@ -19,6 +21,8 @@ export function ConfirmDialog({ id, open, title, children, busy, wide, cancelLab
     open={open}
     title={title}
     busy={busy}
+    destructive={destructive}
+    submitDisabled={confirmDisabled}
     wide={wide}
     role="alertdialog"
     ariaDescribedBy={contentId}

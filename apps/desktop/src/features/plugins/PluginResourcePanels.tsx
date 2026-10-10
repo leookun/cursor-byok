@@ -12,6 +12,7 @@ import {
   type PluginResourceDescriptor,
   type PluginResourceView,
 } from "../../shared/api";
+import { SourceDeleteDialog } from "../aliases/SourceDeleteDialog";
 import { useI18n } from "../../i18n/store";
 import { appStore } from "../../shared/store/appStore";
 import { Button } from "../../shared/ui/Button";
@@ -148,6 +149,7 @@ function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
 export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deletingResource, setDeletingResource] = useState<{ resource: PluginResourceDescriptor; item: PluginResourceView } | null>(null);
   const [modelProviderId, setModelProviderId] = useState<string | null>(null);
   const [resourceAction, setResourceAction] = useState<{
     resource: PluginResourceDescriptor;
@@ -221,11 +223,13 @@ export function PluginSettingsPanel({ plugin }: { plugin: PluginDescriptor }) {
       onRefresh={(item) => void run(`refresh:${item.id}`, async () => {
         await api.refreshPluginResource(plugin.id, resource.type, item.id);
       })}
-      onDelete={(item) => void run(`delete:${item.id}`, async () => {
-        await api.deletePluginResource(plugin.id, resource.type, item.id);
-      })}
+      onDelete={(item) => setDeletingResource({ resource, item })}
     />)}
     {error && <span className={styles.error} role="alert">{error}</span>}
+    {deletingResource && <SourceDeleteDialog title={t("删除账号")} sourceType="plugin" sourceIds={plugin.providers.filter((provider) => provider.resourceType === deletingResource.resource.type).map((provider) => `${plugin.id}/${provider.id}`)} busy={busy !== null} onCancel={() => setDeletingResource(null)} onConfirm={() => void run(`delete:${deletingResource.item.id}`, async () => {
+      await api.deletePluginResource(plugin.id, deletingResource.resource.type, deletingResource.item.id);
+      setDeletingResource(null);
+    })} />}
     {modelProvider && <ModelManagementModal
       provider={modelProvider}
       busy={busy !== null}
@@ -400,7 +404,7 @@ function ResourceRow({ item, actions, canRefresh, disabled, onAction, onRefresh,
       <StateBadge state={item.state} />
       {actions.map((action) => <Button key={action.id} size="small" disabled={disabled} onClick={() => onAction(action)}>{pluginText(action.displayName, locale)}</Button>)}
       {canRefresh && <Button size="small" disabled={disabled} onClick={onRefresh}>{t("刷新")}</Button>}
-      <Button size="small" disabled={disabled} onClick={onDelete}>{t("删除")}</Button>
+      <Button size="small" className={styles.error} disabled={disabled} onClick={onDelete}>{t("删除")}</Button>
     </div>
   </Card>;
 }

@@ -1,5 +1,5 @@
 import type { JsonValue } from "cursor-byok:plugin";
-import type { ModelDefinition, ModelSnapshot, ModelSupport } from "cursor-byok:model";
+import { modelMetadata, type ModelDefinition, type ModelSnapshot, type ModelSupport } from "cursor-byok:model";
 import { accountData, accountHeaders } from "./resources.ts";
 
 const MODELS_URL = "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0";
@@ -75,7 +75,8 @@ export function parseOfficialModels(body: unknown): ModelDefinition[] {
         id,
       ...(description ? { description } : {}),
       ...(maxOutputTokens !== null ? { maxOutputTokens } : {}),
-      capabilities: { images: true },
+      images: true,
+      ...modelMetadata(model),
       privateData: { reasoningEfforts: efforts },
     });
   }

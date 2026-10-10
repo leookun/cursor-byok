@@ -1,4 +1,6 @@
 //! Exposes the local persistence interface.
+mod alias_calls;
+mod aliases;
 mod cas;
 mod checkpoints;
 mod conversations;

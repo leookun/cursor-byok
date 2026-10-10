@@ -365,7 +365,10 @@ fn finish_reason(reason: FinishReason) -> &'static str {
 
 fn error_kind(error: &crate::Error) -> &'static str {
     match error {
-        crate::Error::Provider(_) | crate::Error::Http(_) => "provider",
+        crate::Error::Provider(_)
+        | crate::Error::Upstream(_)
+        | crate::Error::Alias(_)
+        | crate::Error::Http(_) => "provider",
         crate::Error::Cancelled => "cancelled",
         crate::Error::Database(_) | crate::Error::Store(_) => "store",
         _ => "internal",
@@ -398,6 +401,8 @@ mod tests {
                 base_url: "https://example.com/v1/chat/completions".into(),
                 use_full_url: true,
                 api_key: "test-key".into(),
+                supports_images: None,
+                supports_tools: None,
                 tooltip_data: "Test Model".into(),
                 model_id: "test-model".into(),
                 reasoning_effort: None,

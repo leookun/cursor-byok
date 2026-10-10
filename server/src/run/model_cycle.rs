@@ -85,6 +85,11 @@ pub async fn consume_model_cycle(
         let event = match next {
             Ok(event) => event,
             Err(error) => {
+                // Alias owns its complete attempt budget and output boundary. The
+                // ordinary model retry loop must never restart an exhausted alias.
+                if matches!(error, crate::Error::Alias(_)) {
+                    return Err(terminal_failure(error.into(), text, reasoning, usage));
+                }
                 return Err(failure(error.into(), text, reasoning, usage));
             }
         };

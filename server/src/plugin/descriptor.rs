@@ -135,6 +135,9 @@ pub struct PluginModelDescriptor {
     pub icon: String,
     pub provider_type: String,
     pub max_output_tokens: Option<u64>,
+    pub context_window_tokens: Option<u64>,
+    pub supports_tools: Option<bool>,
+    pub supports_images: Option<bool>,
     pub images: bool,
     pub enabled: bool,
 }
@@ -292,6 +295,9 @@ impl PluginModelDescriptor {
             icon: icon.to_owned(),
             provider_type: provider.provider_type.clone(),
             max_output_tokens: model.max_output_tokens,
+            context_window_tokens: model.context_window_tokens,
+            supports_tools: model.supports_tools,
+            supports_images: model.supports_images,
             images: model.images,
             enabled: model.enabled,
         }
@@ -301,6 +307,29 @@ impl PluginModelDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptor_exposes_optional_metadata_without_changing_image_flag() {
+        let model = StoredModel::from_definition(&serde_json::json!({
+            "id": "test", "displayName": "Test", "contextWindowTokens": 64000,
+            "capabilities": {"images": true, "tools": false},
+        }))
+        .unwrap();
+        let provider = ProviderDefinition {
+            id: "provider".into(),
+            display_name: "Provider".into(),
+            description: serde_json::Value::Null,
+            provider_type: "test".into(),
+            resource_type: None,
+            has_models: true,
+        };
+        let descriptor = PluginModelDescriptor::new("test", "Test", "", &provider, &model);
+        let json = serde_json::to_value(descriptor).unwrap();
+        assert_eq!(json["contextWindowTokens"], 64000);
+        assert_eq!(json["supportsImages"], true);
+        assert_eq!(json["supportsTools"], false);
+        assert_eq!(json["images"], true);
+    }
 
     #[test]
     fn parses_stable_model_ids_with_slashes() {

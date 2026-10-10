@@ -4,12 +4,7 @@ import type { LlmContentPart, LlmRequest, ModelEvent, ProviderOutput } from "../
 /** 本协议产生的回放状态种类;与宿主内置 Chat Provider 一致,可互相回放。 */
 export const REPLAY_KIND = "openai_chat";
 
-/** 上游返回非 2xx 时抛出,携带完整响应体供调用方分类。 */
-export class HttpError extends Error {
-  constructor(readonly status: number, readonly body: string) {
-    super(`HTTP ${status}: ${body}`);
-  }
-}
+import { HttpError, providerEventError } from "../provider.ts";
 
 export type OpenAiChatCall = {
   url: string;
@@ -155,7 +150,9 @@ function updateTool(
 
 function eventError(value: Record<string, unknown>): string | null {
   const error = value.error;
-  if (error === undefined || error === null) return null;
+  if (error === undefined || error === null) {
+    return value.type === "error" ? text(value.message) ?? JSON.stringify(value) : null;
+  }
   if (typeof error === "string") return error;
   return text(record(error)?.message) ?? JSON.stringify(error);
 }
@@ -208,7 +205,7 @@ export async function streamOpenAiChat(
     body: JSON.stringify(buildChatBody(call)),
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new HttpError(response.status, await readBody(response.lines));
+    throw new HttpError(response.status, await readBody(response.lines), response.headers);
   }
 
   let textOpen = false;
@@ -234,7 +231,7 @@ export async function streamOpenAiChat(
       throw new Error("OpenAI Chat SSE returned invalid JSON");
     }
     const error = eventError(value);
-    if (error !== null) throw new Error(`OpenAI Chat error: ${error}`);
+    if (error !== null) throw providerEventError(value, `OpenAI Chat error: ${error}`, response.headers);
     if (value.usage !== undefined && value.usage !== null) {
       finalUsage = usageEvent(value.usage);
     }

@@ -11,7 +11,7 @@ use crate::{
 use super::{now_ms, Store};
 
 const MODEL_COLUMNS: &str = r#"
-    model_hash, sort_order, display_name, group_name, model_type, base_url, use_full_url, api_key, tooltip_data,
+    model_hash, source_id, supports_images, supports_tools, sort_order, display_name, group_name, model_type, base_url, use_full_url, api_key, tooltip_data,
     model_id, reasoning_effort, openai_endpoint, openai_extra_params_enabled,
     openai_extra_params_json, custom_headers_enabled, custom_headers_json,
     anthropic_extra_params_enabled, anthropic_extra_params_json, context_window_tokens,
@@ -35,6 +35,16 @@ impl Store {
         let query = format!("SELECT {MODEL_COLUMNS} FROM model_configs WHERE model_hash = ?");
         sqlx::query(&query)
             .bind(hash)
+            .fetch_optional(&self.pool)
+            .await?
+            .map(model_from_row)
+            .transpose()
+    }
+
+    pub async fn model_by_source_id(&self, source_id: &str) -> Result<Option<ModelConfig>> {
+        let query = format!("SELECT {MODEL_COLUMNS} FROM model_configs WHERE source_id = ?");
+        sqlx::query(&query)
+            .bind(source_id)
             .fetch_optional(&self.pool)
             .await?
             .map(model_from_row)
@@ -115,6 +125,8 @@ impl Store {
         let now = now_ms();
         let _write = self.writes.lock().await;
         let mut transaction = self.pool.begin().await?;
+        super::aliases::ensure_model_name_available(&mut transaction, &input.model_id, &next_hash)
+            .await?;
         if next_hash != current.model_hash {
             sqlx::query("UPDATE llm_calls SET model_hash = NULL WHERE model_hash = ?")
                 .bind(&current.model_hash)
@@ -129,7 +141,7 @@ impl Store {
                 custom_headers_enabled = ?, custom_headers_json = ?,
                 anthropic_extra_params_enabled = ?, anthropic_extra_params_json = ?,
                 context_window_tokens = ?, max_completion_tokens = ?, anthropic_max_tokens = ?,
-                anthropic_thinking_effort = ?, thinking_budget_tokens = ?, updated_at_ms = ?
+                anthropic_thinking_effort = ?, thinking_budget_tokens = ?, supports_images = ?, supports_tools = ?, updated_at_ms = ?
             WHERE model_hash = ?"#,
         )
         .bind(&next_hash)
@@ -155,6 +167,8 @@ impl Store {
         .bind(input.anthropic_max_tokens.map(to_i64).transpose()?)
         .bind(&input.anthropic_thinking_effort)
         .bind(input.thinking_budget_tokens.map(to_i64).transpose()?)
+        .bind(input.supports_images)
+        .bind(input.supports_tools)
         .bind(now)
         .bind(current_hash)
         .execute(&mut *transaction)
@@ -241,21 +255,25 @@ async fn insert_model_with_conflict(
     now: i64,
     ignore_existing: bool,
 ) -> Result<bool> {
+    super::aliases::ensure_model_name_available(transaction, &input.model_id, hash).await?;
     let mut statement = String::from(
         r#"INSERT INTO model_configs(
-            model_hash, sort_order, display_name, group_name, model_type, base_url, use_full_url, api_key, tooltip_data,
+            model_hash, source_id, supports_images, supports_tools, sort_order, display_name, group_name, model_type, base_url, use_full_url, api_key, tooltip_data,
             model_id, reasoning_effort, openai_endpoint, openai_extra_params_enabled,
             openai_extra_params_json, custom_headers_enabled, custom_headers_json,
             anthropic_extra_params_enabled, anthropic_extra_params_json, context_window_tokens,
             max_completion_tokens, anthropic_max_tokens, anthropic_thinking_effort,
             thinking_budget_tokens, created_at_ms, updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
     );
     if ignore_existing {
         statement.push_str(" ON CONFLICT(model_hash) DO NOTHING");
     }
     let result = sqlx::query(&statement)
         .bind(hash)
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(input.supports_images)
+        .bind(input.supports_tools)
         .bind(input.sort_order)
         .bind(&input.display_name)
         .bind(&input.group_name)
@@ -287,6 +305,9 @@ async fn insert_model_with_conflict(
 
 fn model_from_row(row: sqlx::sqlite::SqliteRow) -> Result<ModelConfig> {
     Ok(ModelConfig {
+        source_id: row.try_get("source_id")?,
+        supports_images: row.try_get("supports_images")?,
+        supports_tools: row.try_get("supports_tools")?,
         model_hash: row.try_get("model_hash")?,
         sort_order: row.try_get("sort_order")?,
         display_name: row.try_get("display_name")?,
@@ -348,6 +369,8 @@ mod tests {
             base_url: "https://example.com/v1/chat/completions".into(),
             use_full_url: true,
             api_key: "test-key".into(),
+            supports_images: None,
+            supports_tools: None,
             tooltip_data: "Test Model".into(),
             model_id: "test-model".into(),
             reasoning_effort: None,

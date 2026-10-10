@@ -34,13 +34,15 @@ where
         return Ok(Attempt::Response(response));
     }
     let status = response.status();
+    let headers = response.headers().clone();
     let bytes = tokio::select! {
         _ = cancellation.cancelled() => return Ok(Attempt::Cancelled),
         bytes = response.bytes() => bytes,
     }?;
-    Err(Error::Provider(format!(
-        "{label} {status}: {}",
-        String::from_utf8_lossy(&bytes)
+    Err(Error::Upstream(super::failure::ProviderFailure::http(
+        status.as_u16(),
+        &headers,
+        format!("{label} {status}: {}", String::from_utf8_lossy(&bytes)),
     )))
 }
 
@@ -70,7 +72,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            matches!(error, Error::Provider(message) if message.contains("503") && message.contains("down"))
+            matches!(error, Error::Upstream(failure) if failure.status == Some(503) && failure.message.contains("down"))
         );
     }
 

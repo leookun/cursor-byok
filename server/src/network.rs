@@ -22,6 +22,7 @@ struct ClientCache {
     default: Option<reqwest::Client>,
     cursor: Option<reqwest::Client>,
     provider: Option<(Duration, reqwest::Client)>,
+    alias: Option<(Duration, Duration, reqwest::Client)>,
 }
 
 impl NetworkClients {
@@ -85,6 +86,28 @@ impl NetworkClients {
             .timeout(timeout)
             .build()?;
         cache.provider = Some((timeout, client.clone()));
+        Ok(client)
+    }
+
+    pub async fn alias_client(
+        &self,
+        timeout: Duration,
+        connect_timeout: Duration,
+    ) -> Result<reqwest::Client> {
+        let mut cache = self.cache.write().await;
+        if let Some((_, _, client)) = cache
+            .alias
+            .as_ref()
+            .filter(|(a, b, _)| *a == timeout && *b == connect_timeout)
+        {
+            return Ok(client.clone());
+        }
+        let client = client_builder(&self.store)
+            .await?
+            .timeout(timeout)
+            .connect_timeout(connect_timeout)
+            .build()?;
+        cache.alias = Some((timeout, connect_timeout, client.clone()));
         Ok(client)
     }
 

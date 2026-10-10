@@ -8,7 +8,7 @@ import type { LlmRequest, ModelEvent } from "cursor-byok:provider";
 import type { ResourceSnapshot } from "cursor-byok:resource";
 import { grokDeviceOAuth } from "./oauth.ts";
 import { FALLBACK_MODELS, grokModels, parseGrokModels } from "./models.ts";
-import { grokProvider, isQuotaError } from "./provider.ts";
+import { grokProvider } from "./provider.ts";
 import {
   accountIdentity,
   credentialDraft,
@@ -160,12 +160,16 @@ Deno.test("model discovery parses both language-models and standard list shapes"
   });
   assertEquals(richModels.map((model) => model.id), ["grok-4", "grok-3-mini"]);
   assertEquals(richModels[0].displayName, "Grok 4");
+  assertEquals(richModels[0].contextWindowTokens, 256_000);
   assertEquals(richModels[0].capabilities, { images: true });
   assertEquals(richModels[1].capabilities, { images: false });
 
   const plainModels = parseGrokModels({ data: [{ id: "grok-4-fast" }] });
   assertEquals(plainModels.map((model) => model.id), ["grok-4-fast"]);
   assertEquals(plainModels[0].displayName, "Grok 4 Fast");
+  assertEquals(plainModels[0].capabilities, {});
+  assertEquals(plainModels[0].images, true);
+  assertEquals(plainModels[0].contextWindowTokens, undefined);
 });
 
 Deno.test("model discovery falls back to known models when the account cannot list", async () => {
@@ -351,8 +355,6 @@ Deno.test("invoke streams incremental tool calls and reasoning replay state", as
 });
 
 Deno.test("invoke maps quota failures to a cooling resource error", async () => {
-  assert(!isQuotaError("400 invalid request"));
-  assert(isQuotaError("429 credits exhausted"));
   const token = jwt({ sub: "user-1" });
   const draft = await credentialDraft({
     accessToken: token,
@@ -369,11 +371,12 @@ Deno.test("invoke maps quota failures to a cooling resource error", async () => 
     context({
       stream: () => ({
         status: 429,
-        headers: {},
+        headers: { "retry-after": "10" },
         lines: sse(['{"error":"credits exhausted"}']),
       }),
     }),
   );
   assert(result.status === "resource-error", `expected resource-error, received ${result.status}`);
+  assertEquals(result.failure, { kind: "rate_limit", status: 429, retryAfterMs: 10_000 });
   assert(result.patch.state?.status === "cooling", "quota failure should cool the resource");
 });

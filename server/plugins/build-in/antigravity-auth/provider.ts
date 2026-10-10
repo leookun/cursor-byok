@@ -8,7 +8,7 @@ import type {
   ProviderSupport,
 } from "cursor-byok:provider";
 import type { JsonValue, PluginContext } from "cursor-byok:plugin";
-import { HttpError } from "cursor-byok:protocol/openai-chat";
+import { HttpError, failedProviderResult, providerEventError, providerFailure } from "cursor-byok:provider";
 import {
   ANTIGRAVITY_CLIENT_HEADERS,
   ANTIGRAVITY_ENDPOINTS,
@@ -24,29 +24,8 @@ import {
   RESOURCE_TYPE,
 } from "./resources.ts";
 
-export function isQuotaError(error: string): boolean {
-  const message = error.toLowerCase();
-  return message.includes("resource_exhausted") ||
-    message.includes("quota_exceeded") ||
-    message.includes("quota_exhausted") ||
-    message.includes("rate_limit_exceeded") ||
-    message.includes("rate limit") ||
-    message.includes("model_capacity_exhausted") ||
-    message.includes("too many requests") ||
-    message.includes("429");
-}
-
 function isQuotaHttpError(error: HttpError): boolean {
-  if (error.status === 429) return true;
-  const body = error.body.toLowerCase();
-  return body.includes("resource_exhausted") ||
-    body.includes("quota_exceeded") ||
-    body.includes("quota_exhausted") ||
-    body.includes("rate_limit_exceeded") ||
-    body.includes("rate limit") ||
-    body.includes("model_capacity_exhausted") ||
-    body.includes("user rate limit exceeded") ||
-    body.includes("too many requests");
+  return error.failure.kind === "rate_limit";
 }
 
 function invalidResult(message: string, stateMessage: string): ProviderResult {
@@ -386,7 +365,7 @@ async function streamCloudCode(
 
       if (response.status < 200 || response.status >= 300) {
         const errorBody = await readBody(response.lines);
-        lastError = new HttpError(response.status, errorBody);
+        lastError = new HttpError(response.status, errorBody, response.headers);
         if (
           response.status === 503 || response.status === 502 || response.status === 504 ||
           response.status === 404
@@ -423,6 +402,10 @@ async function streamCloudCode(
 
         const resp = (json.response as Record<string, unknown> | undefined) ?? json;
         if (!resp) continue;
+        const error = resp.error ?? json.error;
+        if (error !== undefined && error !== null) {
+          throw providerEventError({ error }, `Antigravity error: ${JSON.stringify(error)}`, response.headers);
+        }
 
         const usage = resp.usageMetadata as Record<string, number> | undefined;
         if (usage) {
@@ -672,24 +655,22 @@ async function invoke(
               patch: { privateData: freshData as unknown as JsonValue, state: { status: "ready" } },
             };
           }
-        } catch {
-          // Failed refresh
+        } catch (refreshError) {
+          // A retried generation may fail differently from the original 401.
+          if (providerFailure(refreshError)) return failedProviderResult(refreshError);
         }
       }
       if (isQuotaHttpError(error)) {
         return {
           status: "resource-error",
           message: error.message,
+          failure: { ...error.failure, kind: "rate_limit" },
           patch: quotaExhaustedPatch(data, error.body),
         };
       }
-      return { status: "request-error", message: error.message };
+      return failedProviderResult(error);
     }
-    const message = error instanceof Error ? error.message : String(error);
-    if (isQuotaError(message)) {
-      return { status: "resource-error", message, patch: quotaExhaustedPatch(data, message) };
-    }
-    return { status: "request-error", message };
+    return failedProviderResult(error);
   }
 }
 

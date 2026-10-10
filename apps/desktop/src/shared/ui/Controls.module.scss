@@ -27,6 +27,12 @@
   &:disabled { opacity: .5; cursor: not-allowed; }
 }
 
+.destructive {
+  composes: secondary;
+  color: var(--vscode-errorForeground);
+  border-color: var(--vscode-errorForeground);
+}
+
 .small {
   min-height: 24px;
   height: 24px;

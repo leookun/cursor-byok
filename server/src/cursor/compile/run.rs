@@ -48,6 +48,7 @@ pub struct CursorRunContext {
 pub(crate) struct PrepareDependencies<'a> {
     pub compiler: &'a PromptCompiler,
     pub store: &'a Store,
+    pub aliases: Option<crate::alias::AliasResolver>,
     pub checkpoint: &'a CheckpointBuilder,
     pub blob_sync: &'a BlobSynchronizer,
     pub context_sync: &'a RequestContextSynchronizer,
@@ -62,6 +63,7 @@ pub(crate) async fn prepare(
     let PrepareDependencies {
         compiler,
         store,
+        aliases,
         checkpoint,
         blob_sync,
         context_sync,
@@ -140,8 +142,15 @@ pub(crate) async fn prepare(
         mode_from_proto(mode_number)?
     };
     let mut model = model::requested_model(request)?;
-    if let Some(configured_model) = store.model(&model.model_id).await? {
-        configured_model.configure(&mut model);
+    let is_alias = if let Some(aliases) = aliases {
+        aliases.configure(&mut model).await?
+    } else {
+        false
+    };
+    if !is_alias {
+        if let Some(configured_model) = store.model(&model.model_id).await? {
+            configured_model.configure(&mut model);
+        }
     }
     let dynamic = context::dynamic_mcp(request, &request_context)?;
     let subagent_model_overrides = model::overrides(request)?;

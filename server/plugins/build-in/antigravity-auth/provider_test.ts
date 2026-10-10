@@ -6,7 +6,7 @@ import type {
 } from "cursor-byok:plugin";
 import type { LlmRequest, ModelEvent } from "cursor-byok:provider";
 import type { ResourceSnapshot } from "cursor-byok:resource";
-import { antigravityProvider, isQuotaError } from "./provider.ts";
+import { antigravityProvider } from "./provider.ts";
 import { RESOURCE_TYPE } from "./resources.ts";
 
 function assert(condition: unknown, message = "assertion failed"): asserts condition {
@@ -136,11 +136,4 @@ Deno.test("provider parses usage metadata including cachedContentTokenCount as c
     },
     { type: "done", reason: "stop" },
   ]);
-});
-
-Deno.test("isQuotaError identifies rate limits and quota exhaustion", () => {
-  assert(isQuotaError("RESOURCE_EXHAUSTED: quota exceeded"));
-  assert(isQuotaError("Rate limit exceeded for model"));
-  assert(isQuotaError("HTTP 429 Too Many Requests"));
-  assert(!isQuotaError("Invalid authorization header"));
 });
