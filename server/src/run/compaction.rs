@@ -38,13 +38,15 @@ pub(super) fn input_budget(prepared: &PreparedRun) -> Option<u64> {
 ///
 /// Providers report this as a plain 400 with prose, so there is nothing
 /// structured to match on. Anthropic says "prompt is too long"; OpenAI-style
-/// gateways use `context_length_exceeded` or "maximum context length".
+/// gateways use `context_length_exceeded` or "maximum context length";
+/// GitHub Copilot uses `model_max_prompt_tokens_exceeded`.
 pub(super) fn is_context_overflow(message: &str) -> bool {
     let lowered = message.to_ascii_lowercase();
     lowered.contains("prompt is too long")
         || lowered.contains("context window exceeded")
         || lowered.contains("model_context_window_exceeded")
         || lowered.contains("context_length_exceeded")
+        || lowered.contains("model_max_prompt_tokens_exceeded")
         || (lowered.contains("maximum context length") && lowered.contains("token"))
 }
 
@@ -301,6 +303,10 @@ mod tests {
         ));
         assert!(is_context_overflow("model_context_window_exceeded"));
         assert!(is_context_overflow("context_length_exceeded"));
+        assert!(is_context_overflow(
+            "HTTP 400: {\"error\":{\"message\":\"prompt token count of 135000 exceeds \
+             the limit of 128000\",\"code\":\"model_max_prompt_tokens_exceeded\"}}"
+        ));
         assert!(is_context_overflow(
             "This model's maximum context length is 128000 tokens"
         ));
