@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 
 use crate::{cursor::protocol::proto::agent::v1 as pb, model::ToolCall, Error, Result};
 
-use super::edit::EditWrite;
+use super::{auto_review::AutoReviewContext, edit::EditWrite};
 
 #[derive(Clone, Default)]
 pub struct CursorToolRuntime {
@@ -49,6 +49,7 @@ pub struct ExecContext {
     pub terminals_folder: String,
     pub admin_command_denylist: Vec<String>,
     pub mcp_routes: HashMap<(String, String), McpRoute>,
+    pub auto_review: Option<AutoReviewContext>,
 }
 
 #[derive(Clone, Debug)]
@@ -266,6 +267,35 @@ impl CursorToolRuntime {
 
     pub async fn clear_completed(&self) {
         self.completed.lock().await.clear();
+    }
+
+    /// Runs `send` while `id` is still a pending exec. Interrupts release execs under
+    /// the same lock, so a delayed request never reaches Cursor after its abort.
+    pub(crate) async fn send_if_pending(
+        &self,
+        id: u32,
+        send: impl FnOnce() -> Result<()>,
+    ) -> Result<bool> {
+        let entries = self.execs.lock().await;
+        if !entries.contains_key(&id) {
+            return Ok(false);
+        }
+        send()?;
+        Ok(true)
+    }
+
+    /// Runs `send` while `id` is still a pending interaction; see [`Self::send_if_pending`].
+    pub(crate) async fn send_if_interaction_pending(
+        &self,
+        id: u32,
+        send: impl FnOnce() -> Result<()>,
+    ) -> Result<bool> {
+        let entries = self.interactions.lock().await;
+        if !entries.contains_key(&id) {
+            return Ok(false);
+        }
+        send()?;
+        Ok(true)
     }
 
     pub async fn discard_exec(&self, id: u32) {

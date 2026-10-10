@@ -6,6 +6,7 @@ use std::{
 
 use tokio::sync::Mutex;
 
+pub mod auto_review;
 pub mod codec;
 pub(crate) mod compat;
 pub(crate) mod edit;
@@ -23,6 +24,7 @@ use crate::{
     Error, Result,
 };
 
+use self::auto_review::AutoReviewer;
 use self::schedule::{DeferredEdit, EditSchedule};
 use self::tool_call_result::{ToolCompletion, ToolResultSender};
 use super::protocol::proto::agent::v1 as pb;
@@ -36,6 +38,7 @@ pub struct ToolDispatcher {
     fetch: WebFetch,
     store: Option<Store>,
     edit_schedule: Arc<Mutex<EditSchedule>>,
+    auto_review: Option<AutoReviewer>,
 }
 
 pub struct DispatchedTool {
@@ -65,6 +68,7 @@ impl ToolDispatcher {
             fetch: WebFetch::built_in(),
             store: None,
             edit_schedule: Arc::new(Mutex::new(EditSchedule::default())),
+            auto_review: None,
         }
     }
 
@@ -73,6 +77,7 @@ impl ToolDispatcher {
         results: ToolResultSender,
         store: Store,
         web_cache: WebCache,
+        auto_review: AutoReviewer,
     ) -> Self {
         Self {
             runtime,
@@ -81,6 +86,7 @@ impl ToolDispatcher {
             fetch: WebFetch::managed(store.clone(), web_cache),
             store: Some(store),
             edit_schedule: Arc::new(Mutex::new(EditSchedule::default())),
+            auto_review: Some(auto_review),
         }
     }
 
@@ -138,6 +144,7 @@ impl ToolDispatcher {
                         next.publish_started,
                         dynamic_mcp,
                         &next.context,
+                        messages,
                     )
                     .await;
                 dispatched.push(match started {
@@ -147,7 +154,14 @@ impl ToolDispatcher {
                 continue;
             }
             let started = self
-                .start(call, message_index, publish_started, dynamic_mcp, context)
+                .start(
+                    call,
+                    message_index,
+                    publish_started,
+                    dynamic_mcp,
+                    context,
+                    messages,
+                )
                 .await;
             dispatched.push(match started {
                 Ok(started) => started,
@@ -169,6 +183,7 @@ impl ToolDispatcher {
                 next.publish_started,
                 &BTreeMap::new(),
                 &next.context,
+                &[],
             )
             .await
         {
@@ -189,6 +204,7 @@ impl ToolDispatcher {
         publish_started: bool,
         dynamic_mcp: &BTreeMap<String, pb::McpToolDefinition>,
         context: &ExecContext,
+        conversation: &[CanonicalMessage],
     ) -> Result<DispatchedTool> {
         let call = context.prepare_call(call)?;
         let mut messages = if publish_started {
@@ -204,6 +220,12 @@ impl ToolDispatcher {
             dynamic_mcp,
             context,
             self.store.as_ref(),
+            self.auto_review
+                .as_ref()
+                .map(|reviewer| tool_call_dispatch::ToolReview {
+                    reviewer,
+                    messages: conversation,
+                }),
         )
         .await?;
         messages.extend(started.messages);
