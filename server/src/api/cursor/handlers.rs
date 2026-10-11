@@ -377,9 +377,20 @@ fn parent_headers(headers: &HeaderMap) -> Result<Option<TransportParent>> {
             request_id: request_id.into(),
             tool_call_id: tool_call_id.into(),
         })),
-        _ => Err(crate::Error::Protocol(
-            "Cursor subagent request must include both parent headers".into(),
-        )),
+        (request_id, tool_call_id) => {
+            // Cursor sends the two parent headers independently and some subagent
+            // flows omit one of them. Run the subagent without a parent link instead
+            // of failing the whole request.
+            tracing::warn!(
+                parent_request_id = request_id.is_some(),
+                parent_agent_tool_call_id = tool_call_id.is_some(),
+                root_parent_request_id = headers.contains_key("x-root-parent-request-id"),
+                direct_meta_parent_child_subagent =
+                    headers.contains_key("x-direct-meta-parent-child-subagent"),
+                "Cursor subagent request is missing one of the parent headers"
+            );
+            Ok(None)
+        }
     }
 }
 
