@@ -1,6 +1,6 @@
 //! Persists immutable internal Conversation checkpoints.
 use sha2::{Digest, Sha256};
-use sqlx::{Sqlite, Transaction};
+use sqlx::SqliteConnection;
 
 use crate::{
     model::{CanonicalMessage, CheckpointId, ConversationId, RunId},
@@ -14,10 +14,11 @@ impl Store {
         &self,
         conversation_id: &ConversationId,
     ) -> Result<CheckpointId> {
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let checkpoint = Self::ensure_conversation_tx(&mut tx, conversation_id).await?;
         tx.commit().await?;
+        session.committed();
         Ok(checkpoint)
     }
 
@@ -25,10 +26,8 @@ impl Store {
         &self,
         checkpoint_id: CheckpointId,
     ) -> Result<Vec<CanonicalMessage>> {
-        let mut tx = self.pool.begin().await?;
-        let messages = Self::load_checkpoint_messages_tx(&mut tx, checkpoint_id.0).await?;
-        tx.commit().await?;
-        Ok(messages)
+        let mut connection = self.pool.acquire().await?;
+        Self::load_checkpoint_messages_tx(&mut connection, checkpoint_id.0).await
     }
 
     pub async fn checkpoint_parent(
@@ -101,8 +100,8 @@ impl Store {
         messages: &[CanonicalMessage],
     ) -> Result<CheckpointId> {
         let digest = message_digest(messages)?;
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let current = Self::ensure_conversation_tx(&mut tx, conversation_id).await?;
         if let Some(existing) = sqlx::query_scalar::<_, i64>(
             "SELECT checkpoint_id FROM conversation_checkpoints
@@ -114,6 +113,7 @@ impl Store {
         .await?
         {
             tx.commit().await?;
+            session.committed();
             return Ok(CheckpointId(existing));
         }
 
@@ -133,6 +133,7 @@ impl Store {
         let checkpoint =
             Self::insert_checkpoint_tx(&mut tx, conversation_id, parent, additions, digest).await?;
         tx.commit().await?;
+        session.committed();
         Ok(checkpoint)
     }
 
@@ -149,8 +150,8 @@ impl Store {
         let mut full = self.load_checkpoint_messages(expected).await?;
         full.extend_from_slice(additions);
         let digest = message_digest(&full)?;
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let checkpoint = Self::append_checkpoint_with_digest_tx(
             &mut tx,
             conversation_id,
@@ -161,6 +162,7 @@ impl Store {
         )
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(checkpoint)
     }
 
@@ -172,8 +174,8 @@ impl Store {
         messages: &[CanonicalMessage],
     ) -> Result<CheckpointId> {
         let digest = message_digest(messages)?;
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         Self::require_active_head_tx(&mut tx, conversation_id, run_id, expected).await?;
         let root: i64 = sqlx::query_scalar(
             "SELECT checkpoint_id FROM conversation_checkpoints
@@ -214,6 +216,7 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        session.committed();
         Ok(checkpoint)
     }
 
@@ -252,7 +255,7 @@ impl Store {
     }
 
     pub(crate) async fn append_checkpoint_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         conversation_id: &ConversationId,
         run_id: &RunId,
         expected: CheckpointId,
@@ -273,7 +276,7 @@ impl Store {
     }
 
     async fn append_checkpoint_with_digest_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         conversation_id: &ConversationId,
         run_id: &RunId,
         expected: CheckpointId,
@@ -287,7 +290,7 @@ impl Store {
         )
         .bind(conversation_id.as_str())
         .bind(digest.as_slice())
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await?
         .is_some()
         {
@@ -307,7 +310,7 @@ impl Store {
         .bind(conversation_id.as_str())
         .bind(expected.0)
         .bind(run_id.as_str())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
         if updated != 1 {
@@ -319,13 +322,13 @@ impl Store {
             .bind(checkpoint.0)
             .bind(now_ms())
             .bind(run_id.as_str())
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await?;
         Ok(checkpoint)
     }
 
     async fn insert_checkpoint_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         conversation_id: &ConversationId,
         parent: CheckpointId,
         additions: &[CanonicalMessage],
@@ -343,7 +346,7 @@ impl Store {
         .bind(parent.0)
         .bind(digest.as_slice())
         .bind(now_ms())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?
         .last_insert_rowid();
         for (ordinal, message) in additions.iter().enumerate() {
@@ -355,7 +358,7 @@ impl Store {
             .bind(ordinal as i64)
             .bind(conversation_id.as_str())
             .bind(&message.message_id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await?;
         }
         Ok(CheckpointId(checkpoint))

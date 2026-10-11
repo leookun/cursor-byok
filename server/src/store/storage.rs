@@ -1,6 +1,7 @@
 //! Row accounting and cleanup for disposable observability data.
 
 use serde::{Deserialize, Serialize};
+use sqlx::SqliteConnection;
 
 use crate::Result;
 
@@ -35,16 +36,17 @@ impl Store {
     }
 
     pub async fn clear_statistics_storage(&self) -> Result<StatisticsStorage> {
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         Self::clear_detail_storage_tx(&mut transaction).await?;
         transaction.commit().await?;
+        session.committed();
         self.statistics_storage().await
     }
 
     pub async fn clear_all_statistics_storage(&self) -> Result<StatisticsStorage> {
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         Self::clear_trace_artifacts_tx(&mut transaction).await?;
         sqlx::query("DELETE FROM llm_calls")
             .execute(&mut *transaction)
@@ -53,42 +55,39 @@ impl Store {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
+        session.committed();
         self.statistics_storage().await
     }
 
-    async fn clear_detail_storage_tx(
-        transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    ) -> Result<()> {
+    async fn clear_detail_storage_tx(transaction: &mut SqliteConnection) -> Result<()> {
         sqlx::query("DELETE FROM llm_call_requests")
-            .execute(&mut **transaction)
+            .execute(&mut *transaction)
             .await?;
         sqlx::query("DELETE FROM llm_call_response_chunks")
-            .execute(&mut **transaction)
+            .execute(&mut *transaction)
             .await?;
         Self::clear_trace_artifacts_tx(transaction).await
     }
 
-    async fn clear_trace_artifacts_tx(
-        transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    ) -> Result<()> {
+    async fn clear_trace_artifacts_tx(transaction: &mut SqliteConnection) -> Result<()> {
         sqlx::query(
             "CREATE TEMP TABLE IF NOT EXISTS clear_statistics_blob_ids(
                 blob_id BLOB PRIMARY KEY
              )",
         )
-        .execute(&mut **transaction)
+        .execute(&mut *transaction)
         .await?;
         sqlx::query("DELETE FROM clear_statistics_blob_ids")
-            .execute(&mut **transaction)
+            .execute(&mut *transaction)
             .await?;
         sqlx::query(
             "INSERT OR IGNORE INTO clear_statistics_blob_ids(blob_id)
              SELECT blob_id FROM cursor_run_trace_artifacts",
         )
-        .execute(&mut **transaction)
+        .execute(&mut *transaction)
         .await?;
         sqlx::query("DELETE FROM cursor_run_trace_artifacts")
-            .execute(&mut **transaction)
+            .execute(&mut *transaction)
             .await?;
         sqlx::query(
             "DELETE FROM blobs
@@ -101,10 +100,10 @@ impl Store {
                    WHERE e.parent_blob_id = blobs.blob_id OR e.child_blob_id = blobs.blob_id
                )",
         )
-        .execute(&mut **transaction)
+        .execute(&mut *transaction)
         .await?;
         sqlx::query("DROP TABLE clear_statistics_blob_ids")
-            .execute(&mut **transaction)
+            .execute(&mut *transaction)
             .await?;
         Ok(())
     }

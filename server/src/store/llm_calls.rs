@@ -109,8 +109,8 @@ impl Store {
         let headers_json = detailed
             .then(|| serde_json::to_string(headers))
             .transpose()?;
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         if detailed {
             sqlx::query("INSERT INTO llm_call_requests(call_id, headers_json, body_json, byte_count) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM llm_calls WHERE call_id = ?)")
                 .bind(call_id)
@@ -127,6 +127,7 @@ impl Store {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
+        session.committed();
         Ok(())
     }
 
@@ -177,8 +178,8 @@ impl Store {
             .map(|chunk| chunk.byte_count as i64)
             .sum::<i64>();
         let event_count = chunks.len() as i64;
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         if detailed {
             for chunk in chunks {
                 let data = chunk.data.as_deref().ok_or_else(|| {
@@ -203,6 +204,7 @@ impl Store {
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
+        session.committed();
         Ok(())
     }
 

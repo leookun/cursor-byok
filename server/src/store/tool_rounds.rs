@@ -52,8 +52,8 @@ impl Store {
             return Err(Error::Store("cannot persist an empty tool round".into()));
         }
         let assistant_json = serde_json::to_string(assistant)?;
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let ownership: bool = sqlx::query_scalar(
             "SELECT EXISTS(
                 SELECT 1 FROM runs r JOIN conversations c USING(conversation_id)
@@ -107,6 +107,7 @@ impl Store {
             .await?;
         }
         tx.commit().await?;
+        session.committed();
         Ok(())
     }
 
@@ -117,8 +118,8 @@ impl Store {
         round_id: &ToolRoundId,
         result: &ToolResult,
     ) -> Result<ToolCommit> {
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let round = sqlx::query(
             "SELECT assistant_json, status, version, next_completion_seq
              FROM tool_rounds WHERE round_id = ? AND run_id = ?",
@@ -250,6 +251,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(ToolCommit {
             checkpoint_id: checkpoint,
             tool_round_version: (version + 1) as u64,

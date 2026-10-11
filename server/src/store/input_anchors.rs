@@ -13,8 +13,8 @@ impl Store {
         input_id: &str,
         base_checkpoint_id: CheckpointId,
     ) -> Result<CheckpointId> {
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         sqlx::query(
             "INSERT INTO input_anchors
              (conversation_id, input_id, base_checkpoint_id, created_at_ms)
@@ -36,6 +36,7 @@ impl Store {
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(CheckpointId(anchored))
     }
 }
