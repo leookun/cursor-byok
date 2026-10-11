@@ -1,5 +1,5 @@
 //! Persists canonical Messages and enforces event idempotency.
-use sqlx::{Row, Sqlite, Transaction};
+use sqlx::{Row, SqliteConnection};
 
 use crate::{
     model::{CanonicalMessage, ConversationId},
@@ -27,7 +27,7 @@ impl Store {
     }
 
     pub(crate) async fn put_message_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         conversation_id: &ConversationId,
         message: &CanonicalMessage,
     ) -> Result<()> {
@@ -44,7 +44,7 @@ impl Store {
         .bind(&payload)
         .bind(&message.runtime_event_id)
         .bind(now_ms())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?
         .rows_affected()
             == 1;
@@ -59,7 +59,7 @@ impl Store {
         .bind(conversation_id.as_str())
         .bind(&message.message_id)
         .bind(&message.runtime_event_id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await?;
         match existing {
             Some(existing) if existing == payload => Ok(()),
@@ -75,7 +75,7 @@ impl Store {
     }
 
     pub(crate) async fn load_checkpoint_messages_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         checkpoint_id: i64,
     ) -> Result<Vec<CanonicalMessage>> {
         let rows = sqlx::query(
@@ -95,7 +95,7 @@ impl Store {
              ORDER BY lineage.depth DESC, rm.ordinal ASC",
         )
         .bind(checkpoint_id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await?;
         rows.into_iter()
             .map(|row| serde_json::from_str(row.get::<&str, _>(0)).map_err(Into::into))

@@ -1,5 +1,5 @@
 //! Persists Cursor request traces and artifacts.
-use sqlx::{Row, Sqlite, Transaction};
+use sqlx::{Row, SqliteConnection};
 
 use crate::{
     model::{CursorRunTraceArtifact, CursorRunTraceSummary},
@@ -72,8 +72,8 @@ impl Store {
     ) -> Result<()> {
         let metadata_json = serde_json::to_string(metadata)?;
         let blob_id = BlobId::digest(data);
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         Self::put_blob_tx(&mut tx, &blob_id, data, &[]).await?;
         Self::link_cursor_trace_artifact_tx(
             &mut tx,
@@ -93,6 +93,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(())
     }
 
@@ -106,8 +107,8 @@ impl Store {
     ) -> Result<()> {
         let metadata_json = serde_json::to_string(metadata)?;
         let blob_id = BlobId::digest(data);
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         Self::put_blob_tx(&mut tx, &blob_id, data, &[]).await?;
         Self::link_cursor_trace_artifact_tx(
             &mut tx,
@@ -119,6 +120,7 @@ impl Store {
         )
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(())
     }
 
@@ -131,8 +133,8 @@ impl Store {
         metadata: &serde_json::Value,
     ) -> Result<()> {
         let metadata_json = serde_json::to_string(metadata)?;
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         Self::link_cursor_trace_artifact_tx(
             &mut tx,
             request_id,
@@ -143,11 +145,12 @@ impl Store {
         )
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(())
     }
 
     async fn link_cursor_trace_artifact_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         request_id: &str,
         artifact_type: &str,
         source: &str,
@@ -159,7 +162,7 @@ impl Store {
              FROM cursor_run_trace_artifacts WHERE request_id = ?",
         )
         .bind(request_id)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await?;
         sqlx::query(
             "INSERT INTO cursor_run_trace_artifacts(
@@ -173,7 +176,7 @@ impl Store {
         .bind(blob_id.as_bytes().as_slice())
         .bind(metadata_json)
         .bind(now_ms())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?;
         Ok(())
     }
@@ -218,8 +221,8 @@ impl Store {
             return Ok(());
         }
         let response_bytes = chunks.iter().map(|chunk| chunk.data.len()).sum::<usize>();
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         for chunk in chunks {
             let metadata_json =
                 serde_json::to_string(&serde_json::json!({"byte_count": chunk.data.len()}))?;
@@ -249,6 +252,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(())
     }
 

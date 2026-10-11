@@ -37,8 +37,8 @@ pub struct ClaimedRun {
 
 impl Store {
     pub async fn claim_run(&self, prepared: &PreparedRun) -> Result<ClaimedRun> {
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let now = now_ms();
         Self::ensure_conversation_tx(&mut tx, &prepared.conversation_id).await?;
         let belongs: bool = sqlx::query_scalar(
@@ -121,6 +121,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        session.committed();
         Ok(ClaimedRun {
             run_id: prepared.run_id.clone(),
             conversation_id: prepared.conversation_id.clone(),
@@ -171,8 +172,8 @@ impl Store {
         failure: Option<(&str, &str)>,
     ) -> Result<bool> {
         let usage_json = serde_json::to_string(&usage)?;
-        let _write = self.writes.lock().await;
-        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let mut session = self.write_session().await?;
+        let mut tx = session.begin().await?;
         let row = sqlx::query(
             "SELECT conversation_id, status, failure_category, failure_summary
              FROM runs WHERE run_id = ?",
@@ -251,6 +252,7 @@ impl Store {
         .rows_affected()
             == 1;
         tx.commit().await?;
+        session.committed();
         Ok(released)
     }
 }

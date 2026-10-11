@@ -1,7 +1,7 @@
 //! Persists model and provider configuration.
 use std::{collections::HashSet, str::FromStr};
 
-use sqlx::{Row, Sqlite, Transaction};
+use sqlx::{Row, SqliteConnection};
 
 use crate::{
     model::{model_hash, normalize_model_input, ModelConfig, ModelConfigInput, ModelType},
@@ -61,12 +61,13 @@ impl Store {
             normalized.push((hash, input));
         }
         let now = now_ms();
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         for (hash, input) in &normalized {
             insert_model(&mut transaction, hash, input, now).await?;
         }
         transaction.commit().await?;
+        session.committed();
 
         let mut saved = Vec::with_capacity(normalized.len());
         for (hash, _) in normalized {
@@ -89,8 +90,8 @@ impl Store {
             }
         }
         let now = now_ms();
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         let mut inserted = 0;
         for (hash, input) in &normalized {
             inserted += usize::from(
@@ -98,6 +99,7 @@ impl Store {
             );
         }
         transaction.commit().await?;
+        session.committed();
         Ok(inserted)
     }
 
@@ -113,8 +115,8 @@ impl Store {
         let input = normalize_model_input(input)?;
         let next_hash = model_hash(&input)?;
         let now = now_ms();
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         if next_hash != current.model_hash {
             sqlx::query("UPDATE llm_calls SET model_hash = NULL WHERE model_hash = ?")
                 .bind(&current.model_hash)
@@ -163,6 +165,7 @@ impl Store {
             return Err(Error::RunNotFound(format!("model {current_hash}")));
         }
         transaction.commit().await?;
+        session.committed();
         Ok(self
             .model(&next_hash)
             .await?
@@ -170,8 +173,8 @@ impl Store {
     }
 
     pub async fn delete_model(&self, hash: &str) -> Result<()> {
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         sqlx::query("UPDATE llm_calls SET model_hash = NULL WHERE model_hash = ?")
             .bind(hash)
             .execute(&mut *transaction)
@@ -184,6 +187,7 @@ impl Store {
             return Err(Error::RunNotFound(format!("model {hash}")));
         }
         transaction.commit().await?;
+        session.committed();
         Ok(())
     }
 
@@ -207,8 +211,8 @@ impl Store {
         }
 
         let now = now_ms();
-        let _write = self.writes.lock().await;
-        let mut transaction = self.pool.begin().await?;
+        let mut session = self.write_session().await?;
+        let mut transaction = session.begin().await?;
         for (index, hash) in model_hashes.iter().enumerate() {
             sqlx::query(
                 "UPDATE model_configs SET sort_order = ?, updated_at_ms = ? WHERE model_hash = ?",
@@ -220,12 +224,13 @@ impl Store {
             .await?;
         }
         transaction.commit().await?;
+        session.committed();
         self.models().await
     }
 }
 
 async fn insert_model(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut SqliteConnection,
     hash: &str,
     input: &ModelConfigInput,
     now: i64,
@@ -235,7 +240,7 @@ async fn insert_model(
 }
 
 async fn insert_model_with_conflict(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut SqliteConnection,
     hash: &str,
     input: &ModelConfigInput,
     now: i64,
@@ -280,7 +285,7 @@ async fn insert_model_with_conflict(
         .bind(input.thinking_budget_tokens.map(to_i64).transpose()?)
         .bind(now)
         .bind(now)
-        .execute(&mut **transaction)
+        .execute(&mut *transaction)
         .await?;
     Ok(result.rows_affected() == 1)
 }

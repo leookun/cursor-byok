@@ -32,11 +32,7 @@ pub(crate) async fn compile_user_message_action(
         .user_message
         .as_ref()
         .ok_or_else(|| Error::Protocol("Cursor user message action has no UserMessage".into()))?;
-    if user.message_id.is_empty() {
-        return Err(Error::Protocol(
-            "Cursor user message action has no message_id".into(),
-        ));
-    }
+    let message_id = user_message_id(user);
     let mode = if user.mode == pb::AgentMode::Unspecified as i32 {
         current_mode
     } else {
@@ -57,7 +53,7 @@ pub(crate) async fn compile_user_message_action(
     );
     let empty_context = pb::RequestContext::default();
     compile(
-        format!("user-message:{}", user.message_id),
+        format!("user-message:{message_id}"),
         super::run::mode_from_proto(mode)?,
         user,
         action.request_context.as_ref().unwrap_or(&empty_context),
@@ -66,6 +62,30 @@ pub(crate) async fn compile_user_message_action(
         blobs,
     )
     .await
+}
+
+/// Stable identity for a Cursor user message action.
+///
+/// Cursor sets `message_id` on normal user messages, but subagent run actions
+/// arrive without one. Deriving the id from the message content keeps retries of
+/// the same action idempotent instead of failing the whole run.
+pub(crate) fn user_message_id(user: &pb::UserMessage) -> String {
+    if !user.message_id.is_empty() {
+        return user.message_id.clone();
+    }
+    let identity = BlobId::digest(
+        format!(
+            "{}\0{}\0{}\0{}\0{}",
+            user.mode,
+            user.thread_id.as_deref().unwrap_or_default(),
+            user.prompt_reference_id.as_deref().unwrap_or_default(),
+            user.rich_text.as_deref().unwrap_or_default(),
+            user.text,
+        )
+        .as_bytes(),
+    )
+    .to_base64();
+    format!("derived:{identity}")
 }
 
 pub(crate) async fn compile_injection(
@@ -388,5 +408,27 @@ impl Time {
             timestamp: format!("{} ({utc})", now.format("%A, %b %-d, %Y, %-I:%M %p")),
             today: now.format("%A %b %-d,\n%Y").to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_message_id_falls_back_to_a_content_digest() {
+        let mut user = pb::UserMessage {
+            text: "第一个任务".into(),
+            ..Default::default()
+        };
+        let derived = user_message_id(&user);
+        assert!(derived.starts_with("derived:"));
+        assert_eq!(derived, user_message_id(&user));
+
+        user.text = "第二个任务".into();
+        assert_ne!(derived, user_message_id(&user));
+
+        user.message_id = "explicit-id".into();
+        assert_eq!(user_message_id(&user), "explicit-id");
     }
 }

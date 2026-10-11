@@ -1,5 +1,5 @@
 //! Creates, loads, and updates Conversations.
-use sqlx::{Row, Sqlite, Transaction};
+use sqlx::{Row, SqliteConnection};
 
 use crate::{
     model::{CheckpointId, Conversation, ConversationId, RunId},
@@ -28,7 +28,7 @@ impl Store {
     }
 
     pub(crate) async fn ensure_conversation_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         conversation_id: &ConversationId,
     ) -> Result<CheckpointId> {
         sqlx::query(
@@ -36,14 +36,14 @@ impl Store {
         )
         .bind(conversation_id.as_str())
         .bind(now_ms())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?;
 
         let current: Option<i64> = sqlx::query_scalar(
             "SELECT current_checkpoint_id FROM conversations WHERE conversation_id = ?",
         )
         .bind(conversation_id.as_str())
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await?;
         if let Some(current) = current {
             return Ok(CheckpointId(current));
@@ -58,7 +58,7 @@ impl Store {
         .bind(conversation_id.as_str())
         .bind(digest.as_slice())
         .bind(now_ms())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?
         .last_insert_rowid();
         sqlx::query(
@@ -68,13 +68,13 @@ impl Store {
         .bind(root)
         .bind(now_ms())
         .bind(conversation_id.as_str())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await?;
         Ok(CheckpointId(root))
     }
 
     pub(crate) async fn require_active_head_tx(
-        tx: &mut Transaction<'_, Sqlite>,
+        tx: &mut SqliteConnection,
         conversation_id: &ConversationId,
         run_id: &RunId,
         expected: CheckpointId,
@@ -83,7 +83,7 @@ impl Store {
             "SELECT current_checkpoint_id, active_run_id FROM conversations WHERE conversation_id = ?",
         )
         .bind(conversation_id.as_str())
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await?;
         match row {
             Some(row)
