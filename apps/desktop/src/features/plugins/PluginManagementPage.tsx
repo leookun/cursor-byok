@@ -74,11 +74,13 @@ export function PluginManagementPage() {
     <Modal
       fullHeight
       open={selectedPlugin !== null}
-      title={selected?.mode === "settings"
-        ? t("{name} 账号管理", { name: selectedPlugin?.name ?? "" })
-        : t("添加 {name} 账号", { name: selectedPlugin?.name ?? "" })}
+      title={selectedPlugin && selectedPlugin.resources.length === 0
+        ? t("{name} 模型管理", { name: selectedPlugin.name })
+        : selected?.mode === "settings"
+          ? t("{name} 账号管理", { name: selectedPlugin?.name ?? "" })
+          : t("添加 {name} 账号", { name: selectedPlugin?.name ?? "" })}
       onClose={() => setSelected(null)}
-      onSubmit={() => setSelected(null)}
+      onSubmit={selectedPlugin?.resources.length === 0 ? undefined : () => setSelected(null)}
       submitLabel={t("确定")}
     >
       {selected?.mode === "add" && selectedPlugin && <PluginAddPanel plugin={selectedPlugin} onConfigured={() => setSelected(null)} />}
@@ -144,6 +146,10 @@ function PluginCard({ plugin, onOpen }: {
   const subtitle = plugin.providers.map((provider) => pluginText(provider.displayName, locale)).join(" · ") || plugin.id;
   const importResource = plugin.resources.find((resource) => resource.import);
   const exportResource = plugin.resources.find((resource) => resource.resources.length > 0);
+  // 插件是否声明账号资源。声明了的走「添加账号 + 账号管理」双按钮;
+  // 不声明的(无账号可加)只提供模型管理入口。判据取自插件自身声明,
+  // 不按插件身份分叉。
+  const hasResources = plugin.resources.length > 0;
 
   const importFiles = async (files: FileList | null) => {
     if (!files?.length || !importResource) return;
@@ -228,19 +234,30 @@ function PluginCard({ plugin, onOpen }: {
         )}
       </div>
       <div className={styles.cardActions}>
-        <TruncatedButton
-          size="small"
-          variant="primary"
-          label={t("添加账号")}
-          onClick={() => onOpen(plugin.id, "add")}
-        />
-        {configured && (
-          <TruncatedButton
-            size="small"
-            label={t("账号管理")}
-            onClick={() => onOpen(plugin.id, "settings")}
-          />
-        )}
+        {hasResources
+          ? <>
+              <TruncatedButton
+                size="small"
+                variant="primary"
+                label={t("添加账号")}
+                onClick={() => onOpen(plugin.id, "add")}
+              />
+              {configured && (
+                <TruncatedButton
+                  size="small"
+                  label={t("账号管理")}
+                  onClick={() => onOpen(plugin.id, "settings")}
+                />
+              )}
+            </>
+          : (
+            <TruncatedButton
+              size="small"
+              variant="primary"
+              label={t("模型管理")}
+              onClick={() => onOpen(plugin.id, "settings")}
+            />
+          )}
         {moreItems.length > 0 && (
           <span className={styles.moreAction}>
             <ActionMenu label={t("更多")} items={moreItems} />
