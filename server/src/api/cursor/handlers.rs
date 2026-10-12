@@ -1,4 +1,6 @@
 //! Implements Cursor HTTP endpoints outside the Agent Run stream.
+use std::time::Duration;
+
 use axum::{
     body::{to_bytes, Body, Bytes},
     extract::{DefaultBodyLimit, Extension, State},
@@ -23,10 +25,12 @@ use crate::{
             account, analytics, commit_message, compatibility, entitlement::FreeEntitlementCache,
             knowledge, model_catalog, server_config, tab,
         },
-        transport::{TransportParent, TransportRegistry},
+        transport::{TransportParent, TransportRegistry, TransportRoute},
     },
     Result,
 };
+
+const INITIAL_APPEND_WAIT: Duration = Duration::from_secs(30);
 
 pub fn router(
     registry: TransportRegistry,
@@ -55,6 +59,14 @@ fn router_with_proxy(
         .route(
             "/aiserver.v1.DashboardService/GetEffectiveUserPlugins",
             post(compatibility::effective_user_plugins),
+        )
+        .route(
+            "/aiserver.v1.DashboardService/GetTeamReposOrEmptyIfNotInTeam",
+            post(compatibility::team_configuration),
+        )
+        .route(
+            "/aiserver.v1.DashboardService/GetTeamAdminSettingsOrEmptyIfNotInTeam",
+            post(compatibility::team_configuration),
         )
         .route(
             "/aiserver.v1.DashboardService/GetUserPrivacyMode",
@@ -232,8 +244,9 @@ async fn bidi_handler(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let request: ai::BidiAppendRequest = connect::decode_unary(&body)?;
-    let decoded = bidi::decode(&request)?;
+    let mut decoded = bidi::decode(&request)?;
     let first_model = decoded.model_id().map(str::to_owned);
+    decoded.resolve_model_aliases(registry.store()).await?;
     let conversation_id = decoded.conversation_id().map(str::to_owned);
     let trace_metadata = decoded.trace_metadata();
     let trace = registry.trace(&decoded.request_id);
@@ -260,6 +273,21 @@ async fn bidi_handler(
         true
     } else if registry.upstream(&decoded.request_id).await {
         false
+    } else if decoded.seqno > 0 {
+        // BidiAppend uploads are concurrent. A small heartbeat can arrive before
+        // the much larger seqno=0 RunRequest has finished uploading/decoding.
+        // Wait for its model-selected route; never guess local vs upstream.
+        let route = tokio::time::timeout(
+            INITIAL_APPEND_WAIT,
+            registry.wait_route(&decoded.request_id),
+        )
+        .await
+        .map_err(|_| {
+            crate::Error::Protocol(
+                "timed out waiting for the initial BidiAppend model selection".into(),
+            )
+        })?;
+        matches!(route, TransportRoute::Local)
     } else {
         trace.resume();
         trace.request(

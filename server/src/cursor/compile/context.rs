@@ -557,6 +557,13 @@ fn prost_value(value: &prost_types::Value) -> Value {
     use prost_types::value::Kind;
     match value.kind.as_ref() {
         None | Some(Kind::NullValue(_)) => Value::Null,
+        // Protobuf represents every number as f64. Recover exactly representable
+        // integers so strict provider schema validators do not receive minItems: 1.0.
+        Some(Kind::NumberValue(value))
+            if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_991.0 =>
+        {
+            Value::Number((*value as i64).into())
+        }
         Some(Kind::NumberValue(value)) => serde_json::Number::from_f64(*value)
             .map(Value::Number)
             .unwrap_or(Value::Null),
@@ -586,6 +593,61 @@ fn xml(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protobuf_tool_schema_preserves_integer_constraints_and_fractional_values() {
+        fn wire(value: Value) -> prost_types::Value {
+            use prost_types::value::Kind;
+            let kind = match value {
+                Value::Null => Kind::NullValue(0),
+                Value::Bool(v) => Kind::BoolValue(v),
+                Value::Number(v) => Kind::NumberValue(v.as_f64().unwrap()),
+                Value::String(v) => Kind::StringValue(v),
+                Value::Array(v) => Kind::ListValue(prost_types::ListValue {
+                    values: v.into_iter().map(wire).collect(),
+                }),
+                Value::Object(v) => Kind::StructValue(prost_types::Struct {
+                    fields: v.into_iter().map(|(k, v)| (k, wire(v))).collect(),
+                }),
+            };
+            prost_types::Value { kind: Some(kind) }
+        }
+        let schema = serde_json::json!({"anyOf": [
+            {"type": "object", "properties": {"rootPath": {"type": "string", "minLength": 1}}},
+            {"type": "object", "properties": {"rootPaths": {
+                "type": "array", "minItems": 1, "maxItems": 10,
+                "items": {"type": "string", "minLength": 1}
+            }, "ratio": {"type": "number", "minimum": 0.5, "default": -2}}}
+        ]});
+        let request = pb::AgentRunRequest {
+            mcp_tools: Some(pb::McpTools {
+                mcp_tools: vec![pb::McpToolDefinition {
+                    name: "cursor-app-control-move_agent_to_cloned_root".into(),
+                    input_schema: Some(wire(schema.clone())),
+                    ..Default::default()
+                }],
+            }),
+            ..Default::default()
+        };
+        let tools = dynamic_mcp(&request, &pb::RequestContext::default()).unwrap();
+        let parameters = &tools.values().next().unwrap().1.parameters;
+        let encoded = serde_json::to_string(parameters).unwrap();
+        assert!(encoded.contains("\"minItems\":1,"), "{encoded}");
+        assert!(!encoded.contains("1.0"), "{encoded}");
+        assert_eq!(parameters["anyOf"], schema["anyOf"]);
+        assert_eq!(parameters["type"], "object");
+        assert_eq!(
+            parameters["anyOf"][1]["properties"]["ratio"]["minimum"],
+            0.5
+        );
+        for value in [9_007_199_254_740_992.0, -9_007_199_254_740_992.0, 1.25] {
+            let converted = prost_value(&prost_types::Value {
+                kind: Some(prost_types::value::Kind::NumberValue(value)),
+            });
+            assert!(converted.is_f64());
+            assert_eq!(converted.as_f64(), Some(value));
+        }
+    }
 
     fn rule(content: &str) -> pb::CursorRule {
         pb::CursorRule {
