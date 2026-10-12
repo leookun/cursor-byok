@@ -7,7 +7,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::{ProviderConfig, ProviderKind},
-    model::{ModelInvocation, ModelLatency, NewLlmCall, ProviderType},
+    model::{
+        estimate_context_tokens, ModelInvocation, ModelLatency, NewLlmCall, ProviderType, Usage,
+    },
     plugin::{PluginRegistry, ADAPTER_ID_PREFIX},
     store::Store,
     Error, Result,
@@ -120,6 +122,7 @@ impl Provider for ProviderRouter {
             );
             let mut last_event_time = std::time::Instant::now();
             let mut event_count: u64 = 0;
+            let mut observed_usage = false;
             loop {
                 let event = match next_provider_event(&mut stream, stream_idle_timeout).await {
                     Ok(Some(event)) => event,
@@ -152,8 +155,24 @@ impl Provider for ProviderRouter {
                                 "slow gap detected between provider events"
                             );
                         }
+                        if matches!(&event, super::ModelEvent::Usage(_)) {
+                            observed_usage = true;
+                        }
+                        let synthetic_usage = if matches!(&event, super::ModelEvent::Done(_))
+                            && !observed_usage
+                        {
+                            let usage = estimated_usage(&invocation.request);
+                            recorder.usage(usage).await?;
+                            observed_usage = true;
+                            Some(usage)
+                        } else {
+                            None
+                        };
                         recorder.event(&event).await?;
                         last_event_time = now;
+                        if let Some(usage) = synthetic_usage {
+                            yield super::ModelEvent::Usage(usage);
+                        }
                         yield event;
                     }
                     Err(error) => {
@@ -165,13 +184,29 @@ impl Provider for ProviderRouter {
                             event_count,
                             "provider stream error"
                         );
+                        if !observed_usage {
+                            recorder.usage(estimated_usage(&invocation.request)).await?;
+                        }
                         recorder.failed(&error).await?;
                         Err(error)?;
                     }
                 }
             }
+            if !observed_usage {
+                recorder.usage(estimated_usage(&invocation.request)).await?;
+            }
             finish_stream(&recorder, &cancellation).await?;
         })
+    }
+}
+
+fn estimated_usage(request: &crate::model::ModelRequest) -> Usage {
+    let input_tokens = estimate_context_tokens(&request.prompt, &request.history);
+    Usage {
+        input_tokens: Some(input_tokens),
+        context_input_tokens: Some(input_tokens),
+        total_tokens: Some(input_tokens),
+        ..Default::default()
     }
 }
 
@@ -370,6 +405,219 @@ fn build_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{
+        ContentPart, ModelConfigInput, ModelRequest, ModelSpec, ModelType, ProjectedContent,
+        ProjectedMessage, PromptSpec, Role, OPENAI_CHAT_ENDPOINT,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn openai_chat_server(
+        usage: Option<(u64, u64, u64)>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let usage_event = usage.map_or_else(String::new, |(input, output, total)| {
+            format!(
+                "data: {{\"id\":\"chatcmpl-test\",\"choices\":[],\"usage\":{{\"prompt_tokens\":{input},\"completion_tokens\":{output},\"total_tokens\":{total}}}}}\n\n"
+            )
+        });
+        let body = [
+            "data: {\"id\":\"chatcmpl-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n",
+            usage_event.as_str(),
+            "data: {\"id\":\"chatcmpl-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        ]
+        .concat();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 16 * 1024];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        (format!("http://{address}/v1/chat/completions"), task)
+    }
+
+    fn test_request(model_id: impl Into<String>) -> ModelRequest {
+        ModelRequest {
+            prompt: PromptSpec {
+                instructions: "system instructions".into(),
+                tools: Vec::new(),
+            },
+            model: ModelSpec::new(model_id),
+            history: vec![ProjectedMessage {
+                message_id: "user-1".into(),
+                role: Role::User,
+                content: ProjectedContent::Parts(vec![ContentPart::Text {
+                    text: "hello world".into(),
+                }]),
+            }],
+        }
+    }
+
+    async fn routed_test_setup(
+        upstream_usage: Option<(u64, u64, u64)>,
+    ) -> (
+        tempfile::TempDir,
+        Store,
+        ProviderRouter,
+        String,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::connect(&format!(
+            "sqlite://{}",
+            directory.path().join("test.db").display()
+        ))
+        .await
+        .unwrap();
+        let (request_url, server) = openai_chat_server(upstream_usage).await;
+        let model = store
+            .create_model(&ModelConfigInput {
+                sort_order: 0,
+                display_name: "Test Model".into(),
+                group_name: None,
+                model_type: ModelType::OpenAi,
+                base_url: request_url,
+                use_full_url: true,
+                api_key: "test-key".into(),
+                tooltip_data: "Test Model".into(),
+                model_id: "upstream-model".into(),
+                reasoning_effort: None,
+                openai_endpoint: OPENAI_CHAT_ENDPOINT.into(),
+                openai_extra_params_enabled: false,
+                openai_extra_params: serde_json::json!({}),
+                custom_headers_enabled: false,
+                custom_headers: serde_json::json!({}),
+                anthropic_extra_params_enabled: false,
+                anthropic_extra_params: serde_json::json!({}),
+                context_window_tokens: None,
+                max_completion_tokens: None,
+                anthropic_max_tokens: None,
+                anthropic_thinking_effort: None,
+                thinking_budget_tokens: None,
+            })
+            .await
+            .unwrap();
+        let plugins = PluginRegistry::for_test(store.clone(), directory.path()).unwrap();
+        let router = ProviderRouter::new(
+            store.clone(),
+            plugins,
+            crate::network::NetworkClients::new(store.clone()),
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+        );
+        (directory, store, router, model.model_hash, server)
+    }
+
+    #[tokio::test]
+    async fn routed_call_emits_and_persists_estimated_usage_when_provider_omits_it() {
+        let (_directory, store, router, model_hash, server) = routed_test_setup(None).await;
+        let mut stream = router.stream(
+            ModelInvocation {
+                call_id: "call-estimated-usage".into(),
+                run_id: "run-estimated-usage".into(),
+                conversation_id: "conversation-estimated-usage".into(),
+                provider_call_index: 0,
+                request: test_request(model_hash),
+            },
+            CancellationToken::new(),
+        );
+
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            let event = event.unwrap();
+            if matches!(event, super::super::ModelEvent::Usage(_)) {
+                let call = store
+                    .llm_call("call-estimated-usage")
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    call.status, "completed",
+                    "provider completion must be persisted before synthetic usage is emitted"
+                );
+            }
+            events.push(event);
+        }
+        server.await.unwrap();
+
+        let expected = Usage {
+            input_tokens: Some(16),
+            context_input_tokens: Some(16),
+            total_tokens: Some(16),
+            ..Default::default()
+        };
+        assert!(events.iter().any(
+            |event| matches!(event, super::super::ModelEvent::Usage(usage) if *usage == expected)
+        ));
+        let call = store
+            .llm_call("call-estimated-usage")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(call.status, "completed");
+        assert_eq!(call.usage, Some(serde_json::to_value(expected).unwrap()));
+        assert_eq!(call.input_tokens, Some(16));
+        assert_eq!(call.output_tokens, None);
+        assert_eq!(call.total_tokens, Some(16));
+    }
+
+    #[tokio::test]
+    async fn routed_call_preserves_provider_usage_without_an_estimate() {
+        let reported = Usage {
+            input_tokens: Some(31),
+            context_input_tokens: Some(31),
+            output_tokens: Some(7),
+            total_tokens: Some(38),
+            ..Default::default()
+        };
+        let (_directory, store, router, model_hash, server) =
+            routed_test_setup(Some((31, 7, 38))).await;
+        let mut stream = router.stream(
+            ModelInvocation {
+                call_id: "call-reported-usage".into(),
+                run_id: "run-reported-usage".into(),
+                conversation_id: "conversation-reported-usage".into(),
+                provider_call_index: 0,
+                request: test_request(model_hash),
+            },
+            CancellationToken::new(),
+        );
+
+        let mut usages = Vec::new();
+        while let Some(event) = stream.next().await {
+            if let super::super::ModelEvent::Usage(usage) = event.unwrap() {
+                usages.push(usage);
+            }
+        }
+        server.await.unwrap();
+
+        assert_eq!(usages, vec![reported]);
+        let call = store
+            .llm_call("call-reported-usage")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(call.status, "completed");
+        assert_eq!(call.usage, Some(serde_json::to_value(reported).unwrap()));
+        assert_eq!(call.input_tokens, Some(31));
+        assert_eq!(call.output_tokens, Some(7));
+        assert_eq!(call.total_tokens, Some(38));
+    }
+
+    #[test]
+    fn estimates_context_usage_when_provider_omits_usage() {
+        let usage = estimated_usage(&test_request("test-model"));
+
+        assert_eq!(usage.input_tokens, Some(16));
+        assert_eq!(usage.context_input_tokens, Some(16));
+        assert_eq!(usage.output_tokens, None);
+        assert_eq!(usage.total_tokens, Some(16));
+    }
 
     #[test]
     fn renders_cursor_conversation_id_in_custom_header_values() {

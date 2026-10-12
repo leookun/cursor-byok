@@ -60,6 +60,17 @@ impl PluginCatalog {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(root: &Path, app_version: String) -> Result<Self> {
+        let plugins = root.join("plugins");
+        fs::create_dir_all(&plugins)?;
+        Ok(Self {
+            roots: vec![plugins],
+            definition_loader: PluginDefinitionLoader::for_test(root)?,
+            app_version,
+        })
+    }
+
     pub(crate) fn loader(&self) -> &PluginDefinitionLoader {
         &self.definition_loader
     }
