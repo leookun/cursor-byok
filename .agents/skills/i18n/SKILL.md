@@ -17,7 +17,9 @@ apps/desktop/
     ├── generated/catalog.json
     └── locales/
         ├── zh-CN.json
-        └── en-US.json
+        ├── en-US.json
+        ├── pt-BR.json
+        └── ru-RU.json
 ```
 
 ## Author messages
