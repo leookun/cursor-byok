@@ -208,3 +208,20 @@ fn status_name(status: pb::BackgroundTaskStatus) -> &'static str {
         pb::BackgroundTaskStatus::Unspecified => unreachable!(),
     }
 }
+
+/// A foreground Task detached by Steer uses the same follow-up instruction as
+/// Cursor's background completion, with an identity scoped to its original round.
+pub(crate) fn task_completion(
+    round: &crate::model::ToolRoundId,
+    result: &crate::model::ToolResult,
+) -> crate::model::CanonicalMessage {
+    use crate::model::{CanonicalMessage, Origin, Role};
+    let event_id = format!("task-completed:{round}:{}", result.call_id);
+    let mut message = CanonicalMessage::text(
+        format!("runtime:{event_id}"), Role::User, Origin::Runtime,
+        format!("<system_notification>\nTask {} has finished (status: {}).\n{}\n</system_notification>\n{FOLLOW_UP}",
+            result.call_id, if result.is_error { "error" } else { "success" }, result.content),
+    );
+    message.runtime_event_id = Some(event_id);
+    message
+}

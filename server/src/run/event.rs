@@ -62,7 +62,7 @@ pub enum RunOutcome {
 pub enum CommitCause {
     InitialMessages,
     ToolRoundStarted(ToolRoundId),
-    ToolResult { call_id: String, interrupted: bool },
+    ToolResult { call_id: String, synthetic: bool },
     FinalTurn,
     Compaction { summary: String },
     RuntimeEvent { event_id: String },

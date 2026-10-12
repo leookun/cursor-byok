@@ -119,7 +119,7 @@ pub(super) async fn execute(
                         tool_round_version: committed.tool_round_version,
                         cause: CommitCause::ToolResult {
                             call_id,
-                            interrupted: false,
+                            synthetic: false,
                         },
                         barrier,
                     }),
@@ -134,12 +134,21 @@ pub(super) async fn execute(
                     .iter()
                     .filter(|call| !completed_call_ids.contains(&call.call_id))
                 {
-                    let result = ToolResult {
-                        call_id: call.call_id.clone(),
-                        content: "Tool execution was interrupted by a newer user message.".into(),
-                        is_error: true,
-                        image: None,
-                    };
+                    let result = messages
+                        .detached_results
+                        .as_ref()
+                        .filter(|(id, _)| id == &round_id)
+                        .and_then(|(_, results)| {
+                            results.iter().find(|result| result.call_id == call.call_id)
+                        })
+                        .cloned()
+                        .unwrap_or_else(|| ToolResult {
+                            call_id: call.call_id.clone(),
+                            content: "Tool execution was interrupted by a newer user message."
+                                .into(),
+                            is_error: true,
+                            image: None,
+                        });
                     let committed = store
                         .commit_tool_result(
                             &prepared.conversation_id,
@@ -163,7 +172,7 @@ pub(super) async fn execute(
                             tool_round_version: committed.tool_round_version,
                             cause: CommitCause::ToolResult {
                                 call_id: call.call_id.clone(),
-                                interrupted: true,
+                                synthetic: true,
                             },
                             barrier,
                         }),

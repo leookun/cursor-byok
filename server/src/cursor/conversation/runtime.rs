@@ -41,6 +41,9 @@ struct RunGeneration {
     runtime_actions: mpsc::UnboundedSender<compile::RuntimeAction>,
     tool_runtime: CursorToolRuntime,
     tools: ToolDispatcher,
+    tasks: super::task::Tasks,
+    prepared:
+        Arc<parking_lot::Mutex<Option<(crate::model::PreparedRun, compile::CursorRunContext)>>>,
 }
 
 struct FinishGeneration(CancellationToken);
@@ -82,7 +85,32 @@ impl ConversationRuntime {
             let mut pending_finish = None::<(u64, TransportFinish)>;
             let mut draining = false;
             let mut waiting_for_action = false;
+            let mut continuation_needed = false;
             loop {
+                if waiting_for_action && continuation_needed {
+                    if let Some(previous) = current
+                        .as_ref()
+                        .filter(|generation| !generation.tasks.is_cancelled())
+                    {
+                        let mut request = previous.request.clone();
+                        request.pre_fetched_blobs.clear();
+                        waiting_for_action = false;
+                        continuation_needed = false;
+                        start_generation(
+                            &registry,
+                            &handle,
+                            &dependencies,
+                            &blob_sync,
+                            &context_sync,
+                            &tool_runtime_factory,
+                            &mut current,
+                            &mut next_generation,
+                            request,
+                            true,
+                        )
+                        .await;
+                    }
+                }
                 let command = if draining {
                     if !handle.admissions_drained() {
                         tokio::select! {
@@ -116,7 +144,7 @@ impl ConversationRuntime {
                                 break;
                             }
                         },
-                        _ = tokio::time::sleep(CONTINUATION_IDLE_TIMEOUT) => {
+                        _ = tokio::time::sleep(CONTINUATION_IDLE_TIMEOUT), if current.as_ref().is_none_or(|generation| !generation.tasks.has_pending()) => {
                             let Some(generation) = current.as_ref() else {
                                 super::finish_success(&handle);
                                 break;
@@ -148,6 +176,7 @@ impl ConversationRuntime {
                     TransportCommand::Disconnect => {
                         handle.mark_disconnected();
                         if let Some(generation) = current.as_ref() {
+                            generation.tasks.cancel();
                             generation.superseded.cancel();
                             if let Some(run) = generation.run.lock().clone() {
                                 run.cancel();
@@ -171,6 +200,46 @@ impl ConversationRuntime {
                         }
                         break;
                     }
+                    TransportCommand::TaskCompleted { owner, message } => {
+                        let Some(generation) = current.as_ref().filter(|generation| {
+                            generation.tasks.owner == owner && !generation.tasks.is_cancelled()
+                        }) else {
+                            continue;
+                        };
+                        let run = generation.run.lock().clone();
+                        let handle = handle.clone();
+                        tokio::spawn(async move {
+                            let event_id = message
+                                .runtime_event_id
+                                .clone()
+                                .expect("Task completion identity");
+                            let result = match run {
+                                Some(run) => {
+                                    run.insert_messages(event_id.clone(), vec![message]).await
+                                }
+                                None => CommandResult::RunEnded,
+                            };
+                            let _ = handle
+                                .command(TransportCommand::TaskDelivered {
+                                    owner,
+                                    event_id,
+                                    result,
+                                })
+                                .await;
+                        });
+                    }
+                    TransportCommand::TaskDelivered {
+                        owner,
+                        event_id,
+                        result,
+                    } => {
+                        let Some(generation) = current.as_ref().filter(|generation| {
+                            generation.tasks.owner == owner && !generation.tasks.is_cancelled()
+                        }) else {
+                            continue;
+                        };
+                        continuation_needed |= generation.tasks.delivered(&event_id, result);
+                    }
                     TransportCommand::RunFinished { generation, finish } => {
                         if current
                             .as_ref()
@@ -179,12 +248,21 @@ impl ConversationRuntime {
                             continue;
                         }
                         match finish {
-                            RunFinish::TurnCompleted => {
+                            RunFinish::TurnCompleted(checkpoint) => {
+                                if let Some(current) = current.as_mut() {
+                                    current.request.conversation_state = Some(*checkpoint);
+                                }
                                 pending_finish = None;
                                 draining = false;
                                 waiting_for_action = true;
                             }
                             RunFinish::Transport(finish) => {
+                                if let Some(current) = current.as_ref() {
+                                    current.tasks.cancel();
+                                    for id in current.tool_runtime.drain_running().await {
+                                        let _ = handle.emit(&codec::abort(id));
+                                    }
+                                }
                                 waiting_for_action = false;
                                 handle.begin_close();
                                 pending_finish = Some((generation, finish));
@@ -200,6 +278,7 @@ impl ConversationRuntime {
                                         request,
                                     )) => {
                                         waiting_for_action = false;
+                                        continuation_needed = false;
                                         if draining {
                                             handle.reopen();
                                             draining = false;
@@ -230,6 +309,7 @@ impl ConversationRuntime {
                                             &mut current,
                                             &mut next_generation,
                                             request,
+                                            false,
                                         )
                                         .await;
                                     }
@@ -254,8 +334,13 @@ impl ConversationRuntime {
                                             Ok(codec::ClientExecEvent::Message(message)) => {
                                                 let _ = handle.emit(&message);
                                             }
-                                            Ok(codec::ClientExecEvent::Completed(result)) => {
-                                                generation.results.send(*result)
+                                            Ok(codec::ClientExecEvent::Completed(mut result)) => {
+                                                result.exec_id = Some(message.id);
+                                                generation.tasks.receive(
+                                                    *result,
+                                                    &generation.results,
+                                                    &handle,
+                                                );
                                             }
                                             Ok(codec::ClientExecEvent::Pending) => {}
                                             Err(error) => generation.results.send_error(error),
@@ -282,8 +367,13 @@ impl ConversationRuntime {
                                                 )
                                                 .await
                                                 {
-                                                    Ok(Some(completion)) => {
-                                                        generation.results.send(completion)
+                                                    Ok(Some(mut completion)) => {
+                                                        completion.exec_id = Some(close.id);
+                                                        generation.tasks.receive(
+                                                            completion,
+                                                            &generation.results,
+                                                            &handle,
+                                                        );
                                                     }
                                                     Ok(None) => {}
                                                     Err(error) => {
@@ -323,15 +413,17 @@ impl ConversationRuntime {
                                                     .take_exec(throw.id)
                                                     .await
                                                 {
-                                                    Some(pending) => generation.results.send(
-                                                        compat::failure_with_message(
+                                                    Some(pending) => {
+                                                        let mut completion = compat::failure_with_message(
                                                             &pending.call,
                                                             format!(
                                                                 "Exec {} failed: {}",
                                                                 pending.call.call_id, throw.error
                                                             ),
-                                                        ),
-                                                    ),
+                                                        );
+                                                        completion.exec_id = Some(throw.id);
+                                                        generation.tasks.receive(completion, &generation.results, &handle);
+                                                    },
                                                     None => tracing::warn!(
                                                         id = throw.id,
                                                         "ignoring failure for unknown tool execution"
@@ -419,9 +511,9 @@ impl ConversationRuntime {
                                             };
                                             let mut request = previous.request.clone();
                                             request.action = Some(conversation_action);
-                                            request.conversation_state = None;
                                             request.pre_fetched_blobs.clear();
                                             waiting_for_action = false;
+                                            continuation_needed = false;
                                             start_generation(
                                                 &registry,
                                                 &handle,
@@ -432,13 +524,26 @@ impl ConversationRuntime {
                                                 &mut current,
                                                 &mut next_generation,
                                                 request,
+                                                false,
                                             )
                                             .await;
                                         }
                                         Some(pb::conversation_action::Action::CancelAction(_)) => {
+                                            continuation_needed = false;
                                             if let Some(generation) = current.as_ref() {
+                                                generation.tasks.cancel();
                                                 if let Some(run) = generation.run.lock().clone() {
                                                     run.cancel();
+                                                } else if !waiting_for_action {
+                                                    // Cancellation also owns the preparation window
+                                                    // before a continuation publishes its RunHandle.
+                                                    generation.superseded.cancel();
+                                                    handle.begin_close();
+                                                    pending_finish = Some((
+                                                        generation.id,
+                                                        TransportFinish::Cancelled,
+                                                    ));
+                                                    draining = true;
                                                 }
                                                 for id in
                                                     generation.tool_runtime.drain_running().await
@@ -521,14 +626,25 @@ async fn start_generation(
     current: &mut Option<RunGeneration>,
     next_generation: &mut u64,
     request: pb::AgentRunRequest,
+    continuation: bool,
 ) {
+    let mut retained = None;
     let previous_finished = if let Some(previous) = current.take() {
-        previous.superseded.cancel();
-        if let Some(run) = previous.run.lock().clone() {
-            run.cancel();
-        }
-        for id in previous.tool_runtime.interrupt_for_run_replacement().await {
-            let _ = handle.emit(&codec::abort(id));
+        if continuation {
+            retained = Some((
+                previous.tool_runtime.clone(),
+                previous.tasks.clone(),
+                previous.prepared.clone(),
+            ));
+        } else {
+            previous.tasks.cancel();
+            previous.superseded.cancel();
+            if let Some(run) = previous.run.lock().clone() {
+                run.cancel();
+            }
+            for id in previous.tool_runtime.interrupt_for_run_replacement().await {
+                let _ = handle.emit(&codec::abort(id));
+            }
         }
         Some(previous.finished.clone())
     } else {
@@ -537,7 +653,13 @@ async fn start_generation(
     let (results, result_receiver) = tool_result_channel();
     let (runtime_actions, runtime_action_receiver) =
         mpsc::unbounded_channel::<compile::RuntimeAction>();
-    let tool_runtime = tool_runtime_factory.next_run();
+    let (tool_runtime, tasks, prepared) = retained.unwrap_or_else(|| {
+        (
+            tool_runtime_factory.next_run(),
+            super::task::Tasks::new(*next_generation),
+            Arc::default(),
+        )
+    });
     let tools = ToolDispatcher::with_results(
         tool_runtime.clone(),
         results.clone(),
@@ -554,6 +676,8 @@ async fn start_generation(
         runtime_actions,
         tool_runtime,
         tools,
+        tasks,
+        prepared,
     };
     *next_generation = next_generation.saturating_add(1);
     *current = Some(generation.clone());
@@ -631,21 +755,42 @@ fn spawn_run_request(
             handle.parent().map(|parent| parent.tool_call_id.clone()),
             request.conversation_state.clone(),
         );
-        let prepared = tokio::select! {
-            biased;
-            _ = generation.superseded.cancelled() => return,
-            prepared = compile::prepare(
-                handle.request_id(),
-                &request,
-                compile::PrepareDependencies {
-                    compiler: &dependencies.compiler,
-                    store: &dependencies.store,
-                    checkpoint: &checkpoint,
-                    blob_sync: &blob_sync,
-                    context_sync: &context_sync,
-                    local_rules_dir: dependencies.local_rules_dir.as_deref(),
-                },
-            ) => prepared,
+        let continuation = generation.prepared.lock().clone();
+        let prepared = if let Some((mut prepared, mut context)) = continuation {
+            prepared.run_id = compile::execution_run_id(handle.request_id());
+            prepared.initial_messages = generation.tasks.take_ready();
+            prepared.action = crate::model::RunAction::Resume {
+                pending_tool_round: None,
+            };
+            context.turn_user = None;
+            context.background_completion = false;
+            context.compacting = false;
+            dependencies
+                .store
+                .ensure_conversation(&prepared.conversation_id)
+                .await
+                .map(|checkpoint| {
+                    prepared.base_checkpoint_id = checkpoint;
+                    (prepared, context)
+                })
+        } else {
+            let prepared = tokio::select! {
+                biased;
+                _ = generation.superseded.cancelled() => return,
+                prepared = compile::prepare(
+                    handle.request_id(),
+                    &request,
+                    compile::PrepareDependencies {
+                        compiler: &dependencies.compiler,
+                        store: &dependencies.store,
+                        checkpoint: &checkpoint,
+                        blob_sync: &blob_sync,
+                        context_sync: &context_sync,
+                        local_rules_dir: dependencies.local_rules_dir.as_deref(),
+                    },
+                ) => prepared,
+            };
+            prepared
         };
         let (mut prepared, context) = match prepared {
             Ok(prepared) => prepared,
@@ -768,6 +913,7 @@ fn spawn_run_request(
             .activate(conversation_id.clone(), run_id.clone(), run_handle.clone())
             .await;
         let cancellation = run_handle.cancellation();
+        *generation.prepared.lock() = Some((prepared.clone(), context.clone()));
         let engine = RunEngine::new(dependencies.store.clone(), dependencies.provider.clone());
         let core_run = tokio::spawn(async move { engine.run(prepared, port, cancellation).await });
         let output = ConversationOutput::new(
@@ -786,6 +932,7 @@ fn spawn_run_request(
                 blob_sync,
                 checkpoint,
                 tool_runtime: generation.tool_runtime.clone(),
+                tasks: generation.tasks.clone(),
             },
         );
         let finish = match output.run().await {

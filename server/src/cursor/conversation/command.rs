@@ -4,7 +4,7 @@ use crate::{cursor::protocol::proto::agent::v1 as pb, Error};
 
 #[derive(Debug)]
 pub enum RunFinish {
-    TurnCompleted,
+    TurnCompleted(Box<pb::ConversationStateStructure>),
     Transport(TransportFinish),
 }
 
@@ -24,6 +24,16 @@ pub enum TransportCommand {
     RunFinished {
         generation: u64,
         finish: RunFinish,
+    },
+    /// A detached Task result, owned by the original transport execution scope.
+    TaskCompleted {
+        owner: u64,
+        message: crate::model::CanonicalMessage,
+    },
+    TaskDelivered {
+        owner: u64,
+        event_id: String,
+        result: crate::run::CommandResult,
     },
     Disconnect,
 }

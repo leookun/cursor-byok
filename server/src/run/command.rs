@@ -2,7 +2,7 @@
 
 use tokio::sync::oneshot;
 
-use crate::model::{CanonicalMessage, ToolResult};
+use crate::model::{CanonicalMessage, ToolResult, ToolRoundId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandResult {
@@ -18,6 +18,8 @@ pub struct MessageBatch {
     pub event_id: String,
     pub messages: Vec<CanonicalMessage>,
     pub result: oneshot::Sender<CommandResult>,
+    /// Results for executions that continue after this foreground round is broken.
+    pub detached_results: Option<(ToolRoundId, Vec<ToolResult>)>,
 }
 
 impl MessageBatch {

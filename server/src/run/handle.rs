@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::model::{CanonicalMessage, RunId, ToolResult};
+use crate::model::{CanonicalMessage, RunId, ToolResult, ToolRoundId};
 
 use super::{CommandResult, MessageBatch, RunCommand};
 
@@ -92,7 +92,7 @@ impl RunHandle {
         event_id: String,
         messages: Vec<CanonicalMessage>,
     ) -> CommandResult {
-        self.submit_messages(event_id, messages, false).await
+        self.submit_messages(event_id, messages, false, None).await
     }
 
     pub async fn break_messages(
@@ -100,7 +100,17 @@ impl RunHandle {
         event_id: String,
         messages: Vec<CanonicalMessage>,
     ) -> CommandResult {
-        self.submit_messages(event_id, messages, true).await
+        self.submit_messages(event_id, messages, true, None).await
+    }
+
+    pub async fn break_messages_with_detached_results(
+        &self,
+        event_id: String,
+        messages: Vec<CanonicalMessage>,
+        detached_results: Option<(ToolRoundId, Vec<ToolResult>)>,
+    ) -> CommandResult {
+        self.submit_messages(event_id, messages, true, detached_results)
+            .await
     }
 
     async fn submit_messages(
@@ -108,12 +118,14 @@ impl RunHandle {
         event_id: String,
         messages: Vec<CanonicalMessage>,
         should_break: bool,
+        detached_results: Option<(ToolRoundId, Vec<ToolResult>)>,
     ) -> CommandResult {
         let (result, delivered) = oneshot::channel();
         let batch = MessageBatch {
             event_id,
             messages,
             result,
+            detached_results,
         };
         let command = if should_break {
             RunCommand::BreakMessages(batch)
