@@ -68,6 +68,10 @@ cursor-byok 是一个开源的本地模型网关。它在你的设备上运行�
 
 GPT 系列建议使用 **Responses API**。如果使用 Chat Completions，可能无法保留提示词缓存，导致速度变慢和费用增加。
 
+DeepSeek 如果在成功调用工具后，经上游网关的 Responses 接口继续对话时出现 HTTP 400，可将该模型改为 **Chat Completions API**，保留原来的思考档位。Chat 适配器会回传已有的 DeepSeek 思考内容，包括从 Responses 接口切换过来的对话；没有产生思考内容的工具轮次会传递明确的空字符串。参考 [DeepSeek 思考模式要求](https://api-docs.deepseek.com/guides/thinking_mode/)。
+
+修改协议会改变 Cursor 中该配置的模型标识。保存后在原对话中重新选择一次这个模型，再验证一次“读文件后使用结果”的 Agent 任务；连通性测试通过本身不能证明工具结果回传正常。
+
 ### 常用字段
 
 - **模型类型**：选择 OpenAI 或 Anthropic，决定上游接口格式。

@@ -56,6 +56,10 @@ For complete installation steps, system configuration, and Frequently Asked Ques
 
 Model configurations support both OpenAI and Anthropic API protocols. Each model channel can independently define its context window, maximum output tokens, reasoning effort, custom headers, and additional request parameters.
 
+For DeepSeek tool conversations, select **Chat Completions API** when a gateway's Responses conversion returns HTTP 400 after successful tool calls. This keeps reasoning enabled. The Chat adapter preserves DeepSeek's plain reasoning when continuing a conversation previously routed through Responses, and sends an explicit empty reasoning string for a tool turn that produced no reasoning. See the [DeepSeek thinking-mode requirements](https://api-docs.deepseek.com/guides/thinking_mode/).
+
+Changing the protocol changes the configured model ID exposed to Cursor. Select the saved model again in the conversation, then verify an Agent task that reads a file and uses its result; a connectivity test alone does not verify tool-result continuation.
+
 ![cursor-byok model settings](./images/en-model-1.png)
 
 ## How It Works
@@ -98,6 +102,20 @@ See the [release roadmap](https://github.com/leookun/cursor-byok/discussions/32)
 ## Development and Contributing
 
 Issues and pull requests are welcome. See the [Contributing Guide](./CONTRIBUTING_EN.md) for prerequisites, build commands, project structure, and contribution guidelines.
+
+### Build a standalone desktop executable
+
+From the repository root, with Node.js, Rust, and the platform's Tauri prerequisites installed:
+
+```sh
+cd apps/desktop
+npm ci
+npm run tauri:build -- --no-bundle --ci -- --locked
+```
+
+The Tauri build command builds and embeds the frontend and enables its production asset path. A bare `cargo build --release -p cursor-byok-desktop` still selects the development frontend proxy and requires Vite on port 1420; without it, the management window displays `frontend development server is unavailable`.
+
+Before deploying the executable, verify that its management window opens with the development server stopped and that the embedded HTML, JavaScript, and CSS load successfully. The local gateway can serve Agent requests even when the management frontend is unavailable.
 
 ## Contributors
 

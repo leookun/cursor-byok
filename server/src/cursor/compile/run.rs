@@ -423,7 +423,7 @@ fn action(request: &pb::AgentRunRequest) -> Result<ActionProjection> {
     };
     match action {
         pb::conversation_action::Action::UserMessageAction(action) => {
-            let user = action.user_message.as_ref().ok_or_else(|| {
+            let mut user = action.user_message.clone().ok_or_else(|| {
                 Error::Protocol("Cursor user message action has no UserMessage".into())
             })?;
             let mode = if user.mode == pb::AgentMode::Unspecified as i32 {
@@ -432,9 +432,21 @@ fn action(request: &pb::AgentRunRequest) -> Result<ActionProjection> {
                 user.mode
             };
             if user.message_id.is_empty() {
-                return Err(Error::Protocol(
-                    "Cursor user message action has no message_id".into(),
-                ));
+                // Cursor CLI omits the initial subagent message ID. Its run ID
+                // stays the same across retries, so it can anchor one input.
+                if let (Some(_), Some(run_id)) = (
+                    request
+                        .subagent_type_name
+                        .as_deref()
+                        .filter(|name| !name.is_empty()),
+                    request.run_id.as_deref().filter(|id| !id.is_empty()),
+                ) {
+                    user.message_id = run_id.into();
+                } else {
+                    return Err(Error::Protocol(
+                        "Cursor user message action has no message_id".into(),
+                    ));
+                }
             }
             if user.text.trim() == "/summarize" {
                 return Ok(ActionProjection {
@@ -610,5 +622,70 @@ fn exec_context(
             .unwrap_or_default(),
         admin_command_denylist: request_context.admin_command_denylist.clone(),
         mcp_routes: context::meta_mcp_routes(request_context),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_message_request(
+        subagent_type_name: Option<&str>,
+        run_id: Option<&str>,
+        message_id: &str,
+    ) -> pb::AgentRunRequest {
+        pb::AgentRunRequest {
+            subagent_type_name: subagent_type_name.map(str::to_string),
+            run_id: run_id.map(str::to_string),
+            action: Some(pb::ConversationAction {
+                action: Some(pb::conversation_action::Action::UserMessageAction(
+                    pb::UserMessageAction {
+                        user_message: Some(pb::UserMessage {
+                            text: "Inspect the workspace".into(),
+                            message_id: message_id.into(),
+                            mode: pb::AgentMode::Agent as i32,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn subagent_message_without_id_uses_stable_client_run_id() {
+        let request = user_message_request(Some("explore"), Some("child-run-1"), "");
+        for _ in 0..2 {
+            let projection = action(&request).expect("subagent request should start");
+            assert_eq!(projection.turn_user.unwrap().message_id, "child-run-1");
+            assert_eq!(
+                projection.input_id.as_deref(),
+                Some("cursor:user:child-run-1")
+            );
+        }
+    }
+
+    #[test]
+    fn missing_root_message_id_is_still_rejected() {
+        let request = user_message_request(None, Some("root-run-1"), "");
+        assert!(action(&request).is_err());
+    }
+
+    #[test]
+    fn subagent_without_message_or_run_id_is_rejected() {
+        let request = user_message_request(Some("explore"), None, "");
+        assert!(action(&request).is_err());
+    }
+
+    #[test]
+    fn supplied_subagent_message_id_is_preserved() {
+        let request = user_message_request(Some("explore"), Some("child-run-1"), "message-1");
+        assert_eq!(
+            action(&request).unwrap().turn_user.unwrap().message_id,
+            "message-1"
+        );
     }
 }
