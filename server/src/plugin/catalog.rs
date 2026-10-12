@@ -20,6 +20,7 @@ const MAX_ICON_BYTES: u64 = 1024 * 1024;
 #[derive(Clone)]
 pub struct PluginCatalog {
     roots: Vec<PathBuf>,
+    installed: PathBuf,
     definition_loader: PluginDefinitionLoader,
     app_version: String,
 }
@@ -45,19 +46,37 @@ impl PluginCatalog {
         // 内置插件按版本预装进 installed;版本一致时不写盘。
         super::builtin::install(&installed)?;
         // 扫描顺序即优先级:debug 下源码目录优先,保证内置插件热改生效;
-        // 发布构建只有 installed 一个根。
+        // 发布构建只有 installed 一个根。用户安装始终写入 installed。
         #[cfg(debug_assertions)]
         let roots = vec![
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins/build-in"),
-            installed,
+            installed.clone(),
         ];
         #[cfg(not(debug_assertions))]
-        let roots = vec![installed];
+        let roots = vec![installed.clone()];
         Ok(Self {
             roots,
+            installed,
             definition_loader: PluginDefinitionLoader::managed()?,
             app_version,
         })
+    }
+
+    pub(crate) async fn install_user_plugin(
+        &self,
+        source: &Path,
+        executable: &Path,
+        replace: bool,
+    ) -> Result<super::user_install::PrepareOutcome> {
+        super::user_install::prepare(
+            &self.installed,
+            &self.definition_loader,
+            &self.app_version,
+            source,
+            executable,
+            replace,
+        )
+        .await
     }
 
     pub(crate) fn loader(&self) -> &PluginDefinitionLoader {
@@ -155,7 +174,7 @@ fn require_app_version(manifest: &PluginManifest, app_version: &str) -> Result<(
     )))
 }
 
-async fn load_plugin(
+pub(super) async fn load_plugin(
     directory: &Path,
     loader: &PluginDefinitionLoader,
     executable: &Path,
@@ -339,7 +358,8 @@ mod tests {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins/build-in");
         let sdk = tempfile::tempdir().unwrap();
         let catalog = PluginCatalog {
-            roots: vec![root],
+            roots: vec![root.clone()],
+            installed: root,
             definition_loader: PluginDefinitionLoader::for_test(sdk.path()).unwrap(),
             app_version: env!("CARGO_PKG_VERSION").into(),
         };

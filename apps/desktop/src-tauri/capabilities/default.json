@@ -17,6 +17,7 @@
     "core:window:allow-is-maximized",
     "core:window:allow-close",
     "core:app:allow-set-dock-visibility",
+    "allow-pick-plugin-directory",
     "allow-open-terminal-with-command",
     "allow-check-portable-update",
     "allow-install-portable-update",
