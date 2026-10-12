@@ -1,3 +1,4 @@
+import { createPluginFixture } from "./pluginFixture";
 import type {
   CallDetail,
   CursorHarnessStatus,
@@ -99,6 +100,8 @@ let tabSettings: TabSettings = { mode: "public", address: "" };
 let storage: StatisticsStorage = { call_count: calls.length, trace_count: calls.length };
 
 export function installDemoApi() {
+  const fixture = createPluginFixture(Date.now(), Number(new URLSearchParams(window.location.search).get("fixtureDelay") ?? 350));
+  (window as typeof window & { pluginFixture: typeof fixture }).pluginFixture = fixture;
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = async (input, init) => {
@@ -109,7 +112,10 @@ export function installDemoApi() {
     const path = url.pathname.slice(API_ROOT.length) || "/";
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const body = await readBody(input, init);
+    const pluginResponse = await fixture.handle(path, method, body);
+    if (pluginResponse) return pluginResponse;
 
+    if (path === "/settings/pricing") return json({ input_per_million: 5, output_per_million: 25, cache_read_per_million: 0.5, cache_write_per_million: 6.25 });
     if (path === "/promotions") return json({ slots: [] });
     if (path === "/models" && method === "GET") return json(models);
     if (path === "/models" && method === "POST") return json(models);

@@ -47,7 +47,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 266,
+          "line": 274,
           "column": 39
         }
       ]
@@ -77,8 +77,8 @@
       ],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 372,
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 78,
           "column": 16
         }
       ]
@@ -187,7 +187,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 314,
+          "line": 320,
           "column": 21
         }
       ]
@@ -247,7 +247,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 221,
+          "line": 227,
           "column": 12
         }
       ]
@@ -311,12 +311,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 266,
+          "line": 274,
           "column": 93
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 328,
+          "line": 337,
           "column": 72
         }
       ]
@@ -667,7 +667,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 123,
+          "line": 129,
           "column": 16
         }
       ]
@@ -728,7 +728,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 157,
+          "line": 163,
           "column": 23
         }
       ]
@@ -740,7 +740,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 131,
+          "line": 135,
           "column": 15
         }
       ]
@@ -783,6 +783,18 @@
           "file": "features/settings/SettingsPage.tsx",
           "line": 283,
           "column": 131
+        }
+      ]
+    },
+    "1bb1e785ad5a8608": {
+      "source": "当前账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 120,
+          "column": 83
         }
       ]
     },
@@ -841,7 +853,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 452,
+          "line": 386,
           "column": 14
         }
       ]
@@ -928,7 +940,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 426,
+          "line": 360,
           "column": 50
         }
       ]
@@ -992,7 +1004,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 298,
+          "line": 304,
           "column": 122
         }
       ]
@@ -1018,6 +1030,18 @@
           "file": "features/models/CursorModelEditor.tsx",
           "line": 159,
           "column": 42
+        }
+      ]
+    },
+    "28326a69ee50573c": {
+      "source": "未选择账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 51,
+          "column": 120
         }
       ]
     },
@@ -1095,7 +1119,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 139,
+          "line": 143,
           "column": 73
         }
       ]
@@ -1127,7 +1151,7 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 278,
+          "line": 284,
           "column": 70
         },
         {
@@ -1325,9 +1349,14 @@
           "column": 99
         },
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 403,
-          "column": 68
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 85,
+          "column": 21
+        },
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 139,
+          "column": 177
         }
       ]
     },
@@ -1338,7 +1367,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 474,
+          "line": 408,
           "column": 28
         }
       ]
@@ -1349,9 +1378,9 @@
       "placeholders": [],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 488,
-          "column": 81
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 122,
+          "column": 131
         }
       ]
     },
@@ -1361,13 +1390,13 @@
       "placeholders": [],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 355,
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 61,
           "column": 32
         },
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 355,
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 61,
           "column": 56
         }
       ]
@@ -1396,7 +1425,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 143,
+          "line": 147,
           "column": 64
         }
       ]
@@ -1498,7 +1527,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 246,
+          "line": 252,
           "column": 32
         }
       ]
@@ -1563,7 +1592,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 307,
+          "line": 316,
           "column": 106
         },
         {
@@ -1611,6 +1640,18 @@
           "file": "features/settings/AppLifecycleSettingsCard.tsx",
           "line": 85,
           "column": 45
+        }
+      ]
+    },
+    "3c2e935e260f4c63": {
+      "source": "账号不可用",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 51,
+          "column": 107
         }
       ]
     },
@@ -1705,12 +1746,12 @@
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 278,
+          "line": 284,
           "column": 80
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 423,
+          "line": 357,
           "column": 82
         }
       ]
@@ -1722,7 +1763,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 112,
+          "line": 118,
           "column": 68
         }
       ]
@@ -1868,7 +1909,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 139,
+          "line": 143,
           "column": 92
         }
       ]
@@ -2003,7 +2044,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 277,
+          "line": 283,
           "column": 12
         }
       ]
@@ -2027,7 +2068,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 112,
+          "line": 118,
           "column": 46
         }
       ]
@@ -2068,13 +2109,27 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 471,
+          "line": 405,
           "column": 30
         },
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 490,
-          "column": 42
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 122,
+          "column": 142
+        }
+      ]
+    },
+    "4de7f5f1b34f038d": {
+      "source": "{label}：时间未知",
+      "kind": "template",
+      "placeholders": [
+        "label"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 148,
+          "column": 39
         }
       ]
     },
@@ -2119,6 +2174,30 @@
           "file": "features/settings/TabSettingsCard.tsx",
           "line": 60,
           "column": 41
+        }
+      ]
+    },
+    "4f28e8ae1123b6c3": {
+      "source": "没有匹配的账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 74,
+          "column": 74
+        }
+      ]
+    },
+    "4fd4f40094d40891": {
+      "source": "正在删除…",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 139,
+          "column": 164
         }
       ]
     },
@@ -2394,7 +2473,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 454,
+          "line": 388,
           "column": 21
         }
       ]
@@ -2425,6 +2504,18 @@
         }
       ]
     },
+    "5bf0e29af701addd": {
+      "source": "额度重置",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 147,
+          "column": 36
+        }
+      ]
+    },
     "5c55a67935af8f45": {
       "source": "全部",
       "kind": "text",
@@ -2444,7 +2535,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 270,
+          "line": 276,
           "column": 7
         }
       ]
@@ -2520,7 +2611,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 272,
+          "line": 281,
           "column": 102
         }
       ]
@@ -2652,7 +2743,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 134,
+          "line": 138,
           "column": 30
         }
       ]
@@ -2666,7 +2757,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 300,
+          "line": 309,
           "column": 12
         }
       ]
@@ -2678,7 +2769,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 532,
+          "line": 541,
           "column": 43
         }
       ]
@@ -2810,6 +2901,18 @@
         }
       ]
     },
+    "68a79a6de12c601e": {
+      "source": "账号配置已发生变化，请重新打开账号管理。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 40,
+          "column": 37
+        }
+      ]
+    },
     "68ad603fafe4e0d6": {
       "source": "导入旧版配置",
       "kind": "text",
@@ -2885,6 +2988,23 @@
         }
       ]
     },
+    "6bdb4435095e5d28": {
+      "source": "正在保存…",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 55,
+          "column": 53
+        },
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 136,
+          "column": 172
+        }
+      ]
+    },
     "6d1876364ac6457d": {
       "source": "代理方式",
       "kind": "text",
@@ -2933,6 +3053,18 @@
         }
       ]
     },
+    "71659de804df039d": {
+      "source": "正在刷新…",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 138,
+          "column": 159
+        }
+      ]
+    },
     "72644ec4389da2f7": {
       "source": "默认平铺",
       "kind": "text",
@@ -2945,6 +3077,18 @@
         }
       ]
     },
+    "72cc6674739c45da": {
+      "source": "开启后，当前账号不可用时自动切换到其他可用账号；关闭后仅使用当前账号。",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 57,
+          "column": 90
+        }
+      ]
+    },
     "736c9dc2a04c65fd": {
       "source": "模型配置已发生变化，请刷新后重试",
       "kind": "text",
@@ -2952,12 +3096,12 @@
       "refs": [
         {
           "file": "shared/store/appStore.ts",
-          "line": 218,
+          "line": 251,
           "column": 23
         },
         {
           "file": "shared/store/appStore.ts",
-          "line": 225,
+          "line": 258,
           "column": 25
         }
       ]
@@ -3017,7 +3161,7 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 527,
+          "line": 536,
           "column": 43
         }
       ]
@@ -3053,7 +3197,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 313,
+          "line": 319,
           "column": 31
         }
       ]
@@ -3170,8 +3314,8 @@
       ],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 395,
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 127,
           "column": 13
         }
       ]
@@ -3183,7 +3327,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 216,
+          "line": 222,
           "column": 36
         }
       ]
@@ -3195,8 +3339,22 @@
       "refs": [
         {
           "file": "shared/api.ts",
-          "line": 461,
+          "line": 469,
           "column": 21
+        }
+      ]
+    },
+    "81e7c66cd452e204": {
+      "source": "本地状态同步失败：{error}",
+      "kind": "template",
+      "placeholders": [
+        "error"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/PluginResourcePanels.tsx",
+          "line": 234,
+          "column": 76
         }
       ]
     },
@@ -3207,7 +3365,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 105,
+          "line": 111,
           "column": 25
         }
       ]
@@ -3237,7 +3395,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 298,
+          "line": 304,
           "column": 20
         }
       ]
@@ -3331,7 +3489,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 274,
+          "line": 283,
           "column": 33
         }
       ]
@@ -3382,7 +3540,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 310,
+          "line": 316,
           "column": 32
         }
       ]
@@ -3405,9 +3563,9 @@
       "placeholders": [],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 373,
-          "column": 110
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 79,
+          "column": 108
         },
         {
           "file": "shared/ui/Pagination.tsx",
@@ -3505,7 +3663,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 134,
+          "line": 138,
           "column": 19
         }
       ]
@@ -3533,6 +3691,18 @@
           "file": "features/models/CursorSettingsPage.tsx",
           "line": 406,
           "column": 87
+        }
+      ]
+    },
+    "91208fd9658fe7ab": {
+      "source": "已到时间，等待服务端确认",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 150,
+          "column": 46
         }
       ]
     },
@@ -3567,7 +3737,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 234,
+          "line": 240,
           "column": 18
         }
       ]
@@ -3634,7 +3804,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 312,
+          "line": 318,
           "column": 31
         }
       ]
@@ -3658,7 +3828,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 274,
+          "line": 283,
           "column": 20
         }
       ]
@@ -3704,7 +3874,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 473,
+          "line": 407,
           "column": 25
         }
       ]
@@ -3754,7 +3924,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 419,
+          "line": 353,
           "column": 111
         }
       ]
@@ -3778,7 +3948,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 141,
+          "line": 145,
           "column": 147
         }
       ]
@@ -3817,12 +3987,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 98,
+          "line": 104,
           "column": 9
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 272,
+          "line": 278,
           "column": 9
         }
       ]
@@ -3860,7 +4030,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 78,
+          "line": 84,
           "column": 11
         }
       ]
@@ -3872,7 +4042,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 124,
+          "line": 130,
           "column": 14
         }
       ]
@@ -3884,7 +4054,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 311,
+          "line": 317,
           "column": 30
         }
       ]
@@ -3898,12 +4068,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 159,
+          "line": 165,
           "column": 17
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 92,
+          "line": 94,
           "column": 22
         }
       ]
@@ -4144,6 +4314,18 @@
         }
       ]
     },
+    "a520a13adc25418a": {
+      "source": "最近重置卡到期",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 147,
+          "column": 79
+        }
+      ]
+    },
     "a5fb6189a8ad011d": {
       "source": "打开教程",
       "kind": "text",
@@ -4182,7 +4364,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 79,
+          "line": 85,
           "column": 11
         }
       ]
@@ -4230,6 +4412,36 @@
           "file": "features/models/CursorModelEditor.tsx",
           "line": 155,
           "column": 61
+        }
+      ]
+    },
+    "a7670b2f1e88da05": {
+      "source": "剩余 {hours} 小时 {minutes} 分 {seconds} 秒",
+      "kind": "template",
+      "placeholders": [
+        "hours",
+        "minutes",
+        "seconds"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 151,
+          "column": 7
+        }
+      ]
+    },
+    "a7fb81b3ef8729b3": {
+      "source": "确定删除账号 {name} 吗？删除后需要重新添加才能使用。",
+      "kind": "template",
+      "placeholders": [
+        "name"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 97,
+          "column": 11
         }
       ]
     },
@@ -4293,7 +4505,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 308,
+          "line": 317,
           "column": 107
         },
         {
@@ -4395,9 +4607,9 @@
           "column": 89
         },
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 402,
-          "column": 84
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 138,
+          "column": 172
         },
         {
           "file": "shell/AppLayout.tsx",
@@ -4420,7 +4632,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 435,
+          "line": 369,
           "column": 84
         }
       ]
@@ -4478,12 +4690,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 103,
+          "line": 109,
           "column": 7
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 301,
+          "line": 307,
           "column": 70
         }
       ]
@@ -4524,7 +4736,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 101,
+          "line": 107,
           "column": 11
         }
       ]
@@ -4725,9 +4937,9 @@
       "placeholders": [],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 485,
-          "column": 81
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 122,
+          "column": 86
         }
       ]
     },
@@ -4809,7 +5021,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 112,
+          "line": 118,
           "column": 83
         }
       ]
@@ -4864,7 +5076,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 278,
+          "line": 284,
           "column": 45
         }
       ]
@@ -4907,7 +5119,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 100,
+          "line": 106,
           "column": 11
         }
       ]
@@ -4918,9 +5130,9 @@
       "placeholders": [],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 368,
-          "column": 66
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 74,
+          "column": 89
         }
       ]
     },
@@ -4983,9 +5195,9 @@
       "placeholders": [],
       "refs": [
         {
-          "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 371,
-          "column": 102
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 77,
+          "column": 100
         },
         {
           "file": "shared/ui/Pagination.tsx",
@@ -5030,7 +5242,7 @@
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 312,
+          "line": 321,
           "column": 37
         }
       ]
@@ -5042,8 +5254,20 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 106,
+          "line": 112,
           "column": 9
+        }
+      ]
+    },
+    "cd3266d91ae10abc": {
+      "source": "删除账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 84,
+          "column": 14
         }
       ]
     },
@@ -5061,6 +5285,18 @@
           "file": "features/calls/CallDetails.tsx",
           "line": 57,
           "column": 51
+        }
+      ]
+    },
+    "cee9f804abbb8ab6": {
+      "source": "冷却结束",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 147,
+          "column": 67
         }
       ]
     },
@@ -5153,7 +5389,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 188,
+          "line": 194,
           "column": 20
         }
       ]
@@ -5235,7 +5471,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 268,
+          "line": 276,
           "column": 32
         }
       ]
@@ -5295,7 +5531,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 302,
+          "line": 308,
           "column": 44
         }
       ]
@@ -5321,7 +5557,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 322,
+          "line": 331,
           "column": 22
         }
       ]
@@ -5439,7 +5675,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 216,
+          "line": 222,
           "column": 25
         }
       ]
@@ -5451,7 +5687,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 462,
+          "line": 396,
           "column": 11
         }
       ]
@@ -5636,7 +5872,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 139,
+          "line": 143,
           "column": 34
         }
       ]
@@ -5648,7 +5884,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 100,
+          "line": 102,
           "column": 36
         }
       ]
@@ -5768,7 +6004,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 268,
+          "line": 276,
           "column": 43
         }
       ]
@@ -5838,7 +6074,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 428,
+          "line": 362,
           "column": 100
         }
       ]
@@ -5898,8 +6134,20 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 240,
+          "line": 246,
           "column": 20
+        }
+      ]
+    },
+    "ebaf9fe3042917f0": {
+      "source": "已到期，等待刷新确认",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 150,
+          "column": 28
         }
       ]
     },
@@ -5979,7 +6227,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 434,
+          "line": 368,
           "column": 84
         }
       ]
@@ -5998,6 +6246,32 @@
           "file": "features/settings/PricingSettingsCard.tsx",
           "line": 153,
           "column": 24
+        }
+      ]
+    },
+    "f0066d9b38394e82": {
+      "source": "当前账号：{name}",
+      "kind": "template",
+      "placeholders": [
+        "name"
+      ],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 51,
+          "column": 18
+        }
+      ]
+    },
+    "f3c1c197e6c604e2": {
+      "source": "使用此账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 136,
+          "column": 185
         }
       ]
     },
@@ -6047,7 +6321,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 312,
+          "line": 321,
           "column": 69
         }
       ]
@@ -6095,7 +6369,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 178,
+          "line": 184,
           "column": 32
         }
       ]
@@ -6107,7 +6381,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 65,
+          "line": 71,
           "column": 14
         },
         {
@@ -6224,12 +6498,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 82,
+          "line": 88,
           "column": 20
         },
         {
           "file": "features/plugins/PluginResourcePanels.tsx",
-          "line": 304,
+          "line": 313,
           "column": 18
         }
       ]
@@ -6241,7 +6515,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 287,
+          "line": 293,
           "column": 23
         }
       ]
@@ -6253,7 +6527,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 112,
+          "line": 118,
           "column": 19
         },
         {
@@ -6282,12 +6556,12 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 96,
+          "line": 102,
           "column": 7
         },
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 309,
+          "line": 315,
           "column": 29
         }
       ]
@@ -6350,7 +6624,7 @@
       "refs": [
         {
           "file": "features/plugins/PluginManagementPage.tsx",
-          "line": 178,
+          "line": 184,
           "column": 45
         }
       ]
@@ -6364,6 +6638,23 @@
           "file": "shared/ui/ModelSelect.tsx",
           "line": 194,
           "column": 49
+        }
+      ]
+    },
+    "fde0acab820590f1": {
+      "source": "自动切换账号",
+      "kind": "text",
+      "placeholders": [],
+      "refs": [
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 53,
+          "column": 18
+        },
+        {
+          "file": "features/plugins/ResourceAccountList.tsx",
+          "line": 54,
+          "column": 182
         }
       ]
     },

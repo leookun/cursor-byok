@@ -374,6 +374,7 @@ fn failure(
     usage: Option<Usage>,
 ) -> Box<ModelCycleFailure> {
     let retryable = match &failure {
+        RunFailure::Resource { retryable, .. } => *retryable,
         RunFailure::Protocol(_) => true,
         RunFailure::Provider(message) if is_rejected_request(message) => false,
         RunFailure::Provider(_) => true,
@@ -499,6 +500,31 @@ mod tests {
         let result = cycle.await.unwrap().unwrap();
         assert_eq!(result.usage, Some(usage));
         assert!(event_rx.try_recv().is_err(), "usage must be forwarded once");
+    }
+
+    #[tokio::test]
+    async fn account_retry_disposition_overrides_http_status_heuristics() {
+        for (message, retryable) in [
+            ("HTTP 429: quota exhausted", false),
+            ("HTTP 401: authorization expired", true),
+            ("no ready account is available", false),
+        ] {
+            let stream = Box::pin(tokio_stream::iter(vec![
+                Ok(ModelEvent::Start {
+                    model_call_id: "attempt".into(),
+                }),
+                Err(crate::Error::Resource {
+                    message: message.into(),
+                    retryable,
+                }),
+            ]));
+            let (tx, _rx) = tokio::sync::mpsc::channel(4);
+            let failure = consume_model_cycle(stream, &tx, &CancellationToken::new())
+                .await
+                .unwrap_err();
+            assert_eq!(failure.retryable, retryable);
+            assert_eq!(failure.failure.category(), "provider");
+        }
     }
 
     #[test]

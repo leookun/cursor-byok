@@ -56,7 +56,7 @@ impl ResourceRecord {
     }
 }
 
-fn state_json(state: &ResourceState) -> serde_json::Value {
+pub(super) fn state_json(state: &ResourceState) -> serde_json::Value {
     match state {
         ResourceState::Ready => serde_json::json!({ "status": "ready" }),
         ResourceState::Cooling {
@@ -206,6 +206,26 @@ impl StoredModel {
     }
 }
 
+/// Global selection for one plugin/resource type, independent of conversations.
+/// Revision also invalidates discovery results when the active credentials change.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceSelection {
+    pub active_resource_id: Option<String>,
+    pub automatic_switching: bool,
+    pub revision: u64,
+}
+
+impl ResourceSelection {
+    fn advance(&mut self) -> Result<()> {
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| Error::Config("plugin selection revision exhausted".into()))?;
+        Ok(())
+    }
+}
+
 /// 资源与模型目录的核心存储,构建在插件私有 JSON 文件之上。
 #[derive(Clone)]
 pub struct PluginStateStore {
@@ -227,14 +247,121 @@ impl PluginStateStore {
         plugin_id: &str,
         resource_type: &str,
     ) -> Result<Vec<ResourceRecord>> {
-        let value = self
-            .data
-            .read(plugin_id, &resource_key(resource_type))
-            .await?;
-        if value.is_null() {
-            return Ok(Vec::new());
-        }
-        Ok(serde_json::from_value(value)?)
+        decode(
+            self.data
+                .read(plugin_id, &resource_key(resource_type))
+                .await?,
+        )
+    }
+
+    pub async fn selection(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+    ) -> Result<ResourceSelection> {
+        decode(
+            self.data
+                .read(plugin_id, &selection_key(resource_type))
+                .await?,
+        )
+    }
+
+    /// Explicit user edits always advance revision, including selecting the same ID.
+    pub async fn set_selection(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        active_resource_id: Option<String>,
+        automatic_switching: bool,
+    ) -> Result<ResourceSelection> {
+        self.modify_resources(plugin_id, resource_type, |records, selection| {
+            if let Some(id) = &active_resource_id {
+                if !records.iter().any(|record| &record.id == id) {
+                    return Err(Error::RunNotFound(format!("plugin resource {id}")));
+                }
+            }
+            selection.active_resource_id = active_resource_id;
+            selection.automatic_switching = automatic_switching;
+            selection.advance()?;
+            Ok(selection.clone())
+        })
+        .await
+    }
+
+    /// Selects only usable resources. Discovery may use a cooling active resource,
+    /// but neither discovery nor execution ever falls back to an invalid resource.
+    pub async fn select_resource(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        require_ready: bool,
+    ) -> Result<(ResourceRecord, ResourceSelection)> {
+        self.modify_resources(plugin_id, resource_type, |records, selection| {
+            let now = now_ms();
+            let active = active_index(records, selection);
+            if let Some(index) = active {
+                let record = &records[index];
+                if record.state.is_ready(now)
+                    || (!require_ready && !matches!(record.state, ResourceState::Invalid { .. }))
+                {
+                    return Ok((record.clone(), selection.clone()));
+                }
+            }
+            if selection.automatic_switching {
+                let start = active.map_or(0, |index| index + 1);
+                if let Some(index) = next_ready(records, start, now) {
+                    selection.active_resource_id = Some(records[index].id.clone());
+                    selection.advance()?;
+                    return Ok((records[index].clone(), selection.clone()));
+                }
+            }
+            let mut reason = match active.map(|index| &records[index].state) {
+                Some(ResourceState::Cooling {
+                    retry_at_ms,
+                    message,
+                }) => {
+                    let mut reason = "selected plugin resource is cooling down".to_owned();
+                    if let Some(message) = message
+                        .as_deref()
+                        .filter(|message| !message.trim().is_empty())
+                    {
+                        reason.push_str(&format!(": {message}"));
+                    }
+                    if let Some(at) = retry_at_ms {
+                        let retry_at = chrono::DateTime::from_timestamp_millis(*at)
+                            .map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                            .unwrap_or_else(|| format!("{at} milliseconds since Unix epoch"));
+                        reason.push_str(&format!("; retry at {retry_at}"));
+                    }
+                    reason
+                }
+                Some(ResourceState::Invalid { message }) => {
+                    let mut reason = "selected plugin resource is invalid".to_owned();
+                    if let Some(message) = message
+                        .as_deref()
+                        .filter(|message| !message.trim().is_empty())
+                    {
+                        reason.push_str(&format!(": {message}"));
+                    }
+                    reason.push_str("; refresh or reimport the resource");
+                    reason
+                }
+                _ if records.is_empty() => {
+                    "no plugin resources are configured; add a resource".into()
+                }
+                _ if selection.active_resource_id.is_none() => {
+                    "no plugin resource is selected; select a resource".into()
+                }
+                _ => "selected plugin resource no longer exists; select a resource".into(),
+            };
+            if selection.automatic_switching {
+                reason.push_str("; no ready alternative resource is available");
+            }
+            Err(Error::Config(format!(
+                "{plugin_id}/{resource_type}: {reason}"
+            )))
+        })
+        .await
     }
 
     pub async fn upsert_resources(
@@ -243,65 +370,115 @@ impl PluginStateStore {
         resource_type: &str,
         drafts: Vec<ResourceDraft>,
     ) -> Result<UpsertOutcome> {
-        let mut records = self.resources(plugin_id, resource_type).await?;
-        let now = now_ms();
-        let mut outcome = UpsertOutcome {
-            added: 0,
-            updated: 0,
-        };
-        for draft in drafts {
-            if draft.key.trim().is_empty() {
-                return Err(Error::Protocol("plugin resource draft requires key".into()));
-            }
-            let state = draft
-                .state
-                .map_or(ResourceState::Ready, ResourceState::from);
-            match records.iter_mut().find(|record| record.key == draft.key) {
-                Some(existing) => {
-                    existing.private_data = draft.private_data;
-                    existing.state = state;
-                    existing.updated_at_ms = now;
-                    outcome.updated += 1;
+        self.modify_resources(plugin_id, resource_type, |records, selection| {
+            let was_empty = records.is_empty();
+            let now = now_ms();
+            let mut outcome = UpsertOutcome {
+                added: 0,
+                updated: 0,
+            };
+            for draft in drafts {
+                if draft.key.trim().is_empty() {
+                    return Err(Error::Protocol("plugin resource draft requires key".into()));
                 }
-                None => {
-                    records.push(ResourceRecord {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        key: draft.key,
-                        private_data: draft.private_data,
-                        state,
-                        created_at_ms: now,
-                        updated_at_ms: now,
-                    });
-                    outcome.added += 1;
+                let state = draft
+                    .state
+                    .map_or(ResourceState::Ready, ResourceState::from);
+                match records.iter_mut().find(|record| record.key == draft.key) {
+                    Some(existing) => {
+                        existing.private_data = draft.private_data;
+                        existing.state = state;
+                        advance_resource(existing)?;
+                        if selection.active_resource_id.as_deref() == Some(existing.id.as_str()) {
+                            selection.advance()?;
+                        }
+                        outcome.updated += 1;
+                    }
+                    None => {
+                        records.push(ResourceRecord {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            key: draft.key,
+                            private_data: draft.private_data,
+                            state,
+                            created_at_ms: now,
+                            updated_at_ms: now,
+                        });
+                        outcome.added += 1;
+                    }
                 }
             }
-        }
-        self.save_resources(plugin_id, resource_type, &records)
-            .await?;
-        Ok(outcome)
+            // Import order is stable. Later additions/reimports never choose an account.
+            if was_empty && !records.is_empty() {
+                selection.active_resource_id = Some(records[0].id.clone());
+                selection.advance()?;
+            }
+            Ok(outcome)
+        })
+        .await
     }
 
-    pub async fn apply_patch(
+    /// Compare-and-swap on the resource snapshot, including imported credentials.
+    pub async fn apply_patch_if_current(
         &self,
         plugin_id: &str,
         resource_type: &str,
-        resource_id: &str,
+        expected: &ResourceRecord,
         patch: ResourcePatch,
-    ) -> Result<()> {
-        let mut records = self.resources(plugin_id, resource_type).await?;
-        let record = records
-            .iter_mut()
-            .find(|record| record.id == resource_id)
-            .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
-        if let Some(private_data) = patch.private_data {
-            record.private_data = private_data;
-        }
-        if let Some(state) = patch.state {
-            record.state = state.into();
-        }
-        record.updated_at_ms = now_ms();
-        self.save_resources(plugin_id, resource_type, &records)
-            .await
+    ) -> Result<bool> {
+        self.modify_resources(plugin_id, resource_type, |records, selection| {
+            let Some(record) = records.iter_mut().find(|record| current(record, expected)) else {
+                return Ok(false);
+            };
+            patch_record(record, patch)?;
+            if selection.active_resource_id.as_deref() == Some(record.id.as_str()) {
+                selection.advance()?;
+            }
+            Ok(true)
+        })
+        .await
+    }
+
+    /// Applies a failure only to its original resource snapshot. Selection may be
+    /// advanced only while its snapshot is unchanged; later user edits take priority.
+    /// Returns retry permission, not whether the patch was written.
+    pub async fn fail_resource(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        expected_resource: &ResourceRecord,
+        expected_selection: &ResourceSelection,
+        patch: ResourcePatch,
+    ) -> Result<bool> {
+        self.modify_resources(plugin_id, resource_type, |records, selection| {
+            let may_switch = &*selection == expected_selection;
+            let matched = records
+                .iter()
+                .position(|record| current(record, expected_resource));
+            if let Some(index) = matched {
+                patch_record(&mut records[index], patch)?;
+                if selection.active_resource_id.as_deref() == Some(expected_resource.id.as_str()) {
+                    selection.advance()?;
+                }
+                if may_switch
+                    && selection.automatic_switching
+                    && selection.active_resource_id.as_deref()
+                        == Some(expected_resource.id.as_str())
+                {
+                    if let Some(next) = next_ready(records, index + 1, now_ms()) {
+                        if records[next].id != expected_resource.id {
+                            selection.active_resource_id = Some(records[next].id.clone());
+                            selection.advance()?;
+                        }
+                    }
+                }
+            }
+            Ok(selection.automatic_switching
+                && active_index(records, selection).is_some_and(|index| {
+                    records[index].id != expected_resource.id
+                        && records[index].state.is_ready(now_ms())
+                }))
+        })
+        .await
     }
 
     pub async fn remove_resource(
@@ -310,23 +487,27 @@ impl PluginStateStore {
         resource_type: &str,
         resource_id: &str,
     ) -> Result<ResourceRecord> {
-        let mut records = self.resources(plugin_id, resource_type).await?;
-        let index = records
-            .iter()
-            .position(|record| record.id == resource_id)
-            .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
-        let removed = records.remove(index);
-        self.save_resources(plugin_id, resource_type, &records)
-            .await?;
-        Ok(removed)
+        self.modify_resources(plugin_id, resource_type, |records, selection| {
+            let index = records
+                .iter()
+                .position(|record| record.id == resource_id)
+                .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
+            let removed = records.remove(index);
+            if selection.active_resource_id.as_deref() == Some(resource_id) {
+                selection.active_resource_id = if selection.automatic_switching {
+                    next_ready(records, index, now_ms()).map(|next| records[next].id.clone())
+                } else {
+                    None
+                };
+                selection.advance()?;
+            }
+            Ok(removed)
+        })
+        .await
     }
 
     pub async fn models(&self, plugin_id: &str, provider_id: &str) -> Result<Vec<StoredModel>> {
-        let value = self.data.read(plugin_id, &model_key(provider_id)).await?;
-        if value.is_null() {
-            return Ok(Vec::new());
-        }
-        Ok(serde_json::from_value(value)?)
+        decode(self.data.read(plugin_id, &model_key(provider_id)).await?)
     }
 
     pub async fn replace_models(
@@ -335,22 +516,43 @@ impl PluginStateStore {
         provider_id: &str,
         models: &[StoredModel],
     ) -> Result<()> {
-        let previous = self.models(plugin_id, provider_id).await?;
-        let models = models
-            .iter()
-            .cloned()
-            .map(|mut model| {
-                if let Some(old) = previous.iter().find(|old| old.id == model.id) {
-                    model.enabled = old.enabled;
-                }
-                model
-            })
-            .collect::<Vec<_>>();
         self.data
-            .update(
+            .modify(plugin_id, &[model_key(provider_id)], |values| {
+                values[0] = merged_models(&values[0], models)?;
+                Ok(())
+            })
+            .await
+    }
+
+    pub async fn replace_models_if_selected(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        expected_selection: &ResourceSelection,
+        provider_id: &str,
+        models: &[StoredModel],
+    ) -> Result<bool> {
+        self.data
+            .modify(
                 plugin_id,
-                &model_key(provider_id),
-                &serde_json::to_value(models)?,
+                &[
+                    resource_key(resource_type),
+                    selection_key(resource_type),
+                    model_key(provider_id),
+                ],
+                |values| {
+                    let records: Vec<ResourceRecord> = decode(values[0].clone())?;
+                    let selection: ResourceSelection = decode(values[1].clone())?;
+                    if &selection != expected_selection
+                        || active_index(&records, &selection).is_none_or(|index| {
+                            matches!(records[index].state, ResourceState::Invalid { .. })
+                        })
+                    {
+                        return Ok(false);
+                    }
+                    values[2] = merged_models(&values[2], models)?;
+                    Ok(true)
+                },
             )
             .await
     }
@@ -362,18 +564,17 @@ impl PluginStateStore {
         model_id: &str,
         enabled: bool,
     ) -> Result<()> {
-        let mut models = self.models(plugin_id, provider_id).await?;
-        let model = models
-            .iter_mut()
-            .find(|model| model.id == model_id)
-            .ok_or_else(|| Error::RunNotFound(format!("plugin model {model_id}")))?;
-        model.enabled = enabled;
         self.data
-            .update(
-                plugin_id,
-                &model_key(provider_id),
-                &serde_json::to_value(models)?,
-            )
+            .modify(plugin_id, &[model_key(provider_id)], |values| {
+                let mut models: Vec<StoredModel> = decode(values[0].clone())?;
+                let model = models
+                    .iter_mut()
+                    .find(|model| model.id == model_id)
+                    .ok_or_else(|| Error::RunNotFound(format!("plugin model {model_id}")))?;
+                model.enabled = enabled;
+                values[0] = serde_json::to_value(models)?;
+                Ok(())
+            })
             .await
     }
 
@@ -381,20 +582,94 @@ impl PluginStateStore {
         self.data.clear(plugin_id).await
     }
 
-    async fn save_resources(
+    async fn modify_resources<T>(
         &self,
         plugin_id: &str,
         resource_type: &str,
-        records: &[ResourceRecord],
-    ) -> Result<()> {
+        change: impl FnOnce(&mut Vec<ResourceRecord>, &mut ResourceSelection) -> Result<T>,
+    ) -> Result<T> {
         self.data
-            .update(
+            .modify(
                 plugin_id,
-                &resource_key(resource_type),
-                &serde_json::to_value(records)?,
+                &[resource_key(resource_type), selection_key(resource_type)],
+                |values| {
+                    let mut records = decode(values[0].clone())?;
+                    let mut selection = decode(values[1].clone())?;
+                    let result = change(&mut records, &mut selection)?;
+                    values[0] = serde_json::to_value(records)?;
+                    values[1] = serde_json::to_value(selection)?;
+                    Ok(result)
+                },
             )
             .await
     }
+}
+
+fn decode<T: serde::de::DeserializeOwned + Default>(value: serde_json::Value) -> Result<T> {
+    if value.is_null() {
+        Ok(T::default())
+    } else {
+        Ok(serde_json::from_value(value)?)
+    }
+}
+
+fn advance_resource(record: &mut ResourceRecord) -> Result<()> {
+    record.updated_at_ms = now_ms().max(
+        record
+            .updated_at_ms
+            .checked_add(1)
+            .ok_or_else(|| Error::Config("plugin resource revision exhausted".into()))?,
+    );
+    Ok(())
+}
+
+fn patch_record(record: &mut ResourceRecord, patch: ResourcePatch) -> Result<()> {
+    if let Some(private_data) = patch.private_data {
+        record.private_data = private_data;
+    }
+    if let Some(state) = patch.state {
+        record.state = state.into();
+    }
+    advance_resource(record)
+}
+
+fn current(record: &ResourceRecord, expected: &ResourceRecord) -> bool {
+    record.id == expected.id && record.updated_at_ms == expected.updated_at_ms
+}
+
+fn active_index(records: &[ResourceRecord], selection: &ResourceSelection) -> Option<usize> {
+    records
+        .iter()
+        .position(|record| selection.active_resource_id.as_deref() == Some(record.id.as_str()))
+}
+
+/// Insertion order, starting just after the previous active resource and wrapping.
+fn next_ready(records: &[ResourceRecord], start: usize, now: i64) -> Option<usize> {
+    (0..records.len())
+        .map(|offset| (start + offset) % records.len())
+        .find(|&index| records[index].state.is_ready(now))
+}
+
+fn merged_models(
+    previous: &serde_json::Value,
+    models: &[StoredModel],
+) -> Result<serde_json::Value> {
+    let previous: Vec<StoredModel> = decode(previous.clone())?;
+    let models: Vec<_> = models
+        .iter()
+        .cloned()
+        .map(|mut model| {
+            if let Some(old) = previous.iter().find(|old| old.id == model.id) {
+                model.enabled = old.enabled;
+            }
+            model
+        })
+        .collect();
+    Ok(serde_json::to_value(models)?)
+}
+
+fn selection_key(resource_type: &str) -> String {
+    format!("selection-{resource_type}")
 }
 
 pub fn now_ms() -> i64 {
@@ -411,6 +686,10 @@ fn resource_key(resource_type: &str) -> String {
 fn model_key(provider_id: &str) -> String {
     format!("models-{provider_id}")
 }
+
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod selection_tests;
 
 #[cfg(test)]
 mod tests {
@@ -455,11 +734,11 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].private_data["token"], "two");
 
-        store
-            .apply_patch(
+        assert!(store
+            .apply_patch_if_current(
                 "dev.example",
                 "account",
-                &records[0].id,
+                &records[0],
                 ResourcePatch {
                     private_data: None,
                     state: Some(ResourceStateInput::Cooling {
@@ -469,7 +748,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .unwrap());
         let records = store.resources("dev.example", "account").await.unwrap();
         assert!(!records[0].state.is_ready(100));
         assert!(records[0].state.is_ready(300), "cooling expires over time");

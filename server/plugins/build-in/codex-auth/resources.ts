@@ -35,6 +35,8 @@ export type AccountQuota = {
   weekly: QuotaWindow | null;
   fiveHour: QuotaWindow | null;
   resetCreditsAvailable: number | null;
+  /** Earliest known future expiry of one available card, not of the entire balance. */
+  resetCreditsExpiresAtMs: number | null;
   limitReached: boolean;
   updatedAtMs: number;
 };
@@ -232,6 +234,7 @@ export function parseCodexUsage(body: unknown, nowMs = Date.now()): AccountQuota
     resetCreditsAvailable: resetCreditsAvailable === null
       ? null
       : Math.max(0, Math.floor(resetCreditsAvailable)),
+    resetCreditsExpiresAtMs: null,
     limitReached: typeof explicitLimit === "boolean" ? explicitLimit : [weekly, fiveHour].some(
       (window) => window?.remainingPercent !== null && window?.remainingPercent === 0,
     ),
@@ -293,6 +296,7 @@ export function quotaExhaustedPatch(
       resetAtMs: resetFromError(error, nowMs),
     },
     resetCreditsAvailable: data.quota?.resetCreditsAvailable ?? null,
+    resetCreditsExpiresAtMs: data.quota?.resetCreditsExpiresAtMs ?? null,
     limitReached: true,
     updatedAtMs: nowMs,
   };
@@ -305,7 +309,7 @@ export function quotaExhaustedPatch(
 async function fetchResetCredits(
   data: AccountData,
   context: PluginContext,
-): Promise<{ cards: ResourceActionCard[]; availableCount: number }> {
+): Promise<{ cards: ResourceActionCard[]; availableCount: number | null }> {
   const accountId = data.accountId ?? chatGptAccountId(data.accessToken);
   if (!accountId) throw new Error("ChatGPT account is missing its account ID");
   const response = await context.network.fetch(RESET_CREDITS_URL, {
@@ -323,19 +327,25 @@ async function fetchResetCredits(
   } catch {
     throw new Error("Codex reset card lookup returned invalid JSON");
   }
-  const root = object(body) ?? {};
-  const rawCredits = Array.isArray(root.credits) ? root.credits : [];
-  const cards = rawCredits.flatMap((value, index): ResourceActionCard[] => {
+  const root = object(body);
+  if (!root || !Array.isArray(root.credits)) {
+    throw new Error("Codex reset card lookup returned invalid card details");
+  }
+  const rawCredits = root.credits;
+  const cards = rawCredits.map((value, index): ResourceActionCard => {
     const credit = object(value);
     const id = text(credit?.id);
-    if (!id) return [];
+    const status = text(credit?.status);
+    if (!id || !status) {
+      throw new Error("Codex reset card lookup returned invalid card details");
+    }
     const resetType = text(credit?.reset_type ?? credit?.resetType);
     const grantedAt = timestampMs(credit?.granted_at ?? credit?.grantedAt);
     const expiresAt = timestampMs(credit?.expires_at ?? credit?.expiresAt);
-    return [{
+    return {
       id,
       title: text(credit?.title) ?? resetType ?? `Codex reset card ${index + 1}`,
-      ...(text(credit?.status) ? { status: text(credit?.status)! } : {}),
+      status,
       ...(grantedAt !== null ? { grantedAtMs: grantedAt } : {}),
       ...(expiresAt !== null ? { expiresAtMs: expiresAt } : {}),
       fields: resetType
@@ -345,14 +355,21 @@ async function fetchResetCredits(
           value: resetType,
         }]
         : [],
-    }];
+    };
   });
-  const availableCount = number(root.available_count ?? root.availableCount);
+  const rawCount = root.available_count ?? root.availableCount;
+  const availableCount = number(rawCount);
+  if (
+    rawCount !== undefined && rawCount !== null &&
+    (availableCount === null || !Number.isInteger(availableCount) || availableCount < 0)
+  ) {
+    throw new Error("Codex reset card lookup returned an invalid available count");
+  }
   return {
     cards,
-    availableCount: availableCount === null
-      ? cards.filter((card) => card.status === "available").length
-      : Math.max(0, Math.floor(availableCount)),
+    // An empty list without a count may be an incomplete response, not a zero balance.
+    availableCount: availableCount ??
+      (cards.length > 0 ? cards.filter((card) => card.status === "available").length : null),
   };
 }
 
@@ -366,7 +383,10 @@ function timestampMs(value: unknown): number | null {
   return null;
 }
 
-function actionDescription(availableCount: number): ResourceActionResult["description"] {
+function actionDescription(availableCount: number | null): ResourceActionResult["description"] {
+  if (availableCount === null) {
+    return { "en-US": "Available reset card count unknown", "zh-CN": "可用重置卡数量未知" };
+  }
   return {
     "en-US": `${availableCount} reset card${availableCount === 1 ? "" : "s"} available`,
     "zh-CN": `可用重置卡 ${availableCount} 张`,
@@ -397,7 +417,10 @@ async function consumeResetCard(
 
   const data = accountData(resource);
   const available = await fetchResetCredits(data, context);
-  const card = available.cards.find((item) => item.id === creditId && item.status === "available");
+  const card = available.cards.find((item) =>
+    item.id === creditId && item.status === "available" &&
+    (item.expiresAtMs === undefined || item.expiresAtMs > Date.now())
+  );
   if (!card) throw new Error("The selected reset card is not available");
 
   const response = await context.network.fetch(RESET_CREDITS_CONSUME_URL, {
@@ -409,6 +432,16 @@ async function consumeResetCard(
     throw new Error(
       `Codex reset card consumption failed (HTTP ${response.status}): ${response.body}`,
     );
+  }
+
+  let result: unknown;
+  try {
+    result = JSON.parse(response.body);
+  } catch {
+    throw new Error("Codex reset card consumption returned invalid JSON");
+  }
+  if (object(result)?.code !== "reset") {
+    throw new Error("Codex reset card consumption did not confirm a quota reset");
   }
 
   const patch = await refreshAccount(resource, context);
@@ -478,6 +511,11 @@ export function presentAccount(resource: ResourceSnapshot): ResourceView {
       label: { "en-US": "Reset cards", "zh-CN": "重置卡" },
       unit: "count",
       value: resetCreditsAvailable,
+      ...(resetCreditsAvailable > 0 &&
+          typeof data.quota?.resetCreditsExpiresAtMs === "number" &&
+          data.quota.resetCreditsExpiresAtMs > Date.now()
+        ? { expiresAtMs: data.quota.resetCreditsExpiresAtMs }
+        : {}),
     });
   }
   return {
@@ -512,6 +550,22 @@ export async function refreshAccount(
     throw new Error("Codex usage lookup returned invalid JSON");
   }
   const quota = parseCodexUsage(body);
+  try {
+    const details = await fetchResetCredits(data, context);
+    quota.resetCreditsAvailable = details.availableCount ?? quota.resetCreditsAvailable;
+    const nowMs = Date.now();
+    const expiries = details.cards.flatMap((card) =>
+      card.status === "available" && card.expiresAtMs !== undefined && card.expiresAtMs > nowMs
+        ? [card.expiresAtMs]
+        : []
+    );
+    if (quota.resetCreditsAvailable !== 0 && expiries.length > 0) {
+      quota.resetCreditsExpiresAtMs = Math.min(...expiries);
+    }
+  } catch {
+    // Usage remains valid even if optional card details fail. The freshly parsed quota
+    // intentionally keeps expiry unknown rather than claiming old details are current.
+  }
   return {
     privateData: { ...data, quota } as unknown as JsonValue,
     state: quotaState(quota),

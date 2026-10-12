@@ -77,6 +77,30 @@ pub async fn export_resources(
     Ok(response)
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResourceSelectionInput {
+    pub active_resource_id: Option<String>,
+    pub automatic_switching: bool,
+}
+
+pub async fn set_resource_selection(
+    State(service): State<ControlService>,
+    Path((plugin_id, resource_type)): Path<(String, String)>,
+    Json(input): Json<ResourceSelectionInput>,
+) -> Result<Json<crate::plugin::ResourceSelection>> {
+    Ok(Json(
+        service
+            .plugin_set_resource_selection(
+                &plugin_id,
+                &resource_type,
+                input.active_resource_id,
+                input.automatic_switching,
+            )
+            .await?,
+    ))
+}
+
 pub async fn refresh_resource(
     State(service): State<ControlService>,
     Path((plugin_id, resource_type, resource_id)): Path<(String, String, String)>,

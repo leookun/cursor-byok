@@ -42,6 +42,8 @@ export type ResourceMetric = {
   /** percent 指标表示剩余占比,0..100。 */
   value: number;
   resetAtMs?: number;
+  /** 最近一项的到期时间,不表示整个指标在此时清零。缺省表示未知。 */
+  expiresAtMs?: number;
 };
 
 export type ResourceActionTarget = "resource" | "card";

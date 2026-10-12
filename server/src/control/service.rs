@@ -215,6 +215,23 @@ impl ControlService {
             .await
     }
 
+    pub async fn plugin_set_resource_selection(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        active_resource_id: Option<String>,
+        automatic_switching: bool,
+    ) -> Result<crate::plugin::ResourceSelection> {
+        self.plugins
+            .set_resource_selection(
+                plugin_id,
+                resource_type,
+                active_resource_id,
+                automatic_switching,
+            )
+            .await
+    }
+
     pub async fn plugin_refresh_resource(
         &self,
         plugin_id: &str,

@@ -1,3 +1,4 @@
+import { useKeepAliveContext } from "keepalive-for-react";
 import { useEffect, useRef, useState } from "react";
 import { api, pluginText, type PluginDescriptor, type PluginImportFile, type PluginRuntimePhase, type PluginRuntimeStatus } from "../../shared/api";
 import { useI18n } from "../../i18n/store";
@@ -13,12 +14,17 @@ import { PluginAddPanel, PluginSettingsPanel } from "./PluginResourcePanels";
 import styles from "./PluginManagementPage.module.scss";
 
 export function PluginManagementPage() {
+  const { active } = useKeepAliveContext();
   const { pluginRuntime, plugins } = useAppStore();
   const [progressOpen, setProgressOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selected, setSelected] = useState<{ pluginId: string; mode: "add" | "settings" } | null>(null);
   const cancelRequested = useRef(false);
   const selectedPlugin = selected ? plugins.find((plugin) => plugin.id === selected.pluginId) ?? null : null;
+
+  useEffect(() => {
+    if (!active) setSelected(null);
+  }, [active]);
 
   useEffect(() => {
     if (!pluginRuntime) void appStore.refreshPluginRuntime();
@@ -73,7 +79,7 @@ export function PluginManagementPage() {
     />
     <Modal
       fullHeight
-      open={selectedPlugin !== null}
+      open={active && selectedPlugin !== null}
       title={selected?.mode === "settings"
         ? t("{name} 账号管理", { name: selectedPlugin?.name ?? "" })
         : t("添加 {name} 账号", { name: selectedPlugin?.name ?? "" })}
@@ -234,7 +240,7 @@ function PluginCard({ plugin, onOpen }: {
           label={t("添加账号")}
           onClick={() => onOpen(plugin.id, "add")}
         />
-        {configured && (
+        {(configured || accountCount > 0) && (
           <TruncatedButton
             size="small"
             label={t("账号管理")}
