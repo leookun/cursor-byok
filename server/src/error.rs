@@ -15,6 +15,8 @@ pub enum Error {
     Protocol(String),
     #[error("provider error: {0}")]
     Provider(String),
+    #[error("provider refusal: {0}")]
+    ProviderRefusal(String),
     #[error("store error: {0}")]
     Store(String),
     #[error("run was cancelled")]
@@ -48,7 +50,7 @@ impl IntoResponse for Error {
                 StatusCode::BAD_REQUEST
             }
             Self::RunNotFound(_) => StatusCode::NOT_FOUND,
-            Self::Provider(_) | Self::Http(_) => StatusCode::BAD_GATEWAY,
+            Self::Provider(_) | Self::ProviderRefusal(_) | Self::Http(_) => StatusCode::BAD_GATEWAY,
             Self::Cancelled => StatusCode::CONFLICT,
             Self::Store(_)
             | Self::Database(_)

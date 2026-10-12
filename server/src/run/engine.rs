@@ -1060,6 +1060,7 @@ fn failure_message(failure: &RunFailure) -> String {
     match failure {
         RunFailure::Protocol(message)
         | RunFailure::Provider(message)
+        | RunFailure::ProviderRefusal(message)
         | RunFailure::Store(message)
         | RunFailure::Client(message) => message.clone(),
     }

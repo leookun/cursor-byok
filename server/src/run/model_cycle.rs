@@ -377,7 +377,7 @@ fn failure(
         RunFailure::Protocol(_) => true,
         RunFailure::Provider(message) if is_rejected_request(message) => false,
         RunFailure::Provider(_) => true,
-        RunFailure::Store(_) | RunFailure::Client(_) => false,
+        RunFailure::ProviderRefusal(_) | RunFailure::Store(_) | RunFailure::Client(_) => false,
     };
     Box::new(ModelCycleFailure {
         failure,
