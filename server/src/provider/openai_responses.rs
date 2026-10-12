@@ -112,7 +112,8 @@ impl Provider for OpenAiResponsesProvider {
             let source = chunks.eventsource();
             futures_util::pin_mut!(source);
             let mut text_open = false;
-            let mut text = String::new();
+            let mut texts = std::collections::BTreeMap::new();
+            let mut text_index = None;
             let mut thinking_open = false;
             let mut tools = std::collections::BTreeMap::<usize, ResponseToolState>::new();
             let mut reasoning_items = Vec::new();
@@ -134,6 +135,7 @@ impl Provider for OpenAiResponsesProvider {
                 let kind = value.get("type").and_then(Value::as_str).unwrap_or(&event.event);
                 match kind {
                     "response.output_text.delta" => {
+                        let text = enter_response_text_item(&value, &mut text_index, &mut texts);
                         if thinking_open { thinking_open = false; yield ModelEvent::ThinkingEnd; }
                         if !text_open { text_open = true; yield ModelEvent::TextStart; }
                         if let Some(delta) = value.get("delta").and_then(Value::as_str) {
@@ -142,8 +144,9 @@ impl Provider for OpenAiResponsesProvider {
                         }
                     }
                     "response.output_text.done" => {
+                        let text = enter_response_text_item(&value, &mut text_index, &mut texts);
                         if let Some(final_text) = value.get("text").and_then(Value::as_str) {
-                            for event in reconcile_response_text(&mut text_open, &mut text, final_text) { yield event; }
+                            for event in reconcile_response_text(&mut text_open, text, final_text) { yield event; }
                         }
                         if text_open { text_open = false; yield ModelEvent::TextEnd; }
                     }
@@ -170,8 +173,9 @@ impl Provider for OpenAiResponsesProvider {
                             }
                             Some("message") => {
                                 saw_completed_item = true;
+                                let text = enter_response_text_item(&value, &mut text_index, &mut texts);
                                 if let Some(final_text) = response_item_text(item) {
-                                    for event in reconcile_response_text(&mut text_open, &mut text, &final_text) { yield event; }
+                                    for event in reconcile_response_text(&mut text_open, text, &final_text) { yield event; }
                                 }
                                 if text_open { text_open = false; yield ModelEvent::TextEnd; }
                             }
@@ -282,6 +286,25 @@ fn response_item_text(item: &Value) -> Option<String> {
         .filter_map(|part| part.get("text").and_then(Value::as_str))
         .collect::<String>();
     Some(text)
+}
+
+/// Retains each output item's baseline until the response ends, including when
+/// another item's events arrive in between. Unindexed events use the current item.
+fn enter_response_text_item<'a>(
+    value: &Value,
+    current: &mut Option<u64>,
+    streamed: &'a mut std::collections::BTreeMap<Option<u64>, String>,
+) -> &'a mut String {
+    if let Some(index) = value.get("output_index").and_then(Value::as_u64) {
+        // The first explicit index identifies any prefix that arrived unindexed.
+        if current.is_none() {
+            if let Some(prefix) = streamed.remove(&None) {
+                streamed.insert(Some(index), prefix);
+            }
+        }
+        *current = Some(index);
+    }
+    streamed.entry(*current).or_default()
 }
 
 fn reconcile_response_text(
