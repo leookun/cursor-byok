@@ -310,10 +310,10 @@ impl CursorToolRuntime {
             let mut abort_ids = Vec::new();
             let mut interrupted_ids = Vec::new();
             entries.retain(|id, entry| {
-                interrupted_ids.push(*id);
                 let keep_running = entry.call.name.eq_ignore_ascii_case("Task");
                 if !keep_running {
                     abort_ids.push(*id);
+                    interrupted_ids.push(*id);
                 }
                 keep_running
             });
@@ -364,4 +364,61 @@ pub(crate) fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool_call(call_id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            index: 0,
+            call_id: call_id.into(),
+            model_call_id: "model-call".into(),
+            name: name.into(),
+            arguments_text: "{}".into(),
+            arguments: serde_json::json!({}),
+            argument_error: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_message_interrupt_does_not_mute_the_tasks_it_keeps_running() {
+        let runtime = CursorToolRuntime::default();
+        let context = ExecContext::default();
+        let task = runtime
+            .reserve_exec(&tool_call("call-task", "Task"), &context)
+            .await
+            .unwrap();
+        let shell = runtime
+            .reserve_exec(&tool_call("call-shell", "Shell"), &context)
+            .await
+            .unwrap();
+
+        assert_eq!(runtime.interrupt_for_message().await, vec![shell]);
+
+        // The Task was deliberately left running, so its events must still land.
+        assert!(!runtime.is_interrupted(task).await);
+        assert!(runtime.append_stdout(task, "still running").await);
+        assert!(runtime.is_interrupted(shell).await);
+    }
+
+    #[tokio::test]
+    async fn a_message_interrupt_still_mutes_and_aborts_everything_else() {
+        let runtime = CursorToolRuntime::default();
+        let context = ExecContext::default();
+        let read = runtime
+            .reserve_exec(&tool_call("call-read", "Read"), &context)
+            .await
+            .unwrap();
+        let interaction = runtime
+            .reserve_interaction(&tool_call("call-ask", "AskQuestion"))
+            .await
+            .unwrap();
+
+        assert_eq!(runtime.interrupt_for_message().await, vec![read]);
+
+        assert!(runtime.is_interrupted(read).await);
+        assert!(runtime.is_interrupted(interaction).await);
+    }
 }
