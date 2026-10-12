@@ -1,0 +1,54 @@
+@use "../../styles/typography" as type;
+
+.content {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.row, .address, .keyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.keyRow {
+  align-items: end;
+  justify-content: flex-start;
+  gap: 8px;
+
+  > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.description {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+
+  small {
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.address {
+  flex-wrap: wrap;
+
+  code {
+    flex: 1 1 240px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.hint {
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+}

@@ -14,6 +14,7 @@ const COMMIT_SETTINGS_KEY: &str = "commit_settings";
 const CURSOR_TAKEOVER_ENABLED_KEY: &str = "cursor_takeover_enabled";
 const PRICING_SETTINGS_KEY: &str = "token_pricing";
 const EXTERNAL_API_SETTINGS_KEY: &str = "external_api";
+const APP_API_SETTINGS_KEY: &str = "app_api";
 
 /// Embedded default system prompts for commit message generation.
 pub const DEFAULT_COMMIT_PROMPT_ZH_CN: &str = include_str!("../../prompt/cursor/commit/zh-CN.md");
@@ -31,6 +32,36 @@ pub struct PortSettings {
 pub struct ExternalApiSettings {
     pub enabled: bool,
     pub api_key: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppApiAuthMethod {
+    #[default]
+    Bearer,
+    ApiKey,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct AppApiSettings {
+    pub enabled: bool,
+    #[serde(default)]
+    pub auth_required: bool,
+    #[serde(default)]
+    pub auth_method: AppApiAuthMethod,
+    #[serde(default)]
+    pub api_key: String,
+}
+
+impl Default for AppApiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auth_required: false,
+            auth_method: AppApiAuthMethod::Bearer,
+            api_key: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -245,6 +276,39 @@ impl Store {
         let _write = self.writes.lock().await;
         sqlx::query("INSERT INTO service_settings(setting_key, value_json, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(setting_key) DO UPDATE SET value_json = excluded.value_json, updated_at_ms = excluded.updated_at_ms")
             .bind(EXTERNAL_API_SETTINGS_KEY)
+            .bind(value_json)
+            .bind(now_ms())
+            .execute(&self.pool)
+            .await?;
+        Ok(settings)
+    }
+
+    pub async fn app_api_settings(&self) -> Result<AppApiSettings> {
+        let value = sqlx::query_scalar::<_, String>(
+            "SELECT value_json FROM service_settings WHERE setting_key = ?",
+        )
+        .bind(APP_API_SETTINGS_KEY)
+        .fetch_optional(&self.pool)
+        .await?;
+        value
+            .map(|value| serde_json::from_str(&value).map_err(Into::into))
+            .unwrap_or_else(|| Ok(AppApiSettings::default()))
+    }
+
+    pub async fn set_app_api_settings(
+        &self,
+        mut settings: AppApiSettings,
+    ) -> Result<AppApiSettings> {
+        settings.api_key = settings.api_key.trim().to_owned();
+        if settings.enabled && settings.auth_required && settings.api_key.is_empty() {
+            return Err(crate::Error::Config(
+                "application API key is required when authorization is enabled".into(),
+            ));
+        }
+        let value_json = serde_json::to_string(&settings)?;
+        let _write = self.writes.lock().await;
+        sqlx::query("INSERT INTO service_settings(setting_key, value_json, updated_at_ms) VALUES (?, ?, ?) ON CONFLICT(setting_key) DO UPDATE SET value_json = excluded.value_json, updated_at_ms = excluded.updated_at_ms")
+            .bind(APP_API_SETTINGS_KEY)
             .bind(value_json)
             .bind(now_ms())
             .execute(&self.pool)
@@ -535,9 +599,10 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::{
-        read_proxy_settings, CommitPromptLocale, CommitSettings, ExternalApiSettings, ProxyMode,
-        ProxySettingsInput, ProxySettingsSecret, Store, TokenPricingSettings,
-        DEFAULT_COMMIT_PROMPT_EN_US, DEFAULT_COMMIT_PROMPT_ZH_CN, PROXY_SETTINGS_KEY,
+        read_proxy_settings, AppApiAuthMethod, AppApiSettings, CommitPromptLocale, CommitSettings,
+        ExternalApiSettings, ProxyMode, ProxySettingsInput, ProxySettingsSecret, Store,
+        TokenPricingSettings, DEFAULT_COMMIT_PROMPT_EN_US, DEFAULT_COMMIT_PROMPT_ZH_CN,
+        PROXY_SETTINGS_KEY,
     };
 
     /// The `outbound_proxy` row exactly as builds before the `system` -> `default`
@@ -709,6 +774,59 @@ mod tests {
                 .await
                 .unwrap(),
             settings
+        );
+    }
+
+    #[tokio::test]
+    async fn app_api_requires_a_key_only_when_authorization_is_enabled() {
+        let directory = tempfile::tempdir().unwrap();
+        let url = format!("sqlite://{}", directory.path().join("test.db").display());
+        let store = Store::connect(&url).await.unwrap();
+
+        assert_eq!(
+            store.app_api_settings().await.unwrap(),
+            AppApiSettings::default()
+        );
+        assert!(store
+            .set_app_api_settings(AppApiSettings {
+                enabled: true,
+                auth_required: true,
+                auth_method: AppApiAuthMethod::Bearer,
+                api_key: String::new(),
+            })
+            .await
+            .is_err());
+        let settings = AppApiSettings {
+            enabled: true,
+            auth_required: false,
+            auth_method: AppApiAuthMethod::ApiKey,
+            api_key: String::new(),
+        };
+        assert_eq!(
+            store.set_app_api_settings(settings.clone()).await.unwrap(),
+            settings
+        );
+        let authorized = AppApiSettings {
+            enabled: true,
+            auth_required: true,
+            auth_method: AppApiAuthMethod::ApiKey,
+            api_key: "local-control-key".into(),
+        };
+        assert_eq!(
+            store
+                .set_app_api_settings(authorized.clone())
+                .await
+                .unwrap(),
+            authorized
+        );
+        assert_eq!(
+            Store::connect(&url)
+                .await
+                .unwrap()
+                .app_api_settings()
+                .await
+                .unwrap(),
+            authorized
         );
     }
 }
