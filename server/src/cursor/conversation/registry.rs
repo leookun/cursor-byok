@@ -28,6 +28,7 @@ pub(crate) struct ConversationDependencies {
     pub web_cache: WebCache,
     /// 本地 rules 服务的 md 存储目录;编译请求上下文时合并其中的规则。
     pub local_rules_dir: Option<std::path::PathBuf>,
+    pub auto_review_states: crate::cursor::tools::auto_review::AutoReviewStates,
 }
 
 struct RegistryInner {
@@ -62,6 +63,7 @@ impl ConversationRegistry {
                     compiler,
                     web_cache,
                     local_rules_dir,
+                    auto_review_states: Default::default(),
                 },
             }),
         }

@@ -11,6 +11,7 @@ use crate::{
         protocol::proto::agent::v1 as pb,
         services::{blob_sync::BlobSynchronizer, context_sync::RequestContextSynchronizer},
         tools::{
+            auto_review::AutoReviewer,
             codec, compat,
             runtime::CursorToolRuntime,
             tool_call_result::{tool_result_channel, ToolResultReceiver, ToolResultSender},
@@ -543,6 +544,7 @@ async fn start_generation(
         results.clone(),
         dependencies.store.clone(),
         dependencies.web_cache.clone(),
+        AutoReviewer::new(dependencies.provider.clone(), handle.clone()),
     );
     let generation = RunGeneration {
         id: *next_generation,
@@ -644,6 +646,7 @@ fn spawn_run_request(
                     blob_sync: &blob_sync,
                     context_sync: &context_sync,
                     local_rules_dir: dependencies.local_rules_dir.as_deref(),
+                    auto_review_states: &dependencies.auto_review_states,
                 },
             ) => prepared,
         };

@@ -3,9 +3,9 @@
 
 use crate::{cursor::protocol::proto::agent::v1 as pb, model::ToolCall, Error, Result};
 
-use super::{normalized, ToolStart};
+use super::{normalized, ToolReview, ToolStart};
 use crate::cursor::tools::{
-    codec,
+    auto_review, codec,
     runtime::{CursorToolRuntime, ExecContext},
     tool_call_result as result,
 };
@@ -14,6 +14,7 @@ pub(super) async fn start(
     runtime: &CursorToolRuntime,
     call: &ToolCall,
     context: &ExecContext,
+    review: Option<ToolReview<'_>>,
 ) -> Result<ToolStart> {
     let message = match normalized(&call.name).as_str() {
         "getmcptools" => {
@@ -36,11 +37,47 @@ pub(super) async fn start(
                 });
             };
             let id = runtime.reserve_exec(call, context).await?;
-            codec::mcp_meta_request(id, call, server, route)?
+            let message = codec::mcp_meta_request(id, call, server, route)?;
+            let action = auto_review::Action::Mcp {
+                server: server.into(),
+                tool: route.tool_name.clone(),
+                description: route.description.clone(),
+                arguments: call.arguments.get("arguments").cloned().unwrap_or_default(),
+            };
+            if let Some(started) = review.and_then(|review| {
+                review.hold(
+                    runtime,
+                    auto_review::Held::Exec(id),
+                    action,
+                    call,
+                    context,
+                    &message,
+                )
+            }) {
+                return Ok(started);
+            }
+            message
         }
         _ => {
             let id = runtime.reserve_exec(call, context).await?;
-            codec::request(id, call, context)?
+            let message = codec::request(id, call, context)?;
+            if let Some(started) =
+                auto_review::Action::builtin(call)
+                    .zip(review)
+                    .and_then(|(action, review)| {
+                        review.hold(
+                            runtime,
+                            auto_review::Held::Exec(id),
+                            action,
+                            call,
+                            context,
+                            &message,
+                        )
+                    })
+            {
+                return Ok(started);
+            }
+            message
         }
     };
     Ok(ToolStart {
@@ -62,12 +99,32 @@ pub(super) async fn start_dynamic(
     call: &ToolCall,
     definition: &pb::McpToolDefinition,
     context: &ExecContext,
+    review: Option<ToolReview<'_>>,
 ) -> Result<ToolStart> {
     let id = runtime
         .reserve_dynamic_mcp(call, context, definition)
         .await?;
+    let message = codec::mcp_request(id, call, definition)?;
+    let action = auto_review::Action::Mcp {
+        server: definition.provider_identifier.clone(),
+        tool: definition.tool_name.clone(),
+        description: definition.description.clone(),
+        arguments: call.arguments.clone(),
+    };
+    if let Some(started) = review.and_then(|review| {
+        review.hold(
+            runtime,
+            auto_review::Held::Exec(id),
+            action,
+            call,
+            context,
+            &message,
+        )
+    }) {
+        return Ok(started);
+    }
     Ok(ToolStart {
-        messages: vec![codec::mcp_request(id, call, definition)?],
+        messages: vec![message],
         completion: None,
     })
 }

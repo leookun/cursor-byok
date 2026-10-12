@@ -8,9 +8,10 @@ use crate::{
     Error, Result,
 };
 
-use super::{normalized, InteractionContinuation, ToolStart};
+use super::{normalized, InteractionContinuation, ToolReview, ToolStart};
 use crate::cursor::tools::{
-    runtime::{CursorToolRuntime, PendingInteraction},
+    auto_review::{Action, Held},
+    runtime::{CursorToolRuntime, ExecContext, PendingInteraction},
     tool_call_result::{self as result, ToolResultSender},
 };
 
@@ -18,6 +19,33 @@ pub(super) async fn start(runtime: &CursorToolRuntime, call: &ToolCall) -> Resul
     let id = runtime.reserve_interaction(call).await?;
     Ok(ToolStart {
         messages: vec![interaction::tool_query(id, call)?],
+        completion: None,
+    })
+}
+
+/// Starts an interaction that Auto-review may hold before Cursor sees it.
+pub(super) async fn start_reviewed(
+    runtime: &CursorToolRuntime,
+    call: &ToolCall,
+    context: &ExecContext,
+    review: Option<ToolReview<'_>>,
+) -> Result<ToolStart> {
+    let id = runtime.reserve_interaction(call).await?;
+    let message = interaction::tool_query(id, call)?;
+    if let Some(started) = review.and_then(|review| {
+        review.hold(
+            runtime,
+            Held::Interaction(id),
+            Action::WebFetch,
+            call,
+            context,
+            &message,
+        )
+    }) {
+        return Ok(started);
+    }
+    Ok(ToolStart {
+        messages: vec![message],
         completion: None,
     })
 }
