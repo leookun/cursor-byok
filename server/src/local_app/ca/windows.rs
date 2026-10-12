@@ -1,11 +1,11 @@
 //! Implements Windows-specific certificate authority integration.
-//! Native Windows system root-store access without external command-line tools.
+//! Native Windows user-level root-store access without external command-line tools.
 
 use std::{ffi::c_void, io, ptr, slice};
 
 use windows_sys::Win32::Security::Cryptography::{
     CertCloseStore, CertEnumCertificatesInStore, CertOpenStore, CERT_STORE_OPEN_EXISTING_FLAG,
-    CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_LOCAL_MACHINE,
+    CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER,
 };
 
 use crate::{Error, Result};
@@ -45,7 +45,7 @@ fn certificate_der(cert: &str) -> Result<Vec<u8>> {
 
 fn open_root_store() -> Result<*mut c_void> {
     let flags =
-        CERT_SYSTEM_STORE_LOCAL_MACHINE | CERT_STORE_OPEN_EXISTING_FLAG | CERT_STORE_READONLY_FLAG;
+        CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG | CERT_STORE_READONLY_FLAG;
     let store = unsafe {
         CertOpenStore(
             CERT_STORE_PROV_SYSTEM_W,
@@ -57,7 +57,7 @@ fn open_root_store() -> Result<*mut c_void> {
     };
     if store.is_null() {
         return Err(Error::Config(format!(
-            "open Windows LocalMachine Root store: {}",
+            "open Windows CurrentUser Root store: {}",
             io::Error::last_os_error()
         )));
     }
