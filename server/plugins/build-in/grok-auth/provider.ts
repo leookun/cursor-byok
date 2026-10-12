@@ -64,10 +64,21 @@ async function invoke(
       {
         url: CHAT_URL,
         model: input.model.id,
-        // xAI 不接受 reasoning_effort 与 service_tier;思考由模型自身决定。
+        // Grok 4.6 accepts xhigh; Cursor's max is an alias for the highest supported effort.
         request: {
           ...input.request,
-          reasoning: { enabled: false, effort: null },
+          reasoning: {
+            enabled: true,
+            effort: input.model.id === "grok-4.6"
+              ? (input.request.reasoning.effort === "max"
+                ? "xhigh"
+                : input.request.reasoning.effort)
+              : input.model.id === "grok-4.5"
+              ? (["xhigh", "max"].includes(input.request.reasoning.effort ?? "")
+                ? "high"
+                : input.request.reasoning.effort)
+              : null,
+          },
           latency: "standard",
         },
         headers: { authorization: `Bearer ${data.accessToken}` },
@@ -78,8 +89,8 @@ async function invoke(
     return { status: "completed" };
   } catch (error) {
     if (error instanceof HttpError) {
-      if ((error.status === 401 || error.status === 403) && !isQuotaHttpError(error)) {
-        return invalidResult(error.message, "Grok authorization expired; sign in again");
+      if (error.status === 401) {
+        return { status: "auth-error", message: "Grok rejected the access token" };
       }
       if (isQuotaHttpError(error)) {
         return {

@@ -106,6 +106,9 @@ async function poll(sessionValue: JsonValue, context: PluginContext): Promise<OA
           accessToken,
           refreshToken: text(body.refresh_token),
           displayName: null,
+          ...(number(body.expires_in) !== null
+            ? { expiresAtMs: Date.now() + number(body.expires_in)! * 1000 }
+            : {}),
         }),
       ],
     };

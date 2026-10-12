@@ -1,7 +1,13 @@
 import { defineProviderPlugin } from "cursor-byok:plugin";
 import { grokDeviceOAuth } from "./oauth.ts";
 import { grokProvider } from "./provider.ts";
-import { credentialImport, presentAccount, refreshAccount, RESOURCE_TYPE } from "./resources.ts";
+import {
+  credentialImport,
+  prepareAccount,
+  presentAccount,
+  refreshAccount,
+  RESOURCE_TYPE,
+} from "./resources.ts";
 
 export default defineProviderPlugin({
   providers: [grokProvider],
@@ -12,5 +18,6 @@ export default defineProviderPlugin({
     import: credentialImport,
     present: presentAccount,
     refresh: refreshAccount,
+    prepare: prepareAccount,
   }],
 });

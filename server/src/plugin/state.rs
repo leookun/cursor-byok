@@ -210,6 +210,7 @@ impl StoredModel {
 #[derive(Clone)]
 pub struct PluginStateStore {
     data: PluginDataStore,
+    mutations: std::sync::Arc<tokio::sync::Mutex<()>>,
 }
 
 pub struct UpsertOutcome {
@@ -219,7 +220,10 @@ pub struct UpsertOutcome {
 
 impl PluginStateStore {
     pub fn new(data: PluginDataStore) -> Self {
-        Self { data }
+        Self {
+            data,
+            mutations: Default::default(),
+        }
     }
 
     pub async fn resources(
@@ -243,6 +247,7 @@ impl PluginStateStore {
         resource_type: &str,
         drafts: Vec<ResourceDraft>,
     ) -> Result<UpsertOutcome> {
+        let _mutation = self.mutations.lock().await;
         let mut records = self.resources(plugin_id, resource_type).await?;
         let now = now_ms();
         let mut outcome = UpsertOutcome {
@@ -281,6 +286,7 @@ impl PluginStateStore {
         Ok(outcome)
     }
 
+    #[cfg(test)]
     pub async fn apply_patch(
         &self,
         plugin_id: &str,
@@ -288,11 +294,48 @@ impl PluginStateStore {
         resource_id: &str,
         patch: ResourcePatch,
     ) -> Result<()> {
+        self.apply_patch_checked(plugin_id, resource_type, resource_id, patch, None)
+            .await
+            .map(|_| ())
+    }
+
+    /// A late result must never overwrite credentials refreshed by another invocation.
+    pub async fn apply_patch_if_current(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        snapshot: &ResourceRecord,
+        patch: ResourcePatch,
+    ) -> Result<bool> {
+        self.apply_patch_checked(
+            plugin_id,
+            resource_type,
+            &snapshot.id,
+            patch,
+            Some(snapshot),
+        )
+        .await
+    }
+
+    async fn apply_patch_checked(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+        patch: ResourcePatch,
+        expected: Option<&ResourceRecord>,
+    ) -> Result<bool> {
+        let _mutation = self.mutations.lock().await;
         let mut records = self.resources(plugin_id, resource_type).await?;
         let record = records
             .iter_mut()
             .find(|record| record.id == resource_id)
             .ok_or_else(|| Error::RunNotFound(format!("plugin resource {resource_id}")))?;
+        if expected.is_some_and(|old| {
+            old.updated_at_ms != record.updated_at_ms || old.private_data != record.private_data
+        }) {
+            return Ok(false);
+        }
         if let Some(private_data) = patch.private_data {
             record.private_data = private_data;
         }
@@ -301,7 +344,8 @@ impl PluginStateStore {
         }
         record.updated_at_ms = now_ms();
         self.save_resources(plugin_id, resource_type, &records)
-            .await
+            .await?;
+        Ok(true)
     }
 
     pub async fn remove_resource(
@@ -310,6 +354,7 @@ impl PluginStateStore {
         resource_type: &str,
         resource_id: &str,
     ) -> Result<ResourceRecord> {
+        let _mutation = self.mutations.lock().await;
         let mut records = self.resources(plugin_id, resource_type).await?;
         let index = records
             .iter()
@@ -335,6 +380,7 @@ impl PluginStateStore {
         provider_id: &str,
         models: &[StoredModel],
     ) -> Result<()> {
+        let _mutation = self.mutations.lock().await;
         let previous = self.models(plugin_id, provider_id).await?;
         let models = models
             .iter()
@@ -362,6 +408,7 @@ impl PluginStateStore {
         model_id: &str,
         enabled: bool,
     ) -> Result<()> {
+        let _mutation = self.mutations.lock().await;
         let mut models = self.models(plugin_id, provider_id).await?;
         let model = models
             .iter_mut()
@@ -378,6 +425,7 @@ impl PluginStateStore {
     }
 
     pub async fn clear(&self, plugin_id: &str) -> Result<()> {
+        let _mutation = self.mutations.lock().await;
         self.data.clear(plugin_id).await
     }
 
@@ -415,6 +463,88 @@ fn model_key(provider_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn late_request_patch_cannot_roll_back_rotated_credentials() {
+        let (_root, store) = store();
+        store.upsert_resources("dev.example", "account", vec![ResourceDraft {
+            key: "one".into(), private_data: serde_json::json!({"accessToken":"old", "refreshToken":"old-refresh"}), state: None,
+        }]).await.unwrap();
+        let old = store
+            .resources("dev.example", "account")
+            .await
+            .unwrap()
+            .remove(0);
+        assert!(store
+            .apply_patch_if_current(
+                "dev.example",
+                "account",
+                &old,
+                ResourcePatch {
+                    private_data: Some(
+                        serde_json::json!({"accessToken":"new", "refreshToken":"rotated"})
+                    ),
+                    state: None,
+                }
+            )
+            .await
+            .unwrap());
+        assert!(!store
+            .apply_patch_if_current(
+                "dev.example",
+                "account",
+                &old,
+                ResourcePatch {
+                    private_data: Some(old.private_data.clone()),
+                    state: Some(ResourceStateInput::Invalid {
+                        message: Some("stale 401".into())
+                    }),
+                }
+            )
+            .await
+            .unwrap());
+        let current = store
+            .resources("dev.example", "account")
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(current.private_data["refreshToken"], "rotated");
+        assert!(matches!(current.state, ResourceState::Ready));
+    }
+
+    #[tokio::test]
+    async fn simultaneous_account_updates_do_not_lose_other_accounts() {
+        let (_root, store) = store();
+        let mut tasks = Vec::new();
+        for id in 0..20 {
+            let store = store.clone();
+            tasks.push(tokio::spawn(async move {
+                store
+                    .upsert_resources(
+                        "dev.example",
+                        "account",
+                        vec![ResourceDraft {
+                            key: format!("account-{id}"),
+                            private_data: serde_json::json!({"token":id}),
+                            state: None,
+                        }],
+                    )
+                    .await
+                    .unwrap();
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        assert_eq!(
+            store
+                .resources("dev.example", "account")
+                .await
+                .unwrap()
+                .len(),
+            20
+        );
+    }
 
     fn store() -> (tempfile::TempDir, PluginStateStore) {
         let root = tempfile::tempdir().unwrap();
