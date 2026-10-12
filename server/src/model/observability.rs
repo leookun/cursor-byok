@@ -126,6 +126,10 @@ mod llm_call {
 
     #[derive(Clone, Debug, Serialize)]
     pub struct LlmCallSummary {
+        pub alias_id: Option<String>,
+        pub alias_name: Option<String>,
+        pub alias_target_id: Option<String>,
+        pub alias_switch_count: i64,
         pub call_id: String,
         pub run_id: String,
         pub conversation_id: String,
@@ -227,6 +231,7 @@ mod overview {
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
     pub struct OverviewMetrics {
+        pub alias_switches: i64,
         pub llm_calls: i64,
         pub successful_calls: i64,
         pub failed_calls: i64,

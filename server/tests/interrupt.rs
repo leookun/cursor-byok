@@ -1090,6 +1090,8 @@ async fn injected_user_context_interrupts_automatic_compaction() {
             base_url: "https://example.com/v1/chat/completions".into(),
             use_full_url: true,
             api_key: "test-key".into(),
+            supports_images: None,
+            supports_tools: None,
             tooltip_data: "Test Model".into(),
             model_id: "test-model".into(),
             reasoning_effort: None,

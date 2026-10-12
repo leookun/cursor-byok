@@ -18,8 +18,12 @@ use super::{
         OAUTH2_AUTHORIZATION_CODE_ADD_METHOD,
     },
     oauth_callback::{self, CallbackHandle, CallbackOutcome, CallbackRequest},
+    protocol::FailureMetadata,
     runtime::PluginRuntime,
-    state::{now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, StoredModel},
+    state::{
+        now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, ResourceStateInput,
+        StoredModel,
+    },
     wire,
     worker::{PluginWorker, WorkerStreamItem},
 };
@@ -204,6 +208,42 @@ impl PluginRegistry {
         models
     }
 
+    /// Alias eligibility is stricter than the ordinary model catalog: never
+    /// select disabled models or resources which are invalid/still cooling.
+    pub async fn model_available(&self, model_id: &str) -> Result<bool> {
+        let Some((plugin_id, provider_id, upstream_id)) = parse_model_id(model_id) else {
+            return Ok(false);
+        };
+        let Some(executable) = self.inner.runtime.executable() else {
+            return Ok(false);
+        };
+        let Some(entry) = self
+            .entries(&executable)
+            .await
+            .into_iter()
+            .find(|entry| entry.manifest.id == plugin_id)
+        else {
+            return Ok(false);
+        };
+        let Some(provider) = entry
+            .definition
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+        else {
+            return Ok(false);
+        };
+        let models = self.inner.state.models(plugin_id, provider_id).await?;
+        let model = models.iter().find(|model| model.id == upstream_id);
+        let resources = match &provider.resource_type {
+            Some(resource_type) => {
+                Some(self.inner.state.resources(plugin_id, resource_type).await?)
+            }
+            None => None,
+        };
+        Ok(alias_model_ready(model, resources.as_deref(), now_ms()))
+    }
+
     pub async fn model_descriptor(&self, model_id: &str) -> Result<PluginModelDescriptor> {
         let (plugin_id, provider_id, upstream_id) = parse_model_id(model_id)
             .ok_or_else(|| Error::Provider(format!("invalid plugin model ID: {model_id}")))?;
@@ -240,9 +280,14 @@ impl PluginRegistry {
         invocation: ModelInvocation,
         cancellation: CancellationToken,
         recorder: CallRecorder,
+        connect_timeout: Option<Duration>,
     ) -> ProviderStream {
         let registry = self.clone();
         Box::pin(try_stream! {
+            // A losing alias attempt must stop its network work immediately on
+            // stream drop, without cancelling the caller's next attempt.
+            let cancellation = cancellation.child_token();
+            let _cancel_on_drop = cancellation.clone().drop_guard();
             let model_id = invocation.request.model.model_id.clone();
             let (plugin_id, provider_id, upstream_id) = parse_model_id(&model_id)
                 .map(|(plugin, provider, model)| (plugin.to_owned(), provider.to_owned(), model.to_owned()))
@@ -269,7 +314,7 @@ impl PluginRegistry {
                 "request": request,
             });
             let worker = registry.worker(&entry, &executable).await;
-            let mut items = worker.invoke_streaming("provider.invoke", params, cancellation.clone(), Some(recorder)).await?;
+            let mut items = worker.invoke_streaming("provider.invoke", params, cancellation.clone(), Some(recorder), connect_timeout).await?;
             yield ModelEvent::Start { model_call_id: invocation.call_id.clone() };
             while let Some(item) = items.recv().await {
                 match item {
@@ -283,6 +328,12 @@ impl PluginRegistry {
                             .filter(|patch| !patch.is_null())
                             .map(|patch| serde_json::from_value::<ResourcePatch>(patch.clone()))
                             .transpose()?;
+                        let failure = if matches!(status, "resource-error" | "request-error") {
+                            Some(provider_result_error(&value, patch.as_ref(), now_ms())?)
+                        } else {
+                            None
+                        };
+                        let patch = completed_resource_patch(status, patch);
                         if let (Some(patch), Some((resource_type, record))) = (patch, resource.as_ref()) {
                             if let Err(error) = registry.inner.state
                                 .apply_patch(&plugin_id, resource_type, &record.id, patch).await
@@ -293,10 +344,7 @@ impl PluginRegistry {
                         match status {
                             "completed" => return,
                             "resource-error" | "request-error" => {
-                                let message = value.get("message")
-                                    .and_then(serde_json::Value::as_str)
-                                    .unwrap_or("plugin provider call failed");
-                                Err(Error::Provider(message.to_owned()))?;
+                                Err(failure.expect("failed result was classified"))?;
                             }
                             status => {
                                 Err(Error::Protocol(format!("unknown plugin provider result: {status}")))?;
@@ -1342,6 +1390,72 @@ struct ImportParseResult {
     warnings: Vec<String>,
 }
 
+fn completed_resource_patch(status: &str, patch: Option<ResourcePatch>) -> Option<ResourcePatch> {
+    if status != "completed" {
+        return patch;
+    }
+    let mut patch = patch.unwrap_or_default();
+    // A successful call confirms that the selected credentials/resource work.
+    // Explicit provider health reports (for example newly exhausted quota)
+    // remain authoritative; token-only patches must not retain stale failure state.
+    patch.state.get_or_insert(ResourceStateInput::Ready);
+    Some(patch)
+}
+
+fn alias_model_ready(
+    model: Option<&StoredModel>,
+    resources: Option<&[ResourceRecord]>,
+    now: i64,
+) -> bool {
+    model.is_some_and(|model| model.enabled)
+        && resources.is_none_or(|records| records.iter().any(|record| record.state.is_ready(now)))
+}
+
+fn provider_result_error(
+    value: &serde_json::Value,
+    patch: Option<&ResourcePatch>,
+    now: i64,
+) -> Result<Error> {
+    use crate::provider::failure::FailureKind;
+    let message = value
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("plugin provider call failed")
+        .to_owned();
+    let failure = value
+        .get("failure")
+        .filter(|failure| !failure.is_null())
+        .map(|failure| serde_json::from_value::<FailureMetadata>(failure.clone()))
+        .transpose()?;
+    let failure = failure.or_else(|| match patch.and_then(|patch| patch.state.as_ref()) {
+        Some(ResourceStateInput::Cooling { retry_at_ms, .. }) => Some(FailureMetadata {
+            kind: FailureKind::RateLimit,
+            status: None,
+            retry_after_ms: retry_at_ms.map(|at| at.saturating_sub(now).max(0) as u64),
+        }),
+        Some(ResourceStateInput::Invalid { .. }) => Some(FailureMetadata {
+            kind: FailureKind::Authorization,
+            status: None,
+            retry_after_ms: None,
+        }),
+        _ => None,
+    });
+    Ok(match failure {
+        Some(mut failure) => {
+            if failure.kind == FailureKind::RateLimit && failure.retry_after_ms.is_none() {
+                if let Some(ResourceStateInput::Cooling { retry_at_ms, .. }) =
+                    patch.and_then(|patch| patch.state.as_ref())
+                {
+                    failure.retry_after_ms =
+                        retry_at_ms.map(|at| at.saturating_sub(now).max(0) as u64);
+                }
+            }
+            failure.into_error(message)
+        }
+        None => Error::Provider(message),
+    })
+}
+
 fn find_provider<'a>(entry: &'a PluginEntry, provider_id: &str) -> Result<&'a ProviderDefinition> {
     entry
         .definition
@@ -1371,4 +1485,189 @@ fn find_resource<'a>(
                 entry.manifest.id
             ))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::failure::FailureKind;
+
+    #[tokio::test]
+    async fn successful_calls_restore_stale_resource_health_and_keep_token_patches() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = PluginStateStore::new(
+            PluginDataStore::for_test(directory.path().join("data")).unwrap(),
+        );
+        for initial in [
+            ResourceStateInput::Invalid {
+                message: Some("expired".into()),
+            },
+            ResourceStateInput::Cooling {
+                retry_at_ms: None,
+                message: Some("limited".into()),
+            },
+        ] {
+            state
+                .upsert_resources(
+                    "test",
+                    "account",
+                    vec![ResourceDraft {
+                        key: "test".into(),
+                        private_data: serde_json::json!({"token": "old"}),
+                        state: Some(initial),
+                    }],
+                )
+                .await
+                .unwrap();
+            let records = state.resources("test", "account").await.unwrap();
+            assert!(!records[0].state.is_ready(now_ms()));
+            let patch = completed_resource_patch(
+                "completed",
+                Some(ResourcePatch {
+                    private_data: Some(serde_json::json!({"token": "new"})),
+                    state: None,
+                }),
+            )
+            .unwrap();
+            state
+                .apply_patch("test", "account", &records[0].id, patch)
+                .await
+                .unwrap();
+            let records = state.resources("test", "account").await.unwrap();
+            assert!(records[0].state.is_ready(now_ms()));
+            assert_eq!(records[0].private_data["token"], "new");
+        }
+        assert!(matches!(
+            completed_resource_patch("completed", None).unwrap().state,
+            Some(ResourceStateInput::Ready)
+        ));
+        assert!(completed_resource_patch("request-error", None).is_none());
+        let explicit_cooling = completed_resource_patch(
+            "completed",
+            Some(ResourcePatch {
+                private_data: None,
+                state: Some(ResourceStateInput::Cooling {
+                    retry_at_ms: Some(200),
+                    message: None,
+                }),
+            }),
+        )
+        .unwrap();
+        assert!(matches!(
+            explicit_cooling.state,
+            Some(ResourceStateInput::Cooling { .. })
+        ));
+    }
+
+    #[test]
+    fn alias_availability_requires_enabled_model_and_a_ready_required_resource() {
+        use crate::plugin::state::ResourceState;
+        let mut model = StoredModel::from_definition(&serde_json::json!({
+            "id": "test", "displayName": "Test",
+        }))
+        .unwrap();
+        let mut resources = vec![ResourceRecord {
+            id: "one".into(),
+            key: "one".into(),
+            private_data: serde_json::Value::Null,
+            state: ResourceState::Invalid { message: None },
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        }];
+        assert!(alias_model_ready(Some(&model), None, 100));
+        assert!(!alias_model_ready(None, None, 100));
+        assert!(!alias_model_ready(Some(&model), Some(&[]), 100));
+        assert!(!alias_model_ready(Some(&model), Some(&resources), 100));
+        resources[0].state = ResourceState::Cooling {
+            retry_at_ms: Some(101),
+            message: None,
+        };
+        assert!(!alias_model_ready(Some(&model), Some(&resources), 100));
+        assert!(alias_model_ready(Some(&model), Some(&resources), 101));
+        resources[0].state = ResourceState::Cooling {
+            retry_at_ms: None,
+            message: None,
+        };
+        assert!(!alias_model_ready(Some(&model), Some(&resources), 100));
+        let mut ready = resources[0].clone();
+        ready.state = ResourceState::Ready;
+        resources.push(ready);
+        assert!(alias_model_ready(Some(&model), Some(&resources), 100));
+        model.enabled = false;
+        assert!(!alias_model_ready(Some(&model), Some(&resources), 100));
+        assert!(!alias_model_ready(Some(&model), None, 100));
+    }
+
+    #[test]
+    fn typed_provider_failure_preserves_kind_status_and_retry() {
+        let value = serde_json::json!({
+            "status": "request-error", "message": "upstream busy",
+            "failure": {"kind": "transient", "status": 503, "retryAfterMs": 2500},
+        });
+        let Error::Upstream(failure) = provider_result_error(&value, None, 100).unwrap() else {
+            panic!("expected typed failure");
+        };
+        assert_eq!(failure.kind, FailureKind::Transient);
+        assert_eq!(failure.status, Some(503));
+        assert_eq!(failure.retry_after_ms, Some(2500));
+        assert_eq!(failure.message, "upstream busy");
+    }
+
+    #[test]
+    fn resource_state_derives_failure_without_parsing_messages() {
+        let value = serde_json::json!({"message": "opaque plugin message"});
+        let patch = ResourcePatch {
+            private_data: None,
+            state: Some(ResourceStateInput::Cooling {
+                retry_at_ms: Some(1100),
+                message: None,
+            }),
+        };
+        let Error::Upstream(failure) = provider_result_error(&value, Some(&patch), 100).unwrap()
+        else {
+            panic!("expected rate limit");
+        };
+        assert_eq!(failure.kind, FailureKind::RateLimit);
+        assert_eq!(failure.retry_after_ms, Some(1000));
+        let patch = ResourcePatch {
+            private_data: None,
+            state: Some(ResourceStateInput::Invalid { message: None }),
+        };
+        let Error::Upstream(failure) = provider_result_error(&value, Some(&patch), 100).unwrap()
+        else {
+            panic!("expected authorization failure");
+        };
+        assert_eq!(failure.kind, FailureKind::Authorization);
+        assert_eq!(failure.status, None);
+    }
+
+    #[test]
+    fn untyped_plugin_errors_keep_their_message_and_are_not_classified() {
+        let value = serde_json::json!({"message": "429 timeout unauthorized"});
+        assert!(matches!(provider_result_error(&value, None, 100).unwrap(),
+            Error::Provider(message) if message == "429 timeout unauthorized"));
+    }
+
+    #[test]
+    fn typed_failure_uses_patch_reset_only_when_retry_is_absent() {
+        let mut value = serde_json::json!({"message": "limited", "failure": {"kind": "rate_limit", "status": 429}});
+        let patch = ResourcePatch {
+            private_data: None,
+            state: Some(ResourceStateInput::Cooling {
+                retry_at_ms: Some(1100),
+                message: None,
+            }),
+        };
+        let Error::Upstream(failure) = provider_result_error(&value, Some(&patch), 100).unwrap()
+        else {
+            panic!("expected rate limit");
+        };
+        assert_eq!(failure.retry_after_ms, Some(1000));
+        value["failure"]["retryAfterMs"] = 2000.into();
+        let Error::Upstream(failure) = provider_result_error(&value, Some(&patch), 100).unwrap()
+        else {
+            panic!("expected rate limit");
+        };
+        assert_eq!(failure.retry_after_ms, Some(2000));
+    }
 }

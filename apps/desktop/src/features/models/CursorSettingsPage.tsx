@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, configuredPluginModels, type Model, type ModelInput } from "../../shared/api";
 import { CursorCaGate, CursorCaProvider, CursorModelGate, CursorModelProvider } from "./CursorGates";
 import { CursorModelCards, cursorModelGroups, type CursorModelGroup, type CursorModelGrouping } from "./CursorModelCards";
+import { SourceDeleteDialog } from "../aliases/SourceDeleteDialog";
 import { CursorModelEditor, emptyCursorModelDraft, type CursorModelDraft } from "./CursorModelEditor";
 import { CursorModelTestResult, type CursorModelTestState } from "./CursorModelTestResult";
 import styles from "./CursorSettings.module.scss";
@@ -359,12 +360,12 @@ export function CursorSettingsPage() {
         </FormField>
       </div>}
     </Modal>
-    <ConfirmDialog open={deleting !== null} title={t("删除模型")} cancelLabel={t("取消")} confirmLabel={t("删除")} onCancel={() => setDeleting(null)} onConfirm={() => { if (deleting) void appStore.deleteModel(deleting.model_hash); setDeleting(null); }}><p>{t("确定删除这个模型吗？")}</p></ConfirmDialog>
+    {deleting && <SourceDeleteDialog title={t("删除模型")} sourceType="api" sourceIds={[deleting.source_id]} busy={cursorBusy} onCancel={() => setDeleting(null)} onConfirm={() => { void appStore.deleteModel(deleting.model_hash); setDeleting(null); }} />}
   </>;
 }
 
 function modelInput(model: Model): ModelInput {
-  const { model_hash: _hash, created_at_ms: _created, updated_at_ms: _updated, ...input } = model;
+  const { source_id: _sourceId, model_hash: _hash, created_at_ms: _created, updated_at_ms: _updated, ...input } = model;
   return input;
 }
 

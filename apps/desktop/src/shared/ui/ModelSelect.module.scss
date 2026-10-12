@@ -186,6 +186,24 @@
   }
 }
 
+.metadata {
+  display: block;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.search {
+  min-width: 0;
+  padding: .5em;
+  margin-bottom: .25em;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--oa-overlay-radius);
+}
+.optionRow[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+
 .empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: type.$font-size-xs; }
 
 .footer {

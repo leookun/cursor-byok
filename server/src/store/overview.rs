@@ -32,7 +32,8 @@ impl Store {
             "SELECT
                 COUNT(*) AS llm_calls,
                 COALESCE(SUM(status = 'completed'), 0) AS successful_calls,
-                COALESCE(SUM(status != 'completed'), 0) AS failed_calls
+                COALESCE(SUM(status != 'completed'), 0) AS failed_calls,
+                COALESCE(SUM(alias_switch_count > 0), 0) AS alias_switches
              FROM llm_calls
              WHERE status != 'running'
                AND (? IS NULL OR created_at_ms >= ?)
@@ -74,6 +75,7 @@ impl Store {
         let output_tokens = non_negative(token_row.try_get("output_tokens")?);
         let prompt_tokens = saturating_sum(&[input_tokens, cache_read_tokens, cache_write_tokens]);
         let metrics = OverviewMetrics {
+            alias_switches: call_row.try_get("alias_switches")?,
             llm_calls: call_row.try_get("llm_calls")?,
             successful_calls: call_row.try_get("successful_calls")?,
             failed_calls: call_row.try_get("failed_calls")?,

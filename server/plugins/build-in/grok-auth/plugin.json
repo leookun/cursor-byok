@@ -2,7 +2,7 @@
   "apiVersion": 1,
   "id": "dev.cursorbyok.examples.grok-auth",
   "name": "Grok",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "author": "@leookun",
   "minAppVersion": "0.1.0",
   "icon": "assets/grok.svg",

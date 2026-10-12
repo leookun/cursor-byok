@@ -2,7 +2,7 @@
   "apiVersion": 1,
   "id": "dev.cursorbyok.plugins.antigravity-auth",
   "name": "Google",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "author": "@masudranaxpert",
   "minAppVersion": "0.1.0",
   "icon": "assets/antigravity.svg",

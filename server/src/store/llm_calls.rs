@@ -362,6 +362,10 @@ fn as_i64(value: Option<u64>) -> Option<i64> {
 fn summary_from_row(row: sqlx::sqlite::SqliteRow) -> Result<LlmCallSummary> {
     let usage = row.try_get::<Option<String>, _>("usage_json")?;
     Ok(LlmCallSummary {
+        alias_id: row.try_get("alias_id")?,
+        alias_name: row.try_get("alias_name")?,
+        alias_target_id: row.try_get("alias_target_id")?,
+        alias_switch_count: row.try_get("alias_switch_count")?,
         call_id: row.try_get("call_id")?,
         run_id: row.try_get("run_id")?,
         conversation_id: row.try_get("conversation_id")?,

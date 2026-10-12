@@ -35,6 +35,7 @@ let snapshot: AppSnapshot = {
   calls: [],
   overview: {
     metrics: {
+      alias_switches: 0,
       llm_calls: 0,
       successful_calls: 0,
       failed_calls: 0,

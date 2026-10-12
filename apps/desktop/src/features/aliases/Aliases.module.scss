@@ -1,0 +1,13 @@
+@use "../../styles/typography" as type;
+
+.stack, .card, .target { display: flex; flex-direction: column; gap: .75em; min-width: 0; }
+.card { padding: 1em; }
+.row, .actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5em; min-width: 0; }
+.identity { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.target { padding: .75em; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: var(--oa-overlay-radius); }
+.targets { display: flex; flex-direction: column; gap: .5em; padding-inline-start: 1.5em; margin: 0; }
+.muted { color: var(--vscode-descriptionForeground); font-size: type.$font-size-xs; overflow-wrap: anywhere; }
+.warning { color: var(--vscode-foreground); border-inline-start: .2em solid var(--vscode-focusBorder); padding-inline-start: .75em; overflow-wrap: anywhere; }
+.error, .danger { color: var(--vscode-errorForeground); overflow-wrap: anywhere; }
+.drag { cursor: grab; padding: .5em; }
+.card p, .stack p { margin: 0; }

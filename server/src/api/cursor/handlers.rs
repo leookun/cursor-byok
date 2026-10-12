@@ -241,6 +241,7 @@ async fn bidi_handler(
         // 插件模型 ID 只在本地有意义,永远不转发到 Cursor 官方上游。
         if model_id.starts_with(crate::plugin::ADAPTER_ID_PREFIX)
             || registry.store().model(model_id).await?.is_some()
+            || registry.store().is_alias_name(model_id).await?
         {
             tracing::info!(
                 request_id = decoded.request_id,

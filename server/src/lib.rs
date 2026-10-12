@@ -1,4 +1,5 @@
 //! Server library root; exposes the application, API, runtime, persistence, and integration layers.
+pub mod alias;
 pub mod api;
 pub mod app;
 pub mod config;

@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     catalog::PluginEntry,
     definition::{file_url, PluginDefinitionLoader},
-    protocol::{HostMessage, WorkerMessage},
+    protocol::{FailureMetadata, HostMessage, WorkerMessage},
 };
 use crate::{provider::CallRecorder, store::Store, Error, Result};
 
@@ -63,6 +63,7 @@ struct InvocationState {
     cancellation: CancellationToken,
     recorder: Option<CallRecorder>,
     recorder_claimed: AtomicBool,
+    connect_timeout: Duration,
 }
 
 impl InvocationState {
@@ -129,7 +130,7 @@ impl PluginWorker {
         cancellation: CancellationToken,
     ) -> Result<serde_json::Value> {
         let mut items = self
-            .invoke_streaming(method, params, cancellation, None)
+            .invoke_streaming(method, params, cancellation, None, None)
             .await?;
         let result = tokio::time::timeout(INVOCATION_TIMEOUT, async {
             while let Some(item) = items.recv().await {
@@ -160,15 +161,17 @@ impl PluginWorker {
         params: serde_json::Value,
         cancellation: CancellationToken,
         recorder: Option<CallRecorder>,
+        connect_timeout: Option<Duration>,
     ) -> Result<mpsc::UnboundedReceiver<WorkerStreamItem>> {
         let id = uuid::Uuid::new_v4().to_string();
-        let request_cancellation = CancellationToken::new();
+        let request_cancellation = cancellation.child_token();
         self.inner.host.invocations.lock().await.insert(
             id.clone(),
             Arc::new(InvocationState {
                 cancellation: request_cancellation.clone(),
                 recorder,
                 recorder_claimed: AtomicBool::new(false),
+                connect_timeout: connect_timeout.unwrap_or(Duration::from_secs(30)),
             }),
         );
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -177,6 +180,31 @@ impl PluginWorker {
             .lock()
             .await
             .insert(id.clone(), sender.clone());
+        // Install the watcher before worker startup/write awaits, so dropping
+        // an attempt during startup also cancels its invocation.
+        let inner = self.inner.clone();
+        let request_id = id.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    let _ = sender.send(WorkerStreamItem::Result(Err(Error::Cancelled)));
+                }
+                _ = sender.closed() => {}
+            }
+            request_cancellation.cancel();
+            inner.pending.lock().await.remove(&request_id);
+            inner.host.invocations.lock().await.remove(&request_id);
+            let stdin = inner
+                .process
+                .lock()
+                .await
+                .as_ref()
+                .map(|process| process.stdin.clone());
+            if let Some(stdin) = stdin {
+                let _ = write_message(&stdin, &HostMessage::Cancel { id: &request_id }).await;
+            }
+        });
+
         let send_result = async {
             let stdin = self.stdin().await?;
             write_message(
@@ -194,26 +222,6 @@ impl PluginWorker {
             self.cleanup(&id).await;
             return Err(error);
         }
-
-        // 取消监视:通知 Worker,同时中止该请求挂起的宿主网络调用。
-        let inner = self.inner.clone();
-        let request_id = id.clone();
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = cancellation.cancelled() => {
-                    request_cancellation.cancel();
-                    if let Some(process) = inner.process.lock().await.as_ref() {
-                        let _ = write_message(&process.stdin, &HostMessage::Cancel { id: &request_id }).await;
-                    }
-                    let _ = sender.send(WorkerStreamItem::Result(Err(Error::Cancelled)));
-                    inner.pending.lock().await.remove(&request_id);
-                    inner.host.invocations.lock().await.remove(&request_id);
-                }
-                _ = sender.closed() => {
-                    inner.host.invocations.lock().await.remove(&request_id);
-                }
-            }
-        });
         Ok(receiver)
     }
 
@@ -329,11 +337,20 @@ fn spawn_stdout_reader(
                 }
             };
             match message {
-                WorkerMessage::Result { id, result, error } => {
+                WorkerMessage::Result {
+                    id,
+                    result,
+                    error,
+                    failure,
+                } => {
                     if let Some(sender) = pending.lock().await.remove(&id) {
                         let value = match error {
                             Some(error) => {
-                                Err(Error::Provider(format!("plugin '{plugin_id}': {error}")))
+                                let message = format!("plugin '{plugin_id}': {error}");
+                                Err(match failure {
+                                    Some(failure) => failure.into_error(message),
+                                    None => Error::Provider(message),
+                                })
                             }
                             None => Ok(result),
                         };
@@ -373,6 +390,7 @@ fn spawn_stdout_reader(
                                     &HostMessage::HostError {
                                         id: &id,
                                         error: &text,
+                                        failure: FailureMetadata::from_error(&error),
                                     },
                                 )
                                 .await;
@@ -473,6 +491,17 @@ impl HostContext {
         CancellationToken,
         Option<CallRecorder>,
     )> {
+        let invocation = self
+            .invocations
+            .lock()
+            .await
+            .get(request_id)
+            .cloned()
+            .ok_or(Error::Cancelled)?;
+        let cancellation = invocation.cancellation.clone();
+        if cancellation.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let raw_url = required_string(params, "url")?;
         let url = url::Url::parse(raw_url)
             .map_err(|error| Error::Config(format!("invalid plugin network URL: {error}")))?;
@@ -500,7 +529,7 @@ impl HostContext {
         let client = crate::network::client_builder(&self.store)
             .await?
             .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(30))
+            .connect_timeout(invocation.connect_timeout)
             .build()?;
         let mut request = client.request(method, url);
         if let Some(headers) = params.get("headers").and_then(serde_json::Value::as_object) {
@@ -514,12 +543,7 @@ impl HostContext {
         if let Some(body) = params.get("body").and_then(serde_json::Value::as_str) {
             request = request.body(body.to_owned());
         }
-        let invocation = self.invocations.lock().await.get(request_id).cloned();
-        let cancellation = invocation
-            .as_ref()
-            .map(|state| state.cancellation.clone())
-            .unwrap_or_default();
-        let recorder = invocation.and_then(|state| state.claim_recorder());
+        let recorder = invocation.claim_recorder();
         if let Some(recorder) = &recorder {
             let (headers, body) = recorded_network_request(params)?;
             recorder.request(headers, &body).await?;
@@ -584,6 +608,7 @@ impl HostContext {
             recorder.response_headers(status).await?;
         }
         let headers = header_map(&response);
+        let stream_cancellation = cancellation.clone();
         let (sender, receiver) = mpsc::channel::<Result<String>>(256);
         tokio::spawn(async move {
             use futures_util::StreamExt;
@@ -593,7 +618,7 @@ impl HostContext {
             loop {
                 let chunk = tokio::select! {
                     _ = cancellation.cancelled() => {
-                        let _ = sender.send(Err(Error::Cancelled)).await;
+                        let _ = sender.try_send(Err(Error::Cancelled));
                         return;
                     }
                     chunk = body.next() => chunk,
@@ -628,11 +653,11 @@ impl HostContext {
                     if line.last() == Some(&b'\r') {
                         line.pop();
                     }
-                    if sender
-                        .send(Ok(String::from_utf8_lossy(&line).into_owned()))
-                        .await
-                        .is_err()
-                    {
+                    let sent = tokio::select! {
+                        _ = cancellation.cancelled() => return,
+                        sent = sender.send(Ok(String::from_utf8_lossy(&line).into_owned())) => sent,
+                    };
+                    if sent.is_err() {
                         return;
                     }
                 }
@@ -648,6 +673,12 @@ impl HostContext {
             .lock()
             .await
             .insert(stream_id.clone(), Arc::new(Mutex::new(receiver)));
+        let streams = self.streams.clone();
+        let cleanup_id = stream_id.clone();
+        tokio::spawn(async move {
+            stream_cancellation.cancelled().await;
+            streams.lock().await.remove(&cleanup_id);
+        });
         Ok(serde_json::json!({
             "streamId": stream_id,
             "status": status,
@@ -783,6 +814,7 @@ mod tests {
                 cancellation: CancellationToken::new(),
                 recorder: Some(recorder),
                 recorder_claimed: AtomicBool::new(false),
+                connect_timeout: Duration::from_secs(30),
             }),
         );
         HostContext {
@@ -792,6 +824,80 @@ mod tests {
             invocations,
             streams: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_is_scoped_to_the_invocation() {
+        let (_directory, store, recorder) = recorder(false, "timeout-plugin").await;
+        let mut host = host_with_recorder(store, recorder).await;
+        host.network_hosts = Arc::new(HashSet::from(["127.0.0.1".into()]));
+        host.invocations.lock().await.insert(
+            "alias".into(),
+            Arc::new(InvocationState {
+                cancellation: CancellationToken::new(),
+                recorder: None,
+                recorder_claimed: AtomicBool::new(false),
+                connect_timeout: Duration::from_millis(50),
+            }),
+        );
+        // An open TCP listener which never performs the TLS handshake exercises
+        // the real connect timeout without contacting an upstream service.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let params =
+            serde_json::json!({"url": format!("https://{}", listener.local_addr().unwrap())});
+        let (request, _, _) = host.request("alias", &params).await.unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(2), request.send())
+            .await
+            .expect("alias connect timeout must expire first")
+            .unwrap_err();
+        assert!(error.is_timeout());
+        assert_eq!(
+            FailureMetadata::from_error(&Error::from(error))
+                .unwrap()
+                .kind,
+            crate::provider::failure::FailureKind::Transient
+        );
+        let (request, _, _) = host.request("invocation", &params).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), request.send())
+                .await
+                .is_err(),
+            "ordinary invocation retains its 30-second connect timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_or_removed_invocations_cannot_start_network_requests() {
+        let (_directory, store, recorder) = recorder(false, "cancelled-plugin").await;
+        let host = host_with_recorder(store, recorder).await;
+        let caller = CancellationToken::new();
+        let attempt = caller.child_token();
+        let cancellation = attempt.child_token();
+        host.invocations.lock().await.insert(
+            "invocation".into(),
+            Arc::new(InvocationState {
+                cancellation: cancellation.clone(),
+                recorder: None,
+                recorder_claimed: AtomicBool::new(false),
+                connect_timeout: Duration::from_secs(30),
+            }),
+        );
+        let guard = attempt.drop_guard();
+        drop(guard);
+        assert!(cancellation.is_cancelled());
+        assert!(
+            !caller.is_cancelled(),
+            "losing attempt must not cancel the next attempt"
+        );
+        assert!(matches!(
+            host.request("invocation", &network_params()).await,
+            Err(Error::Cancelled)
+        ));
+        host.invocations.lock().await.remove("invocation");
+        assert!(matches!(
+            host.request("invocation", &network_params()).await,
+            Err(Error::Cancelled)
+        ));
     }
 
     #[test]

@@ -4,12 +4,7 @@ import type { LlmContentPart, LlmRequest, ModelEvent, ProviderOutput } from "../
 /** 本协议产生的回放状态种类;与宿主内置 Responses Provider 一致,可互相回放。 */
 export const REPLAY_KIND = "openai_responses";
 
-/** 上游返回非 2xx 时抛出,携带完整响应体供调用方分类。 */
-export class HttpError extends Error {
-  constructor(readonly status: number, readonly body: string) {
-    super(`HTTP ${status}: ${body}`);
-  }
-}
+import { HttpError, providerEventError } from "../provider.ts";
 
 export type OpenAiResponsesCall = {
   url: string;
@@ -243,7 +238,7 @@ export async function streamOpenAiResponses(
     body: JSON.stringify(buildResponsesBody(call)),
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new HttpError(response.status, await readBody(response.lines));
+    throw new HttpError(response.status, await readBody(response.lines), response.headers);
   }
 
   let textOpen = false;
@@ -303,6 +298,10 @@ export async function streamOpenAiResponses(
       value = record(JSON.parse(payload)) ?? {};
     } catch {
       throw new Error("OpenAI Responses SSE returned invalid JSON");
+    }
+    if (value.type === "error" || (value.error !== undefined && value.error !== null)) {
+      const message = text(record(value.error)?.message) ?? text(value.message) ?? payload;
+      throw providerEventError(value, `OpenAI Responses error: ${message}`, response.headers);
     }
     switch (value.type) {
       case "response.output_text.delta": {
@@ -412,7 +411,7 @@ export async function streamOpenAiResponses(
         break;
       }
       case "response.failed":
-        throw new Error(`OpenAI Responses failed: ${payload}`);
+        throw providerEventError(value, `OpenAI Responses failed: ${payload}`, response.headers);
     }
     if (terminal) break;
   }

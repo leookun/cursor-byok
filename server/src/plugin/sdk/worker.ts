@@ -1,5 +1,5 @@
 import { __getRegisteredPlugin, type JsonValue, type NetworkEventStream, type PluginContext } from "cursor-byok:plugin";
-import type { ModelEvent, ProviderSupport } from "cursor-byok:provider";
+import { type ModelEvent, ProviderError, providerFailure, type ProviderSupport } from "cursor-byok:provider";
 import type { ResourceAddMethod, ResourceSupport } from "cursor-byok:resource";
 
 if (Deno.args.length !== 1) throw new Error("plugin entry URL is required");
@@ -177,7 +177,7 @@ async function dispatch(message: { id: string; method: string; params?: JsonValu
     }
     await send({ type: "result", id: message.id, result: result ?? null });
   } catch (error) {
-    await send({ type: "result", id: message.id, error: error instanceof Error ? error.message : String(error) });
+    await send({ type: "result", id: message.id, error: error instanceof Error ? error.message : String(error), failure: providerFailure(error) });
   } finally {
     controllers.delete(message.id);
   }
@@ -206,7 +206,9 @@ for await (const chunk of Deno.stdin.readable.pipeThrough(new TextDecoderStream(
       const pending = pendingHost.get(message.id);
       if (!pending) continue;
       pendingHost.delete(message.id);
-      pending.reject(new Error(message.error));
+      pending.reject(message.failure
+        ? new ProviderError(message.error, message.failure)
+        : new Error(message.error));
     }
   }
 }

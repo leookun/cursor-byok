@@ -93,6 +93,7 @@ export function HomePage() {
   }));
   const contribution = contributionCalendarData(filteredOverview, selectedRange?.endMs ?? Date.now());
   const metrics = {
+    aliasSwitches: filteredOverview.metrics.alias_switches,
     llmCalls: filteredOverview.metrics.llm_calls,
     successfulCalls: filteredOverview.metrics.successful_calls,
     failedCalls: filteredOverview.metrics.failed_calls,

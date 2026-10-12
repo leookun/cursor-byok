@@ -163,6 +163,8 @@ fn model_input(model: LegacyModel) -> Result<ModelConfigInput> {
         base_url,
         use_full_url,
         api_key: model.api_key,
+        supports_images: None,
+        supports_tools: None,
         tooltip_data: if model.tooltip_data.trim().is_empty() {
             model.display_name
         } else {

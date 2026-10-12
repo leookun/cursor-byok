@@ -9,7 +9,7 @@ import type { ResourceSnapshot } from "cursor-byok:resource";
 import { codexDeviceOAuth } from "./oauth.ts";
 import { parseOfficialModels } from "./models.ts";
 import { buildResponsesBody } from "cursor-byok:protocol/openai-responses";
-import { codexProvider, isQuotaError } from "./provider.ts";
+import { codexProvider } from "./provider.ts";
 import {
   accountIdentity,
   consumeResetCardAction,
@@ -270,6 +270,9 @@ Deno.test("official model discovery excludes hidden models and puts the default 
       {
         slug: "gpt-first",
         display_name: "GPT First",
+        context_window: 128_000,
+        supports_tools: true,
+        input_modalities: ["text", "image"],
         supported_in_api: true,
         visibility: "list",
         supported_reasoning_levels: [
@@ -283,7 +286,11 @@ Deno.test("official model discovery excludes hidden models and puts the default 
     ],
   });
   assertEquals(models.map((model) => model.id), ["gpt-second", "gpt-first"]);
-  assertEquals(models[1].capabilities, { images: true });
+  assertEquals(models[1].capabilities, { tools: true, images: true });
+  assertEquals(models[1].contextWindowTokens, 128_000);
+  assertEquals(models[0].capabilities, {});
+  assertEquals(models[0].images, true);
+  assertEquals(models[0].contextWindowTokens, undefined);
   assertEquals(models[1].privateData, { reasoningEfforts: ["low", "medium"] });
 });
 
@@ -496,8 +503,6 @@ Deno.test("invoke streams incremental tool calls and replays reasoning items", a
 });
 
 Deno.test("invoke maps quota failures to a cooling resource error", async () => {
-  assert(!isQuotaError("429 rate_limit_reached"));
-  assert(isQuotaError("429 usage_limit_reached: 5-hour limit"));
   const token = jwt({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-1" } });
   const draft = await credentialDraft({
     accessToken: token,
@@ -514,12 +519,13 @@ Deno.test("invoke maps quota failures to a cooling resource error", async () => 
     context({
       stream: () => ({
         status: 429,
-        headers: {},
+        headers: { "retry-after": "20" },
         lines: sse(['{"detail":"usage_limit_reached","reset_after_seconds":600}']),
       }),
     }),
   );
   assert(result.status === "resource-error", `expected resource-error, received ${result.status}`);
+  assertEquals(result.failure, { kind: "rate_limit", status: 429, retryAfterMs: 20_000 });
   assert(result.patch.state?.status === "cooling", "quota failure should cool the resource");
   assert(
     result.patch.state.retryAtMs !== undefined && result.patch.state.retryAtMs > Date.now(),

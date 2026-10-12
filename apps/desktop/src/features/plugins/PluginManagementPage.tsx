@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, pluginText, type PluginDescriptor, type PluginImportFile, type PluginRuntimePhase, type PluginRuntimeStatus } from "../../shared/api";
+import { SourceDeleteDialog } from "../aliases/SourceDeleteDialog";
 import { useI18n } from "../../i18n/store";
 import { PageContent } from "../../shell/layout/PageContent";
 import { appStore, useAppStore } from "../../shared/store/appStore";
@@ -138,6 +139,14 @@ function PluginCard({ plugin, onOpen }: {
   const message = useMessage();
   const importInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const remove = async () => {
+    setRemoving(true);
+    try { await api.removePluginConfiguration(plugin.id); await appStore.refreshPlugins(); setDeleting(false); }
+    catch (cause) { message(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setRemoving(false); }
+  };
   const configured = plugin.providers.some((provider) => provider.configured);
   const accountCount = plugin.resources.reduce((count, resource) => count + resource.resources.length, 0);
   const modelCount = plugin.providers.reduce((count, provider) => count + provider.models.length, 0);
@@ -241,6 +250,7 @@ function PluginCard({ plugin, onOpen }: {
             onClick={() => onOpen(plugin.id, "settings")}
           />
         )}
+        {(configured || accountCount > 0) && <Button size="small" className={styles.danger} disabled={removing || importing} onClick={() => setDeleting(true)}>{t("移除插件配置")}</Button>}
         {moreItems.length > 0 && (
           <span className={styles.moreAction}>
             <ActionMenu label={t("更多")} items={moreItems} />
@@ -257,6 +267,7 @@ function PluginCard({ plugin, onOpen }: {
           />
         )}
       </div>
+      {deleting && <SourceDeleteDialog title={t("移除插件配置")} sourceType="plugin" sourceIds={plugin.providers.map((provider) => `${plugin.id}/${provider.id}`)} busy={removing} onCancel={() => setDeleting(false)} onConfirm={() => void remove()} />}
     </Card>
   );
 }

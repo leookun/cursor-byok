@@ -1,5 +1,6 @@
 //! Exposes the local control API.
 mod ads;
+mod aliases;
 mod calls;
 mod harness;
 mod models;
@@ -111,6 +112,11 @@ fn proxy_error(error: impl std::fmt::Display) -> Response<Body> {
 
 pub fn api_router(service: ControlService) -> Router {
     Router::new()
+        .route("/__byok-api__/api/aliases", get(aliases::list).post(aliases::create))
+        .route("/__byok-api__/api/aliases/sources", get(aliases::sources))
+        .route("/__byok-api__/api/aliases/settings", get(aliases::settings).put(aliases::save_settings))
+        .route("/__byok-api__/api/aliases/{id}", put(aliases::update).delete(aliases::remove))
+        .route("/__byok-api__/api/aliases/{id}/test/{test_id}", post(aliases::test).delete(aliases::cancel))
         .route("/__byok-api__/api/promotions", get(ads::get))
         .route(
             "/__byok-api__/api/promotions/images/{file_name}",

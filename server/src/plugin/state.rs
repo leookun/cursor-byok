@@ -137,6 +137,12 @@ pub struct StoredModel {
     #[serde(default)]
     pub max_output_tokens: Option<u64>,
     #[serde(default)]
+    pub context_window_tokens: Option<u64>,
+    #[serde(default)]
+    pub supports_tools: Option<bool>,
+    #[serde(default)]
+    pub supports_images: Option<bool>,
+    #[serde(default)]
     pub images: bool,
     #[serde(default = "default_model_enabled")]
     pub enabled: bool,
@@ -172,7 +178,6 @@ impl StoredModel {
             capabilities
                 .and_then(|value| value.get(name))
                 .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
         };
         Ok(Self {
             id: id.to_owned(),
@@ -184,7 +189,15 @@ impl StoredModel {
             max_output_tokens: object
                 .get("maxOutputTokens")
                 .and_then(serde_json::Value::as_u64),
-            images: capability("images"),
+            context_window_tokens: object
+                .get("contextWindowTokens")
+                .and_then(serde_json::Value::as_u64),
+            supports_tools: capability("tools"),
+            supports_images: capability("images"),
+            images: object
+                .get("images")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or_else(|| capability("images").unwrap_or(false)),
             enabled: true,
             private_data: object
                 .get("privateData")
@@ -195,14 +208,26 @@ impl StoredModel {
 
     /// 传给插件的模型快照(SDK 的 ModelSnapshot)。
     pub fn snapshot(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut capabilities = serde_json::Map::new();
+        if let Some(images) = self.supports_images {
+            capabilities.insert("images".into(), images.into());
+        }
+        if let Some(tools) = self.supports_tools {
+            capabilities.insert("tools".into(), tools.into());
+        }
+        let mut snapshot = serde_json::json!({
             "id": self.id,
             "displayName": self.display_name,
             "description": self.description,
             "maxOutputTokens": self.max_output_tokens,
-            "capabilities": { "images": self.images },
+            "images": self.images,
+            "capabilities": capabilities,
             "privateData": self.private_data,
-        })
+        });
+        if let Some(tokens) = self.context_window_tokens {
+            snapshot["contextWindowTokens"] = tokens.into();
+        }
+        snapshot
     }
 }
 
@@ -473,6 +498,83 @@ mod tests {
         let records = store.resources("dev.example", "account").await.unwrap();
         assert!(!records[0].state.is_ready(100));
         assert!(records[0].state.is_ready(300), "cooling expires over time");
+    }
+
+    #[test]
+    fn model_metadata_roundtrips_known_false_and_unknown() {
+        let known = StoredModel::from_definition(&serde_json::json!({
+            "id": "known", "displayName": "Known",
+            "contextWindowTokens": 128000, "maxOutputTokens": 16000,
+            "capabilities": {"tools": true, "images": false},
+        }))
+        .unwrap();
+        assert_eq!(known.context_window_tokens, Some(128000));
+        assert_eq!(known.supports_tools, Some(true));
+        assert_eq!(known.supports_images, Some(false));
+        assert!(!known.images);
+        let stored: StoredModel =
+            serde_json::from_value(serde_json::to_value(&known).unwrap()).unwrap();
+        let snapshot = stored.snapshot();
+        assert_eq!(snapshot["contextWindowTokens"], 128000);
+        assert_eq!(
+            snapshot["capabilities"],
+            serde_json::json!({"tools": true, "images": false})
+        );
+        let restored = StoredModel::from_definition(&snapshot).unwrap();
+        assert_eq!(restored.supports_images, Some(false));
+
+        let unknown = StoredModel::from_definition(&serde_json::json!({
+            "id": "unknown", "displayName": "Unknown",
+        }))
+        .unwrap();
+        assert_eq!(unknown.supports_images, None);
+        assert_eq!(unknown.supports_tools, None);
+        assert_eq!(unknown.context_window_tokens, None);
+        assert!(
+            !unknown.images,
+            "ordinary image flag retains its false default"
+        );
+        assert_eq!(unknown.snapshot()["capabilities"], serde_json::json!({}));
+        assert!(unknown.snapshot().get("contextWindowTokens").is_none());
+        assert_eq!(
+            StoredModel::from_definition(&unknown.snapshot())
+                .unwrap()
+                .supports_images,
+            None
+        );
+        let catalog_image = StoredModel::from_definition(&serde_json::json!({
+            "id": "catalog", "displayName": "Catalog", "images": true,
+        }))
+        .unwrap();
+        assert!(
+            catalog_image.images,
+            "ordinary catalog image behavior is independent of verification"
+        );
+        assert_eq!(catalog_image.supports_images, None);
+        let restored = StoredModel::from_definition(&catalog_image.snapshot()).unwrap();
+        assert!(restored.images);
+        assert_eq!(restored.supports_images, None);
+    }
+
+    #[test]
+    fn only_ready_or_expired_cooling_resources_are_available() {
+        assert!(ResourceState::Ready.is_ready(100));
+        assert!(ResourceState::Cooling {
+            retry_at_ms: Some(100),
+            message: None
+        }
+        .is_ready(100));
+        assert!(!ResourceState::Cooling {
+            retry_at_ms: Some(101),
+            message: None
+        }
+        .is_ready(100));
+        assert!(!ResourceState::Cooling {
+            retry_at_ms: None,
+            message: None
+        }
+        .is_ready(100));
+        assert!(!ResourceState::Invalid { message: None }.is_ready(100));
     }
 
     #[tokio::test]

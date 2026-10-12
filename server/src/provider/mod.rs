@@ -2,6 +2,7 @@
 mod anthropic;
 mod attempt;
 mod event;
+pub mod failure;
 mod normalize;
 mod openai_chat;
 mod openai_responses;
@@ -41,6 +42,10 @@ pub use router::{build as build_provider, ProviderRouter};
 pub type ProviderStream = Pin<Box<dyn Stream<Item = Result<ModelEvent>> + Send>>;
 
 pub trait Provider: Send + Sync {
+    fn alias_resolver(&self) -> Option<crate::alias::AliasResolver> {
+        None
+    }
+
     fn stream(
         &self,
         invocation: ModelInvocation,
@@ -91,7 +96,35 @@ fn provider_event_error(label: &str, value: &serde_json::Value) -> Option<crate:
         })
         .unwrap_or("provider returned an error event without a message");
 
-    Some(crate::Error::Provider(format!("{label} error: {message}")))
+    let code = value
+        .pointer("/error/code")
+        .or_else(|| value.pointer("/error/type"))
+        .or_else(|| value.pointer("/response/error/code"))
+        .or_else(|| value.get("code"))
+        .and_then(serde_json::Value::as_str);
+    let kind = match code {
+        Some(
+            "rate_limit_exceeded" | "rate_limit_error" | "insufficient_quota" | "quota_exceeded",
+        ) => Some(failure::FailureKind::RateLimit),
+        Some("server_error" | "api_error" | "overloaded_error" | "internal_server_error") => {
+            Some(failure::FailureKind::Transient)
+        }
+        Some("authentication_error" | "permission_error" | "invalid_api_key") => {
+            Some(failure::FailureKind::Authorization)
+        }
+        Some("invalid_request_error") => Some(failure::FailureKind::Request),
+        _ => None,
+    };
+    let message = format!("{label} error: {message}");
+    Some(match kind {
+        Some(kind) => crate::Error::Upstream(failure::ProviderFailure {
+            kind,
+            status: None,
+            retry_after_ms: None,
+            message,
+        }),
+        None => crate::Error::Provider(message),
+    })
 }
 
 fn merge_extra_params(body: &mut serde_json::Value, extra: &serde_json::Value) -> Result<()> {
@@ -212,8 +245,10 @@ mod tests {
     }
 
     fn assert_provider_error(label: &str, value: serde_json::Value, expected: &str) {
-        let Some(crate::Error::Provider(message)) = provider_event_error(label, &value) else {
-            panic!("expected provider error");
+        let message = match provider_event_error(label, &value) {
+            Some(crate::Error::Provider(message)) => message,
+            Some(crate::Error::Upstream(failure)) => failure.message,
+            _ => panic!("expected provider error"),
         };
         assert_eq!(message, expected);
     }

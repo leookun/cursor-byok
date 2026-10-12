@@ -48,6 +48,8 @@ fn model_input(model_id: &str) -> ModelConfigInput {
         base_url: "https://example.com/v1".into(),
         use_full_url: false,
         api_key: "test-key".into(),
+        supports_images: None,
+        supports_tools: None,
         tooltip_data: "模型介绍".into(),
         model_id: model_id.into(),
         reasoning_effort: None,

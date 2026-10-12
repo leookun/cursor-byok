@@ -4,6 +4,9 @@ import type { CommitPromptLocale, Locale } from "../i18n/runtime";
 export type ModelType = "openai" | "anthropic";
 
 export interface Model {
+  source_id: string;
+  supports_images?: boolean | null;
+  supports_tools?: boolean | null;
   model_hash: string;
   sort_order: number;
   display_name: string;
@@ -32,6 +35,8 @@ export interface Model {
 }
 
 export interface ModelInput {
+  supports_images?: boolean | null;
+  supports_tools?: boolean | null;
   sort_order: number;
   display_name: string;
   group_name: string | null;
@@ -93,6 +98,56 @@ export interface ModelConnectivityResult {
   tokens_per_second: number;
   tokens_estimated: boolean;
   output: string;
+}
+
+export type SourceType = "api" | "plugin";
+export interface AliasTarget { source_type: SourceType; source_id: string; model_id: string; enabled: boolean }
+export interface AliasInput {
+  name: string;
+  description: string;
+  enabled: boolean;
+  targets: AliasTarget[];
+  sticky: boolean;
+  return_mode: "new_sessions" | "immediate";
+}
+export interface Alias extends AliasInput { id: string; created_at_ms: number; updated_at_ms: number }
+export interface AliasCapabilities { context_window_tokens: number | null; max_output_tokens: number | null; images: boolean | null; tools: boolean | null }
+export interface AliasTargetStatus {
+  key: string;
+  status: "available" | "active" | "disabled" | "cooldown" | "authorization" | "broken" | "unavailable";
+  reason: string | null;
+  retry_at_ms: number | null;
+}
+export interface AliasView extends Alias {
+  status: "working" | "partial" | "unavailable" | "disabled";
+  active_target: string | null;
+  target_statuses: AliasTargetStatus[];
+  parameters: AliasCapabilities;
+  warnings: string[];
+}
+export interface AliasSource {
+  target: AliasTarget;
+  label: string;
+  source_name: string;
+  request_model_id: string;
+  model_id: string;
+  available: boolean;
+  reason: string | null;
+  parameters: AliasCapabilities;
+}
+export interface AliasSettings {
+  rate_limit_seconds: number;
+  transient_seconds: number;
+  authorization_seconds: number;
+  connect_timeout_seconds: number;
+  first_token_timeout_seconds: number;
+}
+export interface AliasTestResult {
+  result: ModelConnectivityResult | null;
+  target_id: string | null;
+  switches: number;
+  attempts: { target_id: string; error: string | null }[];
+  error: string | null;
 }
 
 export type CaState = "missing" | "untrusted" | "ready" | "invalid";
@@ -348,6 +403,7 @@ export function configuredPluginModels(plugins: PluginDescriptor[]): PluginModel
 }
 
 export interface OverviewMetrics {
+  alias_switches: number;
   llm_calls: number;
   successful_calls: number;
   failed_calls: number;
@@ -376,6 +432,10 @@ export interface Overview {
 }
 
 export interface LlmCall {
+  alias_id: string | null;
+  alias_name: string | null;
+  alias_target_id: string | null;
+  alias_switch_count: number;
   call_kind: "provider_llm" | "cursor_official";
   route: "local_byok" | "cursor_official";
   call_id: string;
@@ -476,6 +536,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  aliases: (signal?: AbortSignal) => request<AliasView[]>("/aliases", { signal }),
+  aliasSources: (signal?: AbortSignal) => request<AliasSource[]>("/aliases/sources", { signal }),
+  createAlias: (input: AliasInput) => request<Alias>("/aliases", { method: "POST", body: JSON.stringify(input) }),
+  updateAlias: (id: string, input: AliasInput) => request<Alias>(`/aliases/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+  deleteAlias: (id: string) => request<void>(`/aliases/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  aliasSettings: () => request<AliasSettings>("/aliases/settings"),
+  setAliasSettings: (input: AliasSettings) => request<AliasSettings>("/aliases/settings", { method: "PUT", body: JSON.stringify(input) }),
+  testAlias: (id: string, testId: string, signal?: AbortSignal) => request<AliasTestResult>(`/aliases/${encodeURIComponent(id)}/test/${encodeURIComponent(testId)}`, { method: "POST", signal }),
+  cancelAliasTest: (id: string, testId: string) => request<void>(`/aliases/${encodeURIComponent(id)}/test/${encodeURIComponent(testId)}`, { method: "DELETE" }),
   ads: (disabledAdIds: Iterable<string>, locale: Locale) => {
     const value = [...disabledAdIds].join(",");
     return request<AdRuntime>("/promotions", {

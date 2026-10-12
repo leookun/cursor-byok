@@ -1,4 +1,4 @@
-import type { ModelDefinition, ModelSupport } from "cursor-byok:model";
+import { modelMetadata, type ModelDefinition, type ModelSupport } from "cursor-byok:model";
 import { accountData } from "./resources.ts";
 
 const LANGUAGE_MODELS_URL = "https://api.x.ai/v1/language-models";
@@ -9,12 +9,12 @@ export const FALLBACK_MODELS: ModelDefinition[] = [
   {
     id: "grok-4.6",
     displayName: "Grok 4.6",
-    capabilities: { images: true },
+    images: true,
   },
   {
     id: "grok-4.5",
     displayName: "Grok 4.5",
-    capabilities: { images: true },
+    images: true,
   },
 ];
 
@@ -26,12 +26,6 @@ function object(value: unknown): Record<string, unknown> | null {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function modalities(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.flatMap((item) => (typeof item === "string" ? [item.toLowerCase()] : []))
-    : [];
 }
 
 /** 把模型 ID 变成可读名称,如 grok-4-fast → Grok 4 Fast。 */
@@ -56,13 +50,15 @@ export function parseGrokModels(body: unknown): ModelDefinition[] {
     const id = model ? text(model.id ?? model.name) : null;
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    const inputs = modalities(model?.input_modalities ?? model?.inputModalities);
+    const rawInputs = model?.input_modalities ?? model?.inputModalities;
+    const inputs = Array.isArray(rawInputs)
+      ? rawInputs.filter((input): input is string => typeof input === "string").map((input) => input.toLowerCase())
+      : [];
     models.push({
       id,
       displayName: displayName(id),
-      capabilities: {
-        images: inputs.length === 0 || inputs.includes("image"),
-      },
+      images: inputs.length === 0 || inputs.includes("image"),
+      ...modelMetadata(model!),
     });
   }
   return models;

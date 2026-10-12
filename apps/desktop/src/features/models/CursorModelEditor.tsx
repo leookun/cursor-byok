@@ -112,6 +112,8 @@ export function CursorModelEditor({ draft, modelOptions, discovering, onChange, 
         custom_headers: endpoint.customHeaders ? { ...endpoint.customHeaders } : {},
         api_key: sameProvider ? draft.model.api_key : "",
         model_id: first?.model_id ?? draft.model.model_id,
+        supports_images: null,
+        supports_tools: null,
         display_name: first?.display_name ?? draft.model.display_name,
         tooltip_data: !draft.model.tooltip_data.trim() || draft.model.tooltip_data === t("备注") ? preset.name : draft.model.tooltip_data,
         context_window_tokens: first?.context_window_tokens ?? draft.model.context_window_tokens,
@@ -170,6 +172,7 @@ export function CursorModelEditor({ draft, modelOptions, discovering, onChange, 
         <FormField label={t("思考预算 Token")} hint={t("留空时使用 adaptive thinking。")}> <TextInput type="number" min={1} step={1} placeholder={t("留空使用 adaptive thinking")} value={draft.model.thinking_budget_tokens ?? ""} onChange={(event) => setModel({ thinking_budget_tokens: numberValue(event.target.value) })} /></FormField>
       </>}
 
+      {(["supports_images", "supports_tools"] as const).map((key) => <FormField key={key} label={key === "supports_images" ? t("图片能力声明") : t("工具调用能力声明")} hint={t("仅在确认来源支持时声明；未知不会作为保证能力。")}> <Select ariaLabel={key === "supports_images" ? t("图片能力声明") : t("工具调用能力声明")} value={draft.model[key] == null ? "unknown" : draft.model[key] ? "yes" : "no"} options={[{ value: "unknown", label: t("未知") }, { value: "yes", label: t("支持") }, { value: "no", label: t("不支持") }]} onChange={(value) => setModel({ [key]: value === "unknown" ? null : value === "yes" })} /></FormField>)}
       <ToggleJsonField
         label={t("自定义 Headers")}
         enabled={draft.model.custom_headers_enabled}

@@ -36,14 +36,14 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ControlService {
-    store: Store,
+    pub(super) store: Store,
     cursor_harness: CursorHarness,
-    provider: Arc<dyn Provider>,
+    pub(super) provider: Arc<dyn Provider>,
     plugin_runtime: PluginRuntime,
     plugins: PluginRegistry,
     clients: crate::network::NetworkClients,
     app_version: String,
-    model_tests: Arc<Mutex<BTreeMap<String, CancellationToken>>>,
+    pub(super) model_tests: Arc<Mutex<BTreeMap<String, CancellationToken>>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -397,7 +397,12 @@ impl ControlService {
                 .or_insert_with(|| cancellation.clone())
                 .clone()
         };
-        let result = self.run_model_test(model_hash, cancellation).await;
+        let result = self.run_model_test(model_hash, cancellation, None).await;
+        if result.is_ok() {
+            if let Some(aliases) = self.provider.alias_resolver() {
+                aliases.tested(model_hash).await?;
+            }
+        }
         self.model_tests
             .lock()
             .expect("model test registry mutex poisoned")
@@ -416,16 +421,24 @@ impl ControlService {
         cancellation.cancel();
     }
 
-    async fn run_model_test(
+    pub(super) async fn run_model_test(
         &self,
         model_hash: &str,
         cancellation: CancellationToken,
+        call_id: Option<String>,
     ) -> Result<ModelConnectivityResult> {
         const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
         const TEST_PROMPT: &str = "Output the numbers 1 through 120 separated by a single space. No commas, no newlines, no explanation.";
 
         let mut model = ModelSpec::new(model_hash);
-        if model_hash.starts_with(crate::plugin::ADAPTER_ID_PREFIX) {
+        let alias = if let Some(aliases) = self.provider.alias_resolver() {
+            aliases.configure(&mut model).await?
+        } else {
+            false
+        };
+        if alias {
+            // Alias budgets and per-target defaults are resolved by the production router.
+        } else if model_hash.starts_with(crate::plugin::ADAPTER_ID_PREFIX) {
             let descriptor = self.plugins.model_descriptor(model_hash).await?;
             model.display_name = Some(descriptor.display_name);
             model.max_output_tokens = Some(descriptor.max_output_tokens.unwrap_or(65_536));
@@ -438,7 +451,7 @@ impl ControlService {
             configured.configure(&mut model);
             model.max_output_tokens = Some(configured.max_output_tokens().unwrap_or(65_536));
         }
-        let call_id = format!("model-test-{}", uuid::Uuid::new_v4());
+        let call_id = call_id.unwrap_or_else(|| format!("model-test-{}", uuid::Uuid::new_v4()));
         let invocation = ModelInvocation {
             call_id: call_id.clone(),
             run_id: call_id.clone(),
@@ -464,7 +477,24 @@ impl ControlService {
         let mut output_tokens = None;
         let mut output = String::new();
         let stream = self.provider.stream(invocation, cancellation.clone());
-        let completed = tokio::time::timeout(TEST_TIMEOUT, async {
+        let test_timeout = if alias {
+            let settings = self.store.alias_settings().await?;
+            let count = self
+                .store
+                .alias_by_name(model_hash)
+                .await?
+                .map_or(1, |alias| alias.config.targets.len());
+            std::time::Duration::from_secs(
+                settings
+                    .first_token_timeout_seconds
+                    .saturating_add(1)
+                    .saturating_mul(count as u64)
+                    .saturating_add(45),
+            )
+        } else {
+            TEST_TIMEOUT
+        };
+        let completed = tokio::time::timeout(test_timeout, async {
             futures_util::pin_mut!(stream);
             let mut finished = false;
             while let Some(event) = stream.next().await {
@@ -795,6 +825,10 @@ fn official_call(trace: CursorRunTraceSummary) -> CallSummary {
     let error = trace.error_message.clone();
     CallSummary {
         call: LlmCallSummary {
+            alias_id: None,
+            alias_name: None,
+            alias_target_id: None,
+            alias_switch_count: 0,
             call_id: format!("cursor:{}", trace.request_id),
             run_id: trace.request_id.clone(),
             conversation_id: trace

@@ -97,6 +97,10 @@ impl RunEngine {
         client: &mut RunPort,
         cancellation: &CancellationToken,
     ) -> (RunOutcome, Option<Usage>) {
+        let alias_request = match self.store.alias_by_name(&prepared.model.model_id).await {
+            Ok(alias) => alias.is_some(),
+            Err(error) => return (RunOutcome::Failed(error.into()), None),
+        };
         let mut usage = None;
         let mut context_usage_anchor = match self
             .store
@@ -391,7 +395,8 @@ impl RunEngine {
                         // estimate missed. Without this a conversation that
                         // crosses the line is wedged: every retry rebuilds the
                         // same prompt and gets the same refusal.
-                        if !overflow_compacted
+                        if !alias_request
+                            && !overflow_compacted
                             && prepared.action != RunAction::Compact
                             && matches!(&cycle_failure.failure, RunFailure::Provider(message)
                                 if super::compaction::is_context_overflow(message))
@@ -435,7 +440,7 @@ impl RunEngine {
                                 Err(outcome) => return (outcome, usage),
                             }
                         }
-                        if !should_retry(&cycle_failure, retries) {
+                        if alias_request || !should_retry(&cycle_failure, retries) {
                             return (RunOutcome::Failed(cycle_failure.failure), usage);
                         }
                         retries += 1;

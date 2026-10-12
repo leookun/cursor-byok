@@ -7,6 +7,7 @@ import { AppFrame } from "./shell/AppFrame";
 import { AppLayout } from "./shell/AppLayout";
 import { CallsPage } from "./features/calls/CallsPage";
 import { CallDetailsPage } from "./features/calls/CallDetailsPage";
+import { AliasesPage } from "./features/aliases/AliasesPage";
 import { CursorSettingsPage } from "./features/models/CursorSettingsPage";
 import { HomePage } from "./features/home/HomePage";
 import { PluginManagementPage } from "./features/plugins/PluginManagementPage";
@@ -27,6 +28,7 @@ export function App() {
               <Route index element={<HomePage />} />
               <Route path="calls" element={<CallsPage />} />
               <Route path="harness/cursor" element={<CursorSettingsPage />} />
+              <Route path="aliases" element={<AliasesPage />} />
               <Route path="plugins" element={<PluginManagementPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

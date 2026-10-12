@@ -7,6 +7,7 @@ import { CacheHitRateChart } from "./CacheHitRateChart";
 import styles from "./HomeMetrics.module.scss";
 
 export type HomeMetricsData = {
+  aliasSwitches: number;
   llmCalls: number;
   successfulCalls: number;
   failedCalls: number;
@@ -89,6 +90,7 @@ export function HomeMetrics({ data, refreshVersion = 0 }: { data: HomeMetricsDat
     t("按历史 LLM 调用记录汇总，进行中的调用不计入。"),
     "",
     t("总调用：{count}", { count: formatMetricValue(data.llmCalls) }),
+    t("别名切换：{count}", { count: formatMetricValue(data.aliasSwitches) }),
     t("成功调用：{count}", { count: formatMetricValue(data.successfulCalls) }),
     t("异常调用：{count}", { count: formatMetricValue(data.failedCalls) }),
     t("成功占比：{rate}", { rate: formatRate(successfulCallRate) }),
@@ -147,6 +149,7 @@ export function HomeMetrics({ data, refreshVersion = 0 }: { data: HomeMetricsDat
             successful: formatCompactInteger(data.successfulCalls),
             failed: formatCompactInteger(data.failedCalls),
           })}</div>
+          <div className={styles.secondary}>{t("别名切换：{count}", { count: formatCompactInteger(data.aliasSwitches) })}</div>
         </div>
       </article>
       <article className={styles.metric}>
