@@ -21,6 +21,7 @@ pub struct NetworkClients {
 struct ClientCache {
     default: Option<reqwest::Client>,
     cursor: Option<reqwest::Client>,
+    cursor_http2: Option<reqwest::Client>,
     provider: Option<(Duration, reqwest::Client)>,
 }
 
@@ -61,6 +62,24 @@ impl NetworkClients {
         Ok(client)
     }
 
+    /// Cursor's agent backend streams requests and responses at once over HTTP/2.
+    pub async fn cursor_http2_client(&self) -> Result<reqwest::Client> {
+        if let Some(client) = self.cache.read().await.cursor_http2.clone() {
+            return Ok(client);
+        }
+        let mut cache = self.cache.write().await;
+        if let Some(client) = cache.cursor_http2.clone() {
+            return Ok(client);
+        }
+        let client = client_builder(&self.store)
+            .await?
+            .redirect(reqwest::redirect::Policy::none())
+            .http2_prior_knowledge()
+            .build()?;
+        cache.cursor_http2 = Some(client.clone());
+        Ok(client)
+    }
+
     pub async fn provider_client(&self, timeout: Duration) -> Result<reqwest::Client> {
         if let Some((_, client)) = self
             .cache
@@ -97,7 +116,8 @@ pub async fn client_builder(store: &Store) -> Result<reqwest::ClientBuilder> {
     let settings = store.proxy_settings_secret().await?;
     // Use the platform TLS stack for compatibility with provider gateways that
     // only offer legacy TLS 1.2 cipher suites unsupported by rustls.
-    let mut builder = reqwest::Client::builder().use_native_tls();
+    // Only the Cursor agent relay opts into HTTP/2.
+    let mut builder = reqwest::Client::builder().use_native_tls().http1_only();
     if settings.mode.is_custom() {
         builder = builder.proxy(custom_proxy(&settings)?);
     }
@@ -110,7 +130,9 @@ pub async fn client(store: &Store) -> Result<reqwest::Client> {
 
 pub async fn blocking_client_builder(store: &Store) -> Result<reqwest::blocking::ClientBuilder> {
     let settings = store.proxy_settings_secret().await?;
-    let mut builder = reqwest::blocking::Client::builder().use_native_tls();
+    let mut builder = reqwest::blocking::Client::builder()
+        .use_native_tls()
+        .http1_only();
     if settings.mode.is_custom() {
         builder = builder.proxy(custom_proxy(&settings)?);
     }

@@ -1,5 +1,6 @@
 //! Exposes the local desktop application integration.
 mod account;
+mod agent_tls;
 mod ca;
 mod process;
 mod proxy;
@@ -16,7 +17,7 @@ use crate::{
     Error, Result,
 };
 
-use self::{ca::CaManager, proxy::ProxyRuntime};
+use self::{agent_tls::AgentEndpoint, ca::CaManager, proxy::ProxyRuntime};
 
 pub(crate) fn proxy_host_allowed(host: &str) -> bool {
     proxy::is_cursor_host(host)
@@ -78,8 +79,10 @@ struct Inner {
     ca: CaManager,
     ca_initialization: Mutex<()>,
     backend_addr: RwLock<Option<SocketAddr>>,
+    agent_router: RwLock<Option<axum::Router>>,
     tab_mode: Arc<RwLock<TabMode>>,
     proxy: Mutex<ProxyRuntime>,
+    agent: Mutex<Option<AgentEndpoint>>,
 }
 
 impl CursorHarness {
@@ -90,14 +93,21 @@ impl CursorHarness {
                 ca: CaManager::managed()?,
                 ca_initialization: Mutex::new(()),
                 backend_addr: RwLock::new(None),
+                agent_router: RwLock::new(None),
                 tab_mode: Arc::new(RwLock::new(TabMode::default())),
                 proxy: Mutex::new(ProxyRuntime::default()),
+                agent: Mutex::new(None),
             }),
         })
     }
 
     pub fn set_backend_addr(&self, addr: SocketAddr) {
         *self.inner.backend_addr.write() = Some(addr);
+    }
+
+    /// Sets the routes served on Cursor's own HTTP/2 agent connection.
+    pub fn set_agent_router(&self, router: axum::Router) {
+        *self.inner.agent_router.write() = Some(router);
     }
 
     pub async fn proxy_port(&self) -> Option<u16> {
@@ -158,7 +168,13 @@ impl CursorHarness {
             self.enable().await?;
         } else {
             self.inner.store.set_cursor_takeover_enabled(false).await?;
-            self.disable().await?;
+            // Cursor caches the listener as its agent URL and only refetches
+            // server config every few minutes; a restart drops it now.
+            if self.disable().await? {
+                if let Err(error) = process::terminate_cursor().await {
+                    tracing::warn!(%error, "could not terminate Cursor after disabling takeover");
+                }
+            }
         }
         self.status().await
     }
@@ -198,6 +214,8 @@ impl CursorHarness {
             if let Some(url) = proxy.url() {
                 apply_cursor_configuration(&url).await?;
             }
+            drop(proxy);
+            self.start_agent_listener().await;
             return Ok(());
         }
         let ca = self.inner.ca.load()?;
@@ -219,13 +237,56 @@ impl CursorHarness {
             proxy.stop().await;
             return Err(error);
         }
+        drop(proxy);
+        self.start_agent_listener().await;
         Ok(())
     }
 
-    pub async fn disable(&self) -> Result<()> {
+    async fn start_agent_listener(&self) {
+        let mut agent = self.inner.agent.lock().await;
+        if agent.as_ref().is_some_and(AgentEndpoint::running) {
+            return;
+        }
+        // Re-check under the lock so a concurrent disable cannot be undone.
+        match self.inner.store.cursor_takeover_enabled().await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                tracing::warn!(%error, "HTTP/2 agent listener skipped; takeover state unreadable");
+                return;
+            }
+        }
+        let Some(router) = self.inner.agent_router.read().clone() else {
+            tracing::warn!("HTTP/2 agent listener skipped; agent routes are not ready");
+            return;
+        };
+        let ca = match self.inner.ca.load() {
+            Ok(ca) => ca,
+            Err(error) => {
+                tracing::warn!(%error, "HTTP/2 agent listener skipped; CA is not loaded");
+                return;
+            }
+        };
+        match agent_tls::start(ca, router).await {
+            Ok(endpoint) => *agent = Some(endpoint),
+            Err(error) => tracing::warn!(%error, "HTTP/2 agent listener did not start"),
+        }
+    }
+
+    /// Returns whether a running agent listener was stopped.
+    pub async fn disable(&self) -> Result<bool> {
         settings::clear_proxy_settings()?;
+        // Holding the lock keeps a concurrent enable from starting a listener
+        // whose origin this stop would then clear.
+        let mut agent = self.inner.agent.lock().await;
+        let stopped = agent.take();
+        let was_running = stopped.as_ref().is_some_and(AgentEndpoint::running);
+        if let Some(endpoint) = stopped {
+            endpoint.stop().await;
+        }
+        drop(agent);
         self.inner.proxy.lock().await.stop().await;
-        Ok(())
+        Ok(was_running)
     }
 }
 

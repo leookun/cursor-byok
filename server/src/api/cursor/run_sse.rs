@@ -18,6 +18,22 @@ use crate::{
 };
 
 pub async fn stream(registry: &TransportRegistry, request_id: &str) -> Result<Response<Body>> {
+    open_stream(registry, request_id, "text/event-stream").await
+}
+
+/// HTTP/2 `AgentService/Run` reads the same frames as RunSSE.
+pub async fn connect_stream(
+    registry: &TransportRegistry,
+    request_id: &str,
+) -> Result<Response<Body>> {
+    open_stream(registry, request_id, "application/connect+proto").await
+}
+
+async fn open_stream(
+    registry: &TransportRegistry,
+    request_id: &str,
+    content_type: &'static str,
+) -> Result<Response<Body>> {
     let handle = registry.get_or_create(request_id).await?;
     let receiver = handle.subscribe();
     let trace = handle.trace().cloned();
@@ -27,10 +43,9 @@ pub async fn stream(registry: &TransportRegistry, request_id: &str) -> Result<Re
     let body_stream = local_body_stream(receiver, handle, trace);
     let mut response = Response::new(Body::from_stream(body_stream));
     *response.status_mut() = StatusCode::OK;
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("text/event-stream"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));

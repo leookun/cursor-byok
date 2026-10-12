@@ -26,7 +26,9 @@ encoding_rs = "0.8"
 eventsource-stream = "0.2"
 futures-util = "0.3"
 hex = "0.4"
+flate2 = "1"
 hudsucker = { version = "0.25", features = ["http2"] }
+hyper-util = { version = "0.1", features = ["http2", "server", "service", "tokio"] }
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 include_dir = "0.7"
 json5 = "0.4"
@@ -34,7 +36,7 @@ parking_lot = "0.12"
 pem = "3"
 prost = "0.13"
 prost-types = "0.13"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "brotli", "deflate", "gzip", "json", "native-tls", "socks", "stream", "system-proxy", "zstd"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "brotli", "deflate", "gzip", "http2", "json", "native-tls-alpn", "socks", "stream", "system-proxy", "zstd"] }
 regex = "1"
 rcgen = { version = "0.14", features = ["aws_lc_rs", "pem", "x509-parser"] }
 scraper = "0.24"
@@ -49,6 +51,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 thiserror = "2"
 time = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time", "net"] }
+tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = "0.7"
 tracing = "0.1"
@@ -63,7 +66,6 @@ prost-build = "0.13"
 protoc-bin-vendored = "3"
 
 [dev-dependencies]
-flate2 = "1"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 

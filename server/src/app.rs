@@ -80,6 +80,10 @@ impl App {
             config.app_version.clone(),
         )?;
         let harness = control.cursor_harness().clone();
+        harness.set_agent_router(api::cursor::run_http2::router(
+            registry.clone(),
+            clients.clone(),
+        ));
         let mut router = api::router(registry.clone(), clients)?.merge(byok);
         router = match &config.console {
             Some(ConsoleSource::Directory(directory)) => {

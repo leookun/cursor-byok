@@ -96,7 +96,9 @@ async fn engine(store: Option<Store>) -> Result<Arc<SearchEngine>> {
         .get_or_try_init(|| async move {
             let builder = match store {
                 Some(store) => crate::network::blocking_client_builder(&store).await?,
-                None => reqwest::blocking::Client::builder().use_native_tls(),
+                None => reqwest::blocking::Client::builder()
+                    .use_native_tls()
+                    .http1_only(),
             };
             tokio::task::spawn_blocking(move || {
                 let client = builder.build()?;

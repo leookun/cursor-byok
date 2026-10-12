@@ -103,6 +103,21 @@ pub fn decode_unary<M: Message + Default>(body: &[u8]) -> Result<M> {
     Ok(M::decode(body)?)
 }
 
+/// Splits one complete frame, header included, off the front of `buffer`.
+pub fn take_frame(buffer: &mut BytesMut, max_len: usize) -> Result<Option<Bytes>> {
+    if buffer.len() < 5 {
+        return Ok(None);
+    }
+    let length = u32::from_be_bytes([buffer[1], buffer[2], buffer[3], buffer[4]]) as usize;
+    if length > max_len {
+        return Err(Error::Protocol(format!("Connect frame is {length} bytes")));
+    }
+    if buffer.len() < 5 + length {
+        return Ok(None);
+    }
+    Ok(Some(buffer.split_to(5 + length).freeze()))
+}
+
 pub fn decode_frames(mut body: &[u8]) -> Result<Vec<(u8, Bytes)>> {
     let mut frames = Vec::new();
     while !body.is_empty() {

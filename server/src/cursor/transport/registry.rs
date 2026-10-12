@@ -33,6 +33,7 @@ struct RegistryInner {
     local: Mutex<HashMap<String, LocalTransport>>,
     next_local_generation: AtomicU64,
     upstream: Mutex<HashMap<String, u64>>,
+    conversation_routes: Mutex<HashMap<String, bool>>,
     route_changed: Notify,
     store: Store,
     traces: CursorTraceService,
@@ -115,6 +116,7 @@ impl TransportRegistry {
                 local: Mutex::new(HashMap::new()),
                 next_local_generation: AtomicU64::new(1),
                 upstream: Mutex::new(HashMap::new()),
+                conversation_routes: Mutex::new(HashMap::new()),
                 route_changed: Notify::new(),
                 traces: CursorTraceService::new(store.clone()),
                 conversations: ConversationRegistry::new(
@@ -227,6 +229,25 @@ impl TransportRegistry {
         self.inner.route_changed.notify_waiters();
     }
 
+    /// Records whether a conversation's latest model is served locally.
+    pub async fn set_conversation_local(&self, conversation_id: &str, local: bool) {
+        self.inner
+            .conversation_routes
+            .lock()
+            .await
+            .insert(conversation_id.into(), local);
+    }
+
+    /// Whether the latest run with a model in this conversation was local.
+    pub async fn conversation_local(&self, conversation_id: &str) -> Option<bool> {
+        self.inner
+            .conversation_routes
+            .lock()
+            .await
+            .get(conversation_id)
+            .copied()
+    }
+
     pub async fn upstream(&self, request_id: &str) -> bool {
         self.inner.upstream.lock().await.contains_key(request_id)
     }
@@ -260,6 +281,7 @@ impl TransportRegistry {
         self.inner.conversations.shutdown().await;
         let handles = std::mem::take(&mut *self.inner.local.lock().await);
         self.inner.upstream.lock().await.clear();
+        self.inner.conversation_routes.lock().await.clear();
         for transport in handles.into_values() {
             transport.handle.disconnect().await;
             let _ = tokio::time::timeout(
