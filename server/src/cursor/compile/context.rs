@@ -512,39 +512,125 @@ pub fn dynamic_mcp(
 }
 
 fn normalize_mcp_parameters(tool_name: &str, mut parameters: Value) -> Result<Value> {
-    let schema = parameters
-        .as_object_mut()
-        .ok_or_else(|| invalid_mcp_parameters(tool_name))?;
-    match schema.get("type") {
-        Some(Value::String(schema_type)) if schema_type == "object" => return Ok(parameters),
-        Some(_) => return Err(invalid_mcp_parameters(tool_name)),
-        None => {}
+    {
+        let schema = parameters
+            .as_object_mut()
+            .ok_or_else(|| invalid_mcp_parameters(tool_name))?;
+        match schema.get("type") {
+            Some(Value::String(schema_type)) if schema_type == "object" => {}
+            Some(_) => return Err(invalid_mcp_parameters(tool_name)),
+            None => {
+                let object_only_union = ["anyOf", "oneOf"].into_iter().any(|keyword| {
+                    schema
+                        .get(keyword)
+                        .and_then(Value::as_array)
+                        .is_some_and(|branches| {
+                            !branches.is_empty()
+                                && branches.iter().all(|branch| {
+                                    branch
+                                        .as_object()
+                                        .and_then(|branch| branch.get("type"))
+                                        .and_then(Value::as_str)
+                                        == Some("object")
+                                })
+                        })
+                });
+                if !object_only_union {
+                    return Err(invalid_mcp_parameters(tool_name));
+                }
+                // OpenAI-compatible function schemas (and the corresponding schema
+                // validators used by other providers) require the root schema to declare
+                // an object type. Cursor's app-control MCP sometimes sends an object-only
+                // `anyOf`/`oneOf` schema without that root annotation. Preserve the union
+                // while adding the annotation to the model-facing copy.
+                schema.insert("type".into(), Value::String("object".into()));
+            }
+        }
     }
-    let object_only_union = ["anyOf", "oneOf"].into_iter().any(|keyword| {
-        schema
-            .get(keyword)
-            .and_then(Value::as_array)
-            .is_some_and(|branches| {
-                !branches.is_empty()
-                    && branches.iter().all(|branch| {
-                        branch
-                            .as_object()
-                            .and_then(|branch| branch.get("type"))
-                            .and_then(Value::as_str)
-                            == Some("object")
-                    })
-            })
-    });
-    if !object_only_union {
-        return Err(invalid_mcp_parameters(tool_name));
-    }
-    // OpenAI-compatible function schemas (and the corresponding schema
-    // validators used by other providers) require the root schema to declare
-    // an object type. Cursor's app-control MCP sometimes sends an object-only
-    // `anyOf`/`oneOf` schema without that root annotation. Preserve the union
-    // while adding the annotation to the model-facing copy.
-    schema.insert("type".into(), Value::String("object".into()));
+    normalize_json_schema_integer_constraints(&mut parameters);
     Ok(parameters)
+}
+
+fn normalize_json_schema_integer_constraints(schema: &mut Value) {
+    const INTEGER_KEYWORDS: [&str; 8] = [
+        "maxContains",
+        "maxItems",
+        "maxLength",
+        "maxProperties",
+        "minContains",
+        "minItems",
+        "minLength",
+        "minProperties",
+    ];
+    const SCHEMA_KEYWORDS: [&str; 12] = [
+        "additionalItems",
+        "additionalProperties",
+        "contains",
+        "contentSchema",
+        "else",
+        "if",
+        "items",
+        "not",
+        "propertyNames",
+        "then",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    ];
+    const SCHEMA_ARRAY_KEYWORDS: [&str; 4] = ["allOf", "anyOf", "oneOf", "prefixItems"];
+    const SCHEMA_MAP_KEYWORDS: [&str; 6] = [
+        "$defs",
+        "definitions",
+        "dependencies",
+        "dependentSchemas",
+        "patternProperties",
+        "properties",
+    ];
+
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+    for keyword in INTEGER_KEYWORDS {
+        let Some(value) = object.get_mut(keyword) else {
+            continue;
+        };
+        let Some(number) = value.as_number() else {
+            continue;
+        };
+        let Some(number) = number.as_f64() else {
+            continue;
+        };
+        if number.is_finite() && number >= 0.0 && number.fract() == 0.0 {
+            if let Ok(integer) = number.to_string().parse::<u64>() {
+                *value = Value::Number(integer.into());
+            }
+        }
+    }
+    for keyword in SCHEMA_KEYWORDS {
+        if let Some(child) = object.get_mut(keyword) {
+            match child {
+                Value::Array(children) => {
+                    for child in children {
+                        normalize_json_schema_integer_constraints(child);
+                    }
+                }
+                _ => normalize_json_schema_integer_constraints(child),
+            }
+        }
+    }
+    for keyword in SCHEMA_ARRAY_KEYWORDS {
+        if let Some(children) = object.get_mut(keyword).and_then(Value::as_array_mut) {
+            for child in children {
+                normalize_json_schema_integer_constraints(child);
+            }
+        }
+    }
+    for keyword in SCHEMA_MAP_KEYWORDS {
+        if let Some(children) = object.get_mut(keyword).and_then(Value::as_object_mut) {
+            for child in children.values_mut() {
+                normalize_json_schema_integer_constraints(child);
+            }
+        }
+    }
 }
 
 fn invalid_mcp_parameters(tool_name: &str) -> Error {
@@ -625,5 +711,70 @@ mod tests {
         let mut context = pb::RequestContext::default();
         merge_local_rules(&mut context, &directory.path().join("nested/rules"));
         assert!(context.non_file_rules.is_empty());
+    }
+
+    #[test]
+    fn normalize_mcp_parameters_canonicalizes_app_control_integer_constraints() {
+        let parameters = serde_json::json!({
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {"rootPath": {"type": "string"}}
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "rootPaths": {
+                            "type": "array",
+                            "items": {"type": "string", "minLength": 1.0},
+                            "minItems": 1.0
+                        }
+                    }
+                }
+            ]
+        });
+
+        let normalized =
+            normalize_mcp_parameters("cursor-app-control-move_agent_to_cloned_root", parameters)
+                .unwrap();
+
+        assert_eq!(normalized["type"], "object");
+        assert_eq!(
+            normalized.pointer("/anyOf/1/properties/rootPaths/minItems"),
+            Some(&serde_json::json!(1))
+        );
+        assert_eq!(
+            normalized.pointer("/anyOf/1/properties/rootPaths/items/minLength"),
+            Some(&serde_json::json!(1))
+        );
+        assert!(!normalized.to_string().contains("\"minItems\":1.0"));
+    }
+
+    #[test]
+    fn normalize_mcp_parameters_preserves_non_integer_schema_numbers() {
+        let parameters = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "minItems": 1.5,
+                    "items": {"type": "number", "minimum": 1.0}
+                }
+            }
+        });
+
+        let normalized = normalize_mcp_parameters("fractional-schema", parameters).unwrap();
+
+        assert_eq!(
+            normalized.pointer("/properties/values/minItems"),
+            Some(&serde_json::json!(1.5))
+        );
+        assert_eq!(
+            normalized
+                .pointer("/properties/values/items/minimum")
+                .unwrap()
+                .to_string(),
+            "1.0"
+        );
     }
 }
