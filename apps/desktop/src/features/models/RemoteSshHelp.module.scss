@@ -1,0 +1,9 @@
+.content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+
+  p,
+  ol {
+    margin-block: 0;
+  }
+}

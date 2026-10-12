@@ -36,6 +36,13 @@ pub(crate) enum ExecStage {
     DynamicMcp(pb::McpToolDefinition),
     EditRead,
     EditWrite(EditWrite),
+    /// Absolute-path Semble indexing: dump the Cursor host tree through Shell, then search.
+    SembleSnapshot(SembleSnapshot),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SembleSnapshot {
+    pub remote_root: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -115,6 +122,7 @@ impl ExecContext {
 
 pub(crate) struct PendingInteraction {
     pub call: ToolCall,
+    pub conversation_id: String,
     pub started_at_ms: u64,
 }
 
@@ -174,6 +182,21 @@ impl CursorToolRuntime {
         .await
     }
 
+    pub(crate) async fn reserve_semble_snapshot(
+        &self,
+        call: &ToolCall,
+        context: &ExecContext,
+        remote_root: String,
+    ) -> Result<u32> {
+        self.reserve_exec_stage(
+            call,
+            context,
+            ExecStage::SembleSnapshot(SembleSnapshot { remote_root }),
+            None,
+        )
+        .await
+    }
+
     async fn reserve_exec_stage(
         &self,
         call: &ToolCall,
@@ -196,12 +219,13 @@ impl CursorToolRuntime {
         Ok(id)
     }
 
-    pub async fn reserve_interaction(&self, call: &ToolCall) -> Result<u32> {
+    pub async fn reserve_interaction(&self, call: &ToolCall, context: &ExecContext) -> Result<u32> {
         let id = self.next_id()?;
         self.interactions.lock().await.insert(
             id,
             PendingInteraction {
                 call: call.clone(),
+                conversation_id: context.conversation_id.clone(),
                 started_at_ms: now_ms(),
             },
         );
@@ -214,6 +238,14 @@ impl CursorToolRuntime {
             .await
             .get(&id)
             .map(|entry| entry.call.clone())
+    }
+
+    pub(crate) async fn exec_stage_is_semble_snapshot(&self, id: u32) -> bool {
+        self.execs
+            .lock()
+            .await
+            .get(&id)
+            .is_some_and(|entry| matches!(entry.stage, ExecStage::SembleSnapshot(_)))
     }
 
     pub async fn append_stdout(&self, id: u32, data: &str) -> bool {

@@ -84,10 +84,19 @@ impl SearchEngine {
     pub fn search(&self, request: SearchRequest) -> Result<SearchResponse> {
         validate_query(&request.query, request.top_k)?;
         let (root, identity) = self.resolve_source(&request.repo)?;
+        self.search_prepared(&root, &identity, request)
+    }
+
+    /// Searches a prepared local tree with an explicit cache identity.
+    pub fn search_prepared(
+        &self,
+        root: &Path,
+        identity: &str,
+        request: SearchRequest,
+    ) -> Result<SearchResponse> {
+        validate_query(&request.query, request.top_k)?;
         let content = normalize_content(&request.content);
-        let index = self
-            .repository
-            .load_for_search(&root, &identity, &content)?;
+        let index = self.repository.load_for_search(root, identity, &content)?;
         if !request.query.contains(char::is_whitespace) {
             let exact = index
                 .lexical
@@ -97,7 +106,7 @@ impl SearchEngine {
                     &request.query,
                     exact,
                     &index,
-                    &root,
+                    root,
                     request.max_snippet_lines,
                 );
             }
@@ -136,7 +145,7 @@ impl SearchEngine {
                 &lexical,
                 &index.chunks,
                 &request.query,
-                &root,
+                root,
                 request.top_k.min(3),
             )?
         };
@@ -150,7 +159,7 @@ impl SearchEngine {
             &request.query,
             ranked,
             &index,
-            &root,
+            root,
             request.max_snippet_lines,
         )
     }
@@ -162,10 +171,23 @@ impl SearchEngine {
             ));
         }
         let (root, identity) = self.resolve_source(&request.repo)?;
+        self.find_related_prepared(&root, &identity, request)
+    }
+
+    /// Finds related chunks in a prepared local tree with an explicit cache identity.
+    pub fn find_related_prepared(
+        &self,
+        root: &Path,
+        identity: &str,
+        request: FindRelatedRequest,
+    ) -> Result<SearchResponse> {
+        if request.line == 0 || request.top_k == 0 {
+            return Err(Error::InvalidRequest(
+                "line and top_k must be greater than zero".into(),
+            ));
+        }
         let content = normalize_content(&request.content);
-        let index = self
-            .repository
-            .load_for_search(&root, &identity, &content)?;
+        let index = self.repository.load_for_search(root, identity, &content)?;
         let normalized = request.file_path.replace('\\', "/");
         let source = index
             .chunks
@@ -204,7 +226,7 @@ impl SearchEngine {
             &format!("Chunks related to {}:{}", request.file_path, request.line),
             ranked,
             &index,
-            &root,
+            root,
             request.max_snippet_lines,
         )
     }

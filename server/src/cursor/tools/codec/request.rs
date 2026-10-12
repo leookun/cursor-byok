@@ -224,6 +224,44 @@ pub(super) fn edit_write_request(
     ))
 }
 
+pub(crate) fn semble_snapshot_request(
+    id: u32,
+    call: &ToolCall,
+    context: &ExecContext,
+    remote_root: &str,
+) -> Result<pb::AgentServerMessage> {
+    use crate::search::host_snapshot::{
+        snapshot_shell_command, SNAPSHOT_OUTPUT_THRESHOLD_BYTES, SNAPSHOT_TIMEOUT_MS,
+    };
+
+    let command = snapshot_shell_command(remote_root);
+    let (simple_commands, parsing_result) = shell_command_metadata(&command);
+    Ok(server_message(
+        id,
+        call,
+        pb::exec_server_message::Message::ShellStreamArgs(pb::ShellArgs {
+            command,
+            working_directory: String::new(),
+            timeout: SNAPSHOT_TIMEOUT_MS,
+            tool_call_id: call.call_id.clone(),
+            simple_commands,
+            parsing_result,
+            file_output_threshold_bytes: Some(SNAPSHOT_OUTPUT_THRESHOLD_BYTES),
+            timeout_behavior: pb::TimeoutBehavior::Cancel as i32,
+            hard_timeout: Some(SNAPSHOT_TIMEOUT_MS),
+            description: Some("Snapshot workspace for Semble search".into()),
+            output_notification: None,
+            smart_mode_approval: None,
+            requested_sandbox_policy: None,
+            close_stdin: true,
+            conversation_id: Some(context.conversation_id.clone()),
+            admin_command_denylist: context.admin_command_denylist.clone(),
+            ..Default::default()
+        }),
+        Some(true),
+    ))
+}
+
 fn server_message(
     id: u32,
     call: &ToolCall,

@@ -614,7 +614,7 @@ async fn exec_ids_are_monotonic_and_released_ids_are_not_reused() {
     assert_eq!(second, 2, "released Exec ids must not be reused in one Run");
 
     let interaction = pending
-        .reserve_interaction(&call("call-3", "AskQuestion"))
+        .reserve_interaction(&call("call-3", "AskQuestion"), &exec_context())
         .await
         .unwrap();
     assert_eq!(
@@ -1440,4 +1440,144 @@ fn kv_ack(id: u32) -> pb::AgentClientMessage {
             },
         )),
     }
+}
+
+#[tokio::test]
+async fn semble_absolute_repo_starts_cursor_host_snapshot_shell() {
+    let mut call = call("call-semble", "SembleSearch");
+    call.arguments = json!({
+        "repo": "/remote/workspace",
+        "query": "authenticate request",
+        "top_k": 1
+    });
+    let dispatcher = ToolDispatcher::new(CursorToolRuntime::default());
+    let dispatched = dispatcher
+        .start_batch(
+            &[call],
+            ToolBatchState {
+                completed: &HashSet::new(),
+                started: &HashSet::new(),
+                response_text: "",
+                response_thinking: "",
+            },
+            &[],
+            &BTreeMap::new(),
+            &exec_context(),
+        )
+        .await
+        .unwrap();
+    assert!(dispatched[0].completion.is_none());
+    let request = dispatched[0]
+        .messages
+        .iter()
+        .find_map(|message| match &message.message {
+            Some(pb::agent_server_message::Message::ExecServerMessage(request)) => Some(request),
+            _ => None,
+        })
+        .expect("absolute Semble repo must start Cursor Exec");
+    let Some(pb::exec_server_message::Message::ShellStreamArgs(args)) = &request.message else {
+        panic!("expected ShellStreamArgs for Semble host snapshot");
+    };
+    assert!(args.command.contains("python3 -c"));
+    assert!(
+        !args.command.contains("/remote/workspace"),
+        "remote root must be base64-encoded into the dump command"
+    );
+    assert_eq!(args.timeout_behavior, pb::TimeoutBehavior::Cancel as i32);
+    assert_eq!(args.conversation_id.as_deref(), Some("conversation"));
+}
+
+#[tokio::test]
+async fn semble_relative_repo_fails_without_cursor_exec() {
+    let mut call = call("call-semble-relative", "SembleSearch");
+    call.arguments = json!({
+        "repo": "relative/path",
+        "query": "authenticate"
+    });
+    let dispatcher = ToolDispatcher::new(CursorToolRuntime::default());
+    let dispatched = dispatcher
+        .start_batch(
+            &[call],
+            ToolBatchState {
+                completed: &HashSet::new(),
+                started: &HashSet::new(),
+                response_text: "",
+                response_thinking: "",
+            },
+            &[],
+            &BTreeMap::new(),
+            &exec_context(),
+        )
+        .await
+        .unwrap();
+    let completion = dispatched[0]
+        .completion
+        .as_ref()
+        .expect("relative repo must fail immediately");
+    assert!(completion.result().is_error);
+    assert!(completion
+        .result()
+        .content
+        .contains("absolute Cursor-host filesystem path"));
+}
+
+#[tokio::test]
+async fn semble_host_snapshot_permission_denied_completes_as_semble_error() {
+    let mut call = call("call-semble-denied", "SembleSearch");
+    call.arguments = json!({
+        "repo": "/remote/workspace",
+        "query": "authenticate"
+    });
+    let runtime = CursorToolRuntime::default();
+    let dispatcher = ToolDispatcher::new(runtime.clone());
+    let dispatched = dispatcher
+        .start_batch(
+            &[call],
+            ToolBatchState {
+                completed: &HashSet::new(),
+                started: &HashSet::new(),
+                response_text: "",
+                response_thinking: "",
+            },
+            &[],
+            &BTreeMap::new(),
+            &exec_context(),
+        )
+        .await
+        .unwrap();
+    let id = dispatched[0]
+        .messages
+        .iter()
+        .find_map(|message| match &message.message {
+            Some(pb::agent_server_message::Message::ExecServerMessage(request)) => Some(request.id),
+            _ => None,
+        })
+        .expect("absolute Semble repo must reserve an Exec id");
+    let event = codec::client_event(
+        &pb::ExecClientMessage {
+            id,
+            message: Some(pb::exec_client_message::Message::ShellStream(
+                pb::ShellStream {
+                    event: Some(pb::shell_stream::Event::PermissionDenied(
+                        pb::ShellPermissionDenied {
+                            error: "sandbox denied".into(),
+                            ..Default::default()
+                        },
+                    )),
+                },
+            )),
+            ..Default::default()
+        },
+        &runtime,
+    )
+    .await
+    .unwrap();
+    let codec::ClientExecEvent::Completed(completion) = event else {
+        panic!("expected Semble completion");
+    };
+    assert!(completion.result().is_error);
+    assert!(completion.result().content.contains("permission denied"));
+    let Some(pb::tool_call::Tool::McpToolCall(_)) = &completion.tool_call().tool else {
+        panic!("Semble snapshot failures must complete as the Semble MCP card");
+    };
 }

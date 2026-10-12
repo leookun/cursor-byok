@@ -34,6 +34,61 @@ pub struct FetchedPage {
 #[error("web fetch failed: {0}")]
 pub struct FetchError(String);
 
+#[derive(Clone, Debug)]
+pub(crate) enum WebFetchRequest {
+    Url(String),
+    Cached {
+        url: String,
+        content_id: String,
+        offset: usize,
+        limit: usize,
+    },
+}
+
+impl WebFetchRequest {
+    pub(crate) fn from_arguments(arguments: &serde_json::Value) -> crate::Result<Self> {
+        #[derive(serde::Deserialize)]
+        struct Arguments {
+            url: String,
+            content_id: Option<String>,
+            offset: Option<usize>,
+            limit: Option<usize>,
+        }
+        let args: Arguments = serde_json::from_value(arguments.clone())?;
+        let invalid = |message: &str| crate::Error::Protocol(message.into());
+        parse_url(&args.url).map_err(|error| invalid(&error.to_string()))?;
+        match args.content_id {
+            None if args.offset.is_none() && args.limit.is_none() => Ok(Self::Url(args.url)),
+            Some(content_id) => {
+                let id = uuid::Uuid::parse_str(&content_id)
+                    .map_err(|_| invalid("WebFetch content_id must be a canonical UUID"))?;
+                if id.to_string() != content_id {
+                    return Err(invalid("WebFetch content_id must be a canonical UUID"));
+                }
+                let limit = args.limit.unwrap_or(super::cache::WEB_CACHE_PAGE_BYTES);
+                if !(4..=super::cache::WEB_CACHE_PAGE_BYTES).contains(&limit) {
+                    return Err(invalid("WebFetch limit must be between 4 and 16384 bytes"));
+                }
+                Ok(Self::Cached {
+                    url: args.url,
+                    content_id,
+                    offset: args.offset.unwrap_or(0),
+                    limit,
+                })
+            }
+            _ => Err(invalid("WebFetch offset and limit require content_id")),
+        }
+    }
+
+    // Keep Cursor's native URL approval unchanged for both operations. Cached reads
+    // verify this approved URL against their persisted source before returning content.
+    pub(crate) fn approval_target(&self) -> String {
+        match self {
+            Self::Url(url) | Self::Cached { url, .. } => url.clone(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct WebFetch {
     client: FetchClient,
@@ -61,16 +116,55 @@ impl WebFetch {
         }
     }
 
-    pub async fn fetch(&self, value: &str) -> Result<FetchedPage, FetchError> {
+    pub async fn fetch(
+        &self,
+        conversation_id: &str,
+        value: &str,
+    ) -> Result<FetchedPage, FetchError> {
+        if conversation_id.is_empty() {
+            return Err(failure("WebFetch requires a conversation ID"));
+        }
         let mut page = timeout(FETCH_TIMEOUT, self.fetch_inner(value))
             .await
             .map_err(|_| failure("request timed out"))??;
-        page.cache = self
+        let (markdown, cache) = self
             .cache
-            .store(&page.markdown)
+            .store(conversation_id, &page.url, page.markdown)
             .await
             .map_err(|error| failure(format!("cannot cache fetched content: {error}")))?;
+        page.markdown = markdown;
+        page.cache = Some(cache);
         Ok(page)
+    }
+
+    pub(crate) async fn execute(
+        &self,
+        conversation_id: &str,
+        request: WebFetchRequest,
+    ) -> Result<FetchedPage, FetchError> {
+        match request {
+            WebFetchRequest::Url(url) => self.fetch(conversation_id, &url).await,
+            WebFetchRequest::Cached {
+                url: approved_url,
+                content_id,
+                offset,
+                limit,
+            } => {
+                let (url, markdown, cache) = self
+                    .cache
+                    .read(conversation_id, &content_id, offset, limit)
+                    .await
+                    .map_err(|error| failure(error.to_string()))?;
+                if url != approved_url {
+                    return Err(failure("cached content does not match the approved URL"));
+                }
+                Ok(FetchedPage {
+                    url,
+                    markdown,
+                    cache: Some(cache),
+                })
+            }
+        }
     }
 
     async fn fetch_inner(&self, value: &str) -> Result<FetchedPage, FetchError> {
@@ -267,6 +361,9 @@ fn decode(bytes: &[u8], content_type: &str) -> Result<String, FetchError> {
 
 fn parse_url(value: &str) -> Result<Url, FetchError> {
     let url = Url::parse(value).map_err(|error| failure(format!("invalid URL: {error}")))?;
+    if value.len() > 8192 || url.as_str().len() > 8192 {
+        return Err(failure("URL exceeds 8192 bytes"));
+    }
     if !matches!(url.scheme(), "http" | "https") {
         return Err(failure("URL must use http or https"));
     }
@@ -321,6 +418,130 @@ fn public_v4(ip: Ipv4Addr) -> bool {
 fn public_v6(ip: Ipv6Addr) -> bool {
     let segments = ip.segments();
     segments[0] & 0xe000 == 0x2000 && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn web_fetch_request_validates_sources_and_paging() {
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let request = WebFetchRequest::from_arguments(
+            &json!({"url": "https://example.com", "content_id": id}),
+        )
+        .unwrap();
+        assert!(matches!(
+            request,
+            WebFetchRequest::Cached {
+                offset: 0,
+                limit: 16384,
+                ..
+            }
+        ));
+        assert!(WebFetchRequest::from_arguments(&json!({"url": "https://example.com"})).is_ok());
+        for arguments in [
+            json!({}),
+            json!({"url": "https://example.com", "content_id": "../etc/passwd"}),
+            json!({"content_id": id}),
+            json!({"url": "https://example.com", "content_id": id, "offset": -1}),
+            json!({"url": "https://example.com", "content_id": id, "offset": 1.5}),
+            json!({"url": "https://example.com", "content_id": id, "limit": 0}),
+            json!({"url": "https://example.com", "content_id": id, "limit": 16385}),
+            json!({"url": "https://example.com", "offset": 10}),
+            json!({"url": "file:///etc/passwd"}),
+            json!({"url": "https://name:password@example.com"}),
+            json!({"url": format!("cursor-byok-cache://{id}")}),
+        ] {
+            assert!(
+                WebFetchRequest::from_arguments(&arguments).is_err(),
+                "accepted {arguments}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn web_fetch_cached_read_requires_approved_source_url() {
+        let fetch = WebFetch::built_in();
+        let (_, entry) = fetch
+            .cache
+            .store(
+                "owner",
+                "https://example.com/original",
+                "cached private text".into(),
+            )
+            .await
+            .unwrap();
+        let request = WebFetchRequest::from_arguments(
+            &json!({"url": "https://example.com/different", "content_id": entry.content_id}),
+        )
+        .unwrap();
+        assert!(fetch
+            .execute("owner", request)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("does not match the approved URL"));
+        let request = WebFetchRequest::from_arguments(
+            &json!({"url": "https://example.com/original", "content_id": entry.content_id}),
+        )
+        .unwrap();
+        assert_eq!(
+            fetch.execute("owner", request).await.unwrap().markdown,
+            "cached private text"
+        );
+    }
+
+    #[tokio::test]
+    async fn web_fetch_cache_does_not_weaken_public_address_protection() {
+        let fetch = WebFetch::built_in();
+        for url in [
+            "http://127.0.0.1/page",
+            "http://10.0.0.1/page",
+            "http://169.254.169.254/latest/meta-data/",
+        ] {
+            assert!(fetch
+                .fetch("owner", url)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("non-public"));
+        }
+        // The existing resolver may reject bracketed IPv6 at lookup rather than at
+        // the public-address check; neither path may return localhost content.
+        assert!(fetch.fetch("owner", "http://[::1]/page").await.is_err());
+        for address in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "::1",
+            "::ffff:127.0.0.1",
+            "169.254.169.254",
+            "192.168.0.1",
+        ] {
+            assert!(!safe_resolution(address.parse().unwrap(), true));
+        }
+        assert!(safe_resolution("8.8.8.8".parse().unwrap(), true));
+    }
+
+    #[test]
+    fn web_fetch_model_schema_exposes_cached_reads() {
+        let catalog: serde_json::Value =
+            serde_json::from_str(include_str!("../../prompt/cursor/tools.json")).unwrap();
+        let tools = catalog
+            .as_array()
+            .or_else(|| catalog.get("tools").and_then(serde_json::Value::as_array))
+            .unwrap();
+        let tool = tools
+            .iter()
+            .find(|tool| tool["function"]["name"] == "WebFetch")
+            .unwrap();
+        let parameters = &tool["function"]["parameters"];
+        assert_eq!(parameters["properties"]["limit"]["maximum"], 16384);
+        assert_eq!(parameters["properties"]["offset"]["minimum"], 0);
+        assert_eq!(parameters["required"], json!(["url"]));
+        assert_eq!(parameters["properties"]["content_id"]["type"], "string");
+    }
 }
 
 fn failure(message: impl Into<String>) -> FetchError {

@@ -236,22 +236,26 @@ pub(crate) fn complete_web_fetch(
     let (output, is_error) = match outcome {
         Ok(page) => {
             let output = match page.cache.as_ref() {
-                Some(cache) => format!(
-                    "<system_reminder>Web content has been downloaded to: {}. If the content is omitted and you need it, use Shell to download it to a temporary directory, then use an appropriate tool to read it in pages.</system_reminder>\n{}",
-                    cache.url, page.markdown
-                ),
+                Some(cache) => {
+                    let continuation = match cache.next_offset {
+                        Some(offset) => format!(
+                            "Next page: call WebFetch with {}.",
+                            serde_json::json!({"url": page.url, "content_id": cache.content_id, "offset": offset, "limit": 16384})
+                        ),
+                        None => format!("End of cached content. Source URL: {}.", page.url),
+                    };
+                    format!(
+                        "<system_reminder>WebFetch cached content_id: {}. UTF-8 bytes {}..{} of {}. {} Cached content is private to this conversation and retained for up to 24 hours, subject to cache capacity; fetch the original URL again if expired.</system_reminder>\n{}",
+                        cache.content_id, cache.offset, cache.offset + page.markdown.len(), cache.total_bytes, continuation, page.markdown
+                    )
+                }
                 None => page.markdown.clone(),
             };
-            let output_location = page.cache.map(|cache| pb::OutputLocation {
-                file_path: cache.file_path,
-                size_bytes: cache.size_bytes,
-                line_count: cache.line_count,
-            });
             tool.result = Some(pb::WebFetchResult {
                 result: Some(pb::web_fetch_result::Result::Success(pb::WebFetchSuccess {
                     url: page.url,
-                    markdown: page.markdown,
-                    output_location,
+                    markdown: output.clone(),
+                    output_location: None,
                 })),
             });
             (output, false)
@@ -352,28 +356,35 @@ mod tests {
     };
 
     #[test]
-    fn web_fetch_result_leads_with_cache_reminder_and_bounds_cursor_payload() {
-        let markdown = "x".repeat(40 * 1024);
-        let location = "http://127.0.0.1:4312/web-cache/550e8400-e29b-41d4-a716-446655440000.txt";
+    fn web_fetch_result_exposes_bounded_cache_page_without_local_paths() {
+        let markdown = "x".repeat(16 * 1024);
+        let content_id = "550e8400-e29b-41d4-a716-446655440000";
         let completion = complete_web_fetch(
             pending_fetch(),
             Ok(FetchedPage {
                 url: "https://example.com/final".into(),
                 markdown: markdown.clone(),
                 cache: Some(WebCacheEntry {
-                    url: location.into(),
-                    file_path: "C:/Users/test/.cursor-byok-v3/cache/web/page.txt".into(),
-                    size_bytes: markdown.len() as i64,
-                    line_count: 1,
+                    content_id: content_id.into(),
+                    total_bytes: 100_000,
+                    offset: 0,
+                    next_offset: Some(markdown.len()),
                 }),
             }),
         )
         .unwrap();
-
-        assert!(completion.result().content.starts_with(&format!(
-            "<system_reminder>Web content has been downloaded to: {location}."
+        let output = &completion.result().content;
+        assert!(output.starts_with(&format!(
+            "<system_reminder>WebFetch cached content_id: {content_id}."
         )));
-        assert!(completion.result().content.contains("[truncated: WebFetch"));
+        assert!(output.contains(&format!("\"content_id\":\"{content_id}\"")));
+        assert!(output.contains("\"offset\":16384"));
+        assert!(output.contains("\"limit\":16384"));
+        assert!(output.contains("\"url\":\"https://example.com/final\""));
+        assert!(output.ends_with(&markdown));
+        assert!(!output.contains("[truncated:"));
+        assert!(!output.contains("127.0.0.1"));
+        assert!(!output.contains("Shell"));
         let Some(pb::tool_call::Tool::WebFetchToolCall(tool)) =
             completion.tool_call().tool.as_ref()
         else {
@@ -387,14 +398,8 @@ mod tests {
             panic!("expected WebFetchSuccess")
         };
         assert!(success.markdown.len() <= 32 * 1024);
-        assert!(success.markdown.contains("[truncated: WebFetch"));
-        assert_eq!(
-            success
-                .output_location
-                .as_ref()
-                .map(|location| location.file_path.as_str()),
-            Some("C:/Users/test/.cursor-byok-v3/cache/web/page.txt")
-        );
+        assert_eq!(success.markdown, *output);
+        assert!(success.output_location.is_none());
     }
 
     fn pending_fetch() -> PendingInteraction {
@@ -408,6 +413,7 @@ mod tests {
                 arguments: json!({"url": "https://example.com"}),
                 argument_error: None,
             },
+            conversation_id: "conversation-a".into(),
             started_at_ms: 1,
         }
     }

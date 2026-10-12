@@ -1,21 +1,32 @@
 //! Dispatches Tool calls that require Cursor user interaction.
 //! Interaction query dispatch and approval continuation.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     cursor::{protocol::proto::agent::v1 as pb, tools::codec as interaction},
     model::ToolCall,
-    search::{WebFetch, WebSearch},
+    search::{WebFetch, WebFetchRequest, WebSearch},
     Error, Result,
 };
 
 use super::{normalized, InteractionContinuation, ToolStart};
 use crate::cursor::tools::{
-    runtime::{CursorToolRuntime, PendingInteraction},
+    runtime::{CursorToolRuntime, ExecContext, PendingInteraction},
     tool_call_result::{self as result, ToolResultSender},
 };
 
-pub(super) async fn start(runtime: &CursorToolRuntime, call: &ToolCall) -> Result<ToolStart> {
-    let id = runtime.reserve_interaction(call).await?;
+pub(super) async fn start(
+    runtime: &CursorToolRuntime,
+    call: &ToolCall,
+    context: &ExecContext,
+) -> Result<ToolStart> {
+    // Validate before reserving so invalid cache IDs never leave a pending approval.
+    if normalized(&call.name) == "webfetch" {
+        WebFetchRequest::from_arguments(&call.arguments)?;
+    }
+    let id = runtime.reserve_interaction(call, context).await?;
     Ok(ToolStart {
         messages: vec![interaction::tool_query(id, call)?],
         completion: None,
@@ -65,16 +76,12 @@ fn start_web_fetch(
     fetch: WebFetch,
     pending: PendingInteraction,
 ) -> Result<()> {
-    let url = pending
-        .call
-        .arguments
-        .get("url")
-        .and_then(serde_json::Value::as_str)
-        .filter(|url| !url.trim().is_empty())
-        .ok_or_else(|| Error::Protocol("WebFetch is missing url".into()))?
-        .to_string();
+    let request = WebFetchRequest::from_arguments(&pending.call.arguments)?;
     tokio::spawn(async move {
-        let outcome = fetch.fetch(&url).await.map_err(|error| error.to_string());
+        let outcome = fetch
+            .execute(&pending.conversation_id, request)
+            .await
+            .map_err(|error| error.to_string());
         match result::complete_web_fetch(pending, outcome) {
             Ok(completion) => results.send(completion),
             Err(error) => results.send_error(error),

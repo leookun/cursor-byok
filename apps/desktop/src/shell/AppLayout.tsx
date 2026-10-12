@@ -220,8 +220,9 @@ export function AppLayout() {
               {item.path === "/harness/cursor" && cursorHarness && <span
                 className={styles.menuStatusTag}
                 data-taken={cursorHarness.settings_applied || undefined}
+                title={t("仅表示本机代理配置，不验证 Remote SSH 连接。")}
               >
-                {cursorHarness.settings_applied ? t("已接管") : t("未接管")}
+                {cursorHarness.settings_applied ? t("本地已接管") : t("本地未接管")}
               </span>}
               {item.path === "/settings" && availableVersion && <span className={styles.menuIndicatorDot} aria-hidden="true" />}
             </NavLink>

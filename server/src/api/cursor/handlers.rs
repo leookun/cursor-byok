@@ -42,7 +42,6 @@ fn router_with_proxy(
     proxy: CursorProxy,
     knowledge_service: knowledge::KnowledgeService,
 ) -> Router {
-    let web_cache = registry.web_cache().router();
     let free_entitlements = FreeEntitlementCache::default();
     Router::new()
         .route("/__byok-api__/healthz", get(health))
@@ -164,7 +163,6 @@ fn router_with_proxy(
         .layer(Extension(knowledge_service))
         .layer(Extension(free_entitlements))
         .with_state(registry)
-        .merge(web_cache)
 }
 
 async fn health() -> StatusCode {
