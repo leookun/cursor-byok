@@ -184,6 +184,7 @@ async fn generate(
         call_id: id.clone(),
         run_id: id.clone(),
         conversation_id: id.clone(),
+        prompt_cache_enabled: true,
         provider_call_index: 0,
         request,
     };

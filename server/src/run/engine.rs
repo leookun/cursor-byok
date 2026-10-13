@@ -265,6 +265,7 @@ impl RunEngine {
                     call_id,
                     run_id: prepared.run_id.to_string(),
                     conversation_id: prepared.conversation_id.to_string(),
+                    prompt_cache_enabled: true,
                     provider_call_index,
                     request: request.clone(),
                 };
@@ -807,6 +808,7 @@ impl RunEngine {
             call_id: format!("{}:{provider_call_index}", prepared.run_id),
             run_id: prepared.run_id.to_string(),
             conversation_id: prepared.conversation_id.to_string(),
+            prompt_cache_enabled: true,
             provider_call_index,
             request: crate::model::ModelRequest {
                 prompt: crate::model::PromptSpec {

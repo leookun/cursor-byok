@@ -135,15 +135,22 @@ fn apply_body_allowlist(
     Ok(())
 }
 
-fn apply_openai_prompt_cache_key(body: &mut serde_json::Value, model_id: &str) -> Result<()> {
+fn apply_openai_prompt_cache_key(
+    body: &mut serde_json::Value,
+    model_id: &str,
+    cache_key: Option<&str>,
+) -> Result<()> {
     if !model_id.to_ascii_lowercase().contains("gpt") {
         return Ok(());
     }
+    let Some(cache_key) = cache_key else {
+        return Ok(());
+    };
     body.as_object_mut()
         .ok_or_else(|| crate::Error::Provider("provider request body must be an object".into()))?
         .insert(
             "prompt_cache_key".into(),
-            serde_json::Value::String("cursor-byok".into()),
+            serde_json::Value::String(cache_key.into()),
         );
     Ok(())
 }

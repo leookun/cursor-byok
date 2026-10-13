@@ -23,8 +23,17 @@ pub struct ModelInvocation {
     pub call_id: String,
     pub run_id: String,
     pub conversation_id: String,
+    pub prompt_cache_enabled: bool,
     pub provider_call_index: u64,
     pub request: ModelRequest,
+}
+
+impl ModelInvocation {
+    /// Stable across turns, tool rounds, and retries within one conversation.
+    pub(crate) fn cache_key(&self) -> Option<String> {
+        self.prompt_cache_enabled
+            .then(|| format!("cursor:{}", self.conversation_id))
+    }
 }
 
 pub(crate) fn normalize_provider_tool_call_ids(history: &mut [ProjectedMessage]) {

@@ -443,6 +443,7 @@ impl ControlService {
             call_id: call_id.clone(),
             run_id: call_id.clone(),
             conversation_id: call_id.clone(),
+            prompt_cache_enabled: false,
             provider_call_index: 0,
             request: ModelRequest {
                 prompt: PromptSpec {

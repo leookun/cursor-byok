@@ -137,6 +137,7 @@ fn build_invocation(
         call_id: call_id.clone(),
         run_id: call_id.clone(),
         conversation_id: call_id,
+        prompt_cache_enabled: true,
         provider_call_index: 0,
         request: ModelRequest {
             prompt: PromptSpec {

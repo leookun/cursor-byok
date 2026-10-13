@@ -35,7 +35,7 @@ pub fn llm_request(invocation: &ModelInvocation) -> Result<serde_json::Value> {
             _ => "standard",
         },
         "maxOutputTokens": request.model.max_output_tokens,
-        "cacheKey": invocation.conversation_id,
+        "cacheKey": invocation.cache_key(),
     }))
 }
 
@@ -205,6 +205,7 @@ mod tests {
             call_id: "call".into(),
             run_id: "run".into(),
             conversation_id: "conversation".into(),
+            prompt_cache_enabled: true,
             provider_call_index: 0,
             request: ModelRequest {
                 prompt: PromptSpec {
@@ -256,7 +257,7 @@ mod tests {
         let request = llm_request(&invocation).unwrap();
         assert_eq!(request["instructions"], "be brief");
         assert_eq!(request["latency"], "standard");
-        assert_eq!(request["cacheKey"], "conversation");
+        assert_eq!(request["cacheKey"], "cursor:conversation");
         let messages = request["messages"].as_array().unwrap();
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(
@@ -266,6 +267,10 @@ mod tests {
         assert_eq!(messages[1]["toolCalls"][0]["callId"], "c1");
         assert_eq!(messages[2]["role"], "tool");
         assert_eq!(messages[2]["isError"], false);
+
+        let mut model_test = invocation;
+        model_test.prompt_cache_enabled = false;
+        assert!(llm_request(&model_test).unwrap()["cacheKey"].is_null());
     }
 
     #[test]
