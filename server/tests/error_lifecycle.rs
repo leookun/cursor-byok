@@ -619,6 +619,124 @@ async fn subagent_type_does_not_require_parent_metadata() {
     .await;
 }
 
+#[tokio::test]
+async fn subagent_run_without_message_id_starts_and_completes() {
+    let (_directory, store) = fixtures::temp_store().await;
+    let provider = fake_provider::FakeProvider::default();
+    provider.push(vec![
+        ModelEvent::Start {
+            model_call_id: "subagent-model-call".into(),
+        },
+        ModelEvent::TextStart,
+        ModelEvent::TextDelta("subagent finished".into()),
+        ModelEvent::TextEnd,
+        ModelEvent::Done(FinishReason::Stop),
+    ]);
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let registry = TransportRegistry::new(
+        store.clone(),
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+    );
+    let terminal = run_to_terminal(
+        &registry,
+        "empty-message-id-subagent",
+        None,
+        subagent_run("explore the repository", "empty-message-id-conversation"),
+    )
+    .await;
+
+    assert!(terminal.get("error").is_none(), "{terminal}");
+    assert_eq!(provider.requests().len(), 1);
+    let row: (String, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT run_kind, parent_run_id, parent_tool_call_id FROM runs WHERE cursor_request_id = ?",
+    )
+    .bind("empty-message-id-subagent")
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row, ("root".into(), None, None));
+}
+
+async fn run_to_terminal(
+    registry: &TransportRegistry,
+    request_id: &str,
+    parent: Option<TransportParent>,
+    message: pb::AgentClientMessage,
+) -> serde_json::Value {
+    let handle = registry.get_or_create(request_id).await.unwrap();
+    if let Some(parent) = parent {
+        handle.set_parent(parent).unwrap();
+    }
+    let mut output = handle.subscribe();
+    handle
+        .command(TransportCommand::Append {
+            seqno: 0,
+            message: Box::new(message),
+        })
+        .await
+        .unwrap();
+
+    let mut seqno = 1;
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), output.recv())
+            .await
+            .unwrap()
+            .expect("RunSSE closed before EndStream");
+        let (flags, payload) = connect::decode_frames(&frame).unwrap().pop().unwrap();
+        if flags & connect::END_STREAM_FLAG != 0 {
+            return serde_json::from_slice::<serde_json::Value>(&payload).unwrap();
+        }
+        let server = pb::AgentServerMessage::decode(payload).unwrap();
+        if let Some(pb::agent_server_message::Message::KvServerMessage(kv)) = server.message {
+            handle
+                .command(TransportCommand::Append {
+                    seqno,
+                    message: Box::new(kv_ack(kv.id)),
+                })
+                .await
+                .unwrap();
+            seqno += 1;
+        }
+    }
+}
+
+fn subagent_run(text: &str, conversation_id: &str) -> pb::AgentClientMessage {
+    pb::AgentClientMessage {
+        message: Some(pb::agent_client_message::Message::RunRequest(
+            pb::AgentRunRequest {
+                action: Some(pb::ConversationAction {
+                    action: Some(pb::conversation_action::Action::UserMessageAction(
+                        pb::UserMessageAction {
+                            user_message: Some(pb::UserMessage {
+                                text: text.into(),
+                                message_id: String::new(),
+                                mode: pb::AgentMode::Agent as i32,
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                    )),
+                    ..Default::default()
+                }),
+                conversation_id: Some(conversation_id.into()),
+                run_id: Some(format!("{conversation_id}-run")),
+                requested_model: Some(pb::RequestedModel {
+                    model_id: "test-model".into(),
+                    ..Default::default()
+                }),
+                subagent_type_name: Some("generalPurpose".into()),
+                ..Default::default()
+            },
+        )),
+    }
+}
+
 async fn assert_run_starts_without_parent_dependency(
     request_id: &str,
     parent: Option<TransportParent>,

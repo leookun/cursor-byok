@@ -423,23 +423,23 @@ fn action(request: &pb::AgentRunRequest) -> Result<ActionProjection> {
     };
     match action {
         pb::conversation_action::Action::UserMessageAction(action) => {
-            let user = action.user_message.as_ref().ok_or_else(|| {
+            let mut user = action.user_message.clone().ok_or_else(|| {
                 Error::Protocol("Cursor user message action has no UserMessage".into())
             })?;
+            if user.message_id.is_empty() {
+                // Subagent kickoff actions arrive without a message id. Derive a
+                // stable one so retries of the same action dedupe instead of failing.
+                user.message_id = super::user_message_id(&user);
+            }
             let mode = if user.mode == pb::AgentMode::Unspecified as i32 {
                 conversation_mode.unwrap_or(user.mode)
             } else {
                 user.mode
             };
-            if user.message_id.is_empty() {
-                return Err(Error::Protocol(
-                    "Cursor user message action has no message_id".into(),
-                ));
-            }
             if user.text.trim() == "/summarize" {
                 return Ok(ActionProjection {
                     mode,
-                    turn_user: Some(user.clone()),
+                    turn_user: Some(user),
                     action_context: String::new(),
                     event_id: None,
                     input_id: None,
@@ -464,7 +464,7 @@ fn action(request: &pb::AgentRunRequest) -> Result<ActionProjection> {
             let input_id = format!("cursor:user:{}", user.message_id);
             Ok(ActionProjection {
                 mode,
-                turn_user: Some(user.clone()),
+                turn_user: Some(user),
                 action_context: context.join("\n\n"),
                 event_id: None,
                 input_id: Some(input_id),
